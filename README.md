@@ -5,7 +5,7 @@
 </div>
 <br>
 <div align="center">
-<img src="static/readme_preview.png" alt="Preview of Zentrox" width="250">
+<img src="static/readme_preview.png" alt="Preview of Zentrox" width="500">
 </div>
 <br>
 
