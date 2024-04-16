@@ -3,10 +3,11 @@
 <div align=center>
 <img src="static/zentrox_lines.svg" width="100">
 </div>
-
+<br>
 <div align="center">
 <img src="static/readme_preview.png" alt="Preview of Zentrox" width="250">
 </div>
+<br>
 
 ![GitHub License](https://img.shields.io/github/license/Wervice/Codelink?style=for-the-badge)
 ![GitHub Repo stars](https://img.shields.io/github/stars/Wervice/Codelink?style=for-the-badge)
