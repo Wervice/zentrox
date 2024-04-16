@@ -9,26 +9,18 @@
 </div>
 <br>
 
+<h3 align="center">Easy server admin and setup</h3>
+
 ![GitHub License](https://img.shields.io/github/license/Wervice/zentrox?style=for-the-badge)
 ![GitHub Repo stars](https://img.shields.io/github/stars/Wervice/zentrox?style=for-the-badge)
 ![JavaScript](https://img.shields.io/badge/JavaScript-white.svg?style=for-the-badge&logo=javascript&logoColor=black&color=gold)
 ![C](https://img.shields.io/badge/C%20Language-white.svg?style=for-the-badge&logo=c&logoColor=white&color=blue)
 ![Linux](https://img.shields.io/badge/Linux-white.svg?style=for-the-badge&logo=linux&logoColor=white&color=grey)
 
-Zentrox helps you manage and set up a server and collaboration applications on your computer.
-
-> [!IMPORTANT]
-> Zentrox is still in development.
-> At the time, many parts of the application are not done and properly tested.
-> If you want to see, what the current state is, you can test it using the commands bellow.
-> Please do not ignore any disclaimers, as you may break your system.
-> You can also run it in a VM.
-
 ## Which problem does Zentrox solve?
-Zentrox helps you with setting up and admistrating server using a web interface.
-The set up of Zentrox is very simple, as long as you have a Linux computer.
-It supports most of the features you may want to do out of the box.
-In addition to that, Zentrox is very fast and low on resource use.
+Zentrox helps you with the set up and administration of server.   
+It gives you the right tools to do almost everything with your device.   
+The installation is very simple and doesn't require great background knowledge.
 
 ## Features
 
@@ -43,6 +35,13 @@ Zentrox will offer many features for different purposes:
 ###### *Italic* means, that the feature is not fully implemented yet.
 
 ## Installation
+
+> [!IMPORTANT]
+> Zentrox is still in development.
+> At the time, many parts of the application are not done and properly tested.
+> If you want to see, what the current state is, you can test it using the commands bellow.
+> Please do not ignore any disclaimers, as you may break your system.
+> You can also run it in a VM.
 
 Zentrox only supports Linux at the time.
 You can use the script bellow to install Zentrox on your system.   
