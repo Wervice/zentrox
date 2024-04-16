@@ -100,7 +100,7 @@ C had the libraries and features I needed to change the system.
 
 ## ... Express?
 
-Express is very fast minimal. It can be extended using libraries.  
+Express is very fast and small. It can be extended using libraries.  
 In addition to that, it also is very fast and lightweight on the system.
 
 ## Removing
