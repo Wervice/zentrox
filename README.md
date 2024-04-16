@@ -18,7 +18,7 @@
 ![Linux](https://img.shields.io/badge/Linux-white.svg?style=for-the-badge&logo=linux&logoColor=white&color=grey)
 
 ## Which problem does Zentrox solve?
-Zentrox helps you with the set up and administration of server.   
+Zentrox helps you with the setup and administration of a server.   
 It gives you the right tools to do almost everything with your device.   
 The installation is very simple and doesn't require great background knowledge.
 
