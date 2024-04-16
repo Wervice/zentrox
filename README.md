@@ -1,4 +1,12 @@
-# Zentrox
+<h1 align="center">Zentrox</h1>
+
+<div align=center>
+<img src="static/zentrox_lines.svg" width="100">
+</div>
+
+<div align="center">
+<img src="static/readme_preview.png" alt="Preview of Zentrox" width="250">
+</div>
 
 ![GitHub License](https://img.shields.io/github/license/Wervice/Codelink?style=for-the-badge)
 ![GitHub Repo stars](https://img.shields.io/github/stars/Wervice/Codelink?style=for-the-badge)
@@ -7,10 +15,6 @@
 ![Linux](https://img.shields.io/badge/Linux-white.svg?style=for-the-badge&logo=linux&logoColor=white&color=grey)
 
 Zentrox helps you manage and set up a NAS and collaboration applications on your server or computer.
-
-<div align=center>
-<img src="https://raw.githubusercontent.com/Wervice/Codelink/main/zentrox/static/Zentrox.png" width="200">
-</div>
 
 > [!IMPORTANT]
 > Zentrox is still in development. You can use the commands bellow to see what the current state is.
