@@ -15,7 +15,7 @@
 ![C](https://img.shields.io/badge/C%20Language-white.svg?style=for-the-badge&logo=c&logoColor=white&color=blue)
 ![Linux](https://img.shields.io/badge/Linux-white.svg?style=for-the-badge&logo=linux&logoColor=white&color=grey)
 
-Zentrox helps you manage and set up a NAS and collaboration applications on your server or computer.
+Zentrox helps you manage and set up a server and collaboration applications on your computer.
 
 > [!IMPORTANT]
 > Zentrox is still in development.
