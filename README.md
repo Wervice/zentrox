@@ -9,7 +9,8 @@
 </div>
 
 <h3 align="center">Easy server admin and setup</h3>
-<br>
+
+
 ![GitHub License](https://img.shields.io/github/license/Wervice/zentrox?style=for-the-badge)
 ![GitHub Repo stars](https://img.shields.io/github/stars/Wervice/zentrox?style=for-the-badge)
 ![JavaScript](https://img.shields.io/badge/JavaScript-white.svg?style=for-the-badge&logo=javascript&logoColor=black&color=gold)
