@@ -116,6 +116,7 @@ int chusernm(const char *username, char *new_username) {
   
   char *passwd_line = NULL;
   char new_passwd_line[1024];
+  char new_shadow_line[2048];
   char c;
   
   FILE *tempfile = tmpfile(); // Tempfile for shadow
@@ -142,12 +143,13 @@ int chusernm(const char *username, char *new_username) {
   // Change shadow entry
   while ((shadow_entry = fgetspent(shadow_file)) != NULL) {
     if (!strcmp(shadow_entry->sp_namp, username)) {
-      strncpy(shadow_entry->sp_namp, new_username, 512);
-      putspent(shadow_entry, tempfile);
+      snprintf(new_shadow_line, sizeof(new_shadow_line) - 1, "%s:%s:%ld:%ld:%ld:%ld:%ld:%ld\n", new_username, shadow_entry->sp_pwdp, shadow_entry->sp_lstchg, shadow_entry->sp_min, shadow_entry->sp_max, shadow_entry->sp_warn, shadow_entry->sp_inact, shadow_entry->sp_expire);
       change_username_shadow = 1;
+      fputs(new_shadow_line, tempfile);
     }
     else {
-      putspent(shadow_entry, tempfile);
+      snprintf(new_shadow_line, sizeof(new_shadow_line) - 1, "%s:%s:%ld:%ld:%ld:%ld:%ld:%ld\n", shadow_entry->sp_namp, shadow_entry->sp_pwdp, shadow_entry->sp_lstchg, shadow_entry->sp_min, shadow_entry->sp_max, shadow_entry->sp_warn, shadow_entry->sp_inact, shadow_entry->sp_expire);
+      fputs(new_shadow_line, tempfile);
     }
   }
 
