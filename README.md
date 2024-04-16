@@ -24,6 +24,12 @@ Zentrox helps you manage and set up a NAS and collaboration applications on your
 > Please do not ignore any disclaimers, as you may break your system.
 > You can also run it in a VM.
 
+## Which problem does Zentrox solve?
+Zentrox helps you with setting up and admistrating server using a web interface.
+The set up of Zentrox is very simple, as long as you have a Linux computer.
+It supports most of the features you may want to do out of the box.
+In addition to that, Zentrox is very fast and low on resource use.
+
 ## Features
 
 Zentrox will offer many features for different purposes:
@@ -34,7 +40,7 @@ Zentrox will offer many features for different purposes:
 - System resource measurement
 - *Web shell*
 
-###### *Italic* means, that the feature is not fully implemented yet
+###### *Italic* means, that the feature is not fully implemented yet.
 
 ## Installation
 
