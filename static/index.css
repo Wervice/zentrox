@@ -1,0 +1,60 @@
+@font-face {
+  font-family: "Work Sans";
+  src: url(WorkSansVar.ttf);
+}
+
+:root {
+  --accent-color: #57cfc8;
+}
+
+* {
+  font-family: "Work Sans", sans-serif;
+}
+
+body {
+  background-color: #111111;
+  padding: 0px;
+  margin: 0px;
+}
+
+#mainContent {
+  margin: 0;
+  position: absolute;
+  top: 50%;
+  -ms-transform: translateY(-50%);
+  transform: translateY(-50%);
+  text-align: center;
+
+  & h1,
+  h2 {
+    text-align: center;
+    width: 100vw;
+    color: #ffffff60;
+  }
+
+  & h1 {
+    font-weight: 700;
+    font-size: 300%;
+    & .teal {
+      color: var(--accent-color);
+    }
+  }
+
+  & h2 {
+    font-weight: 400;
+    font-size: 200%;
+  }
+
+  & button {
+    font-size: x-large;
+    width: 200px;
+    padding: 8px;
+    border-radius: 5px;
+    border: 3px #ffffff80 solid;
+    background-color: var(--accent-color);
+
+    & img {
+      height: 16px;
+    }
+  }
+}

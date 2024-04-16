@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+  <!-- Dashboard Admin -->
+
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Zentrox</title>
+    <link rel="stylesheet" href="dashboard_admin.css" />
+    <script src="dashboard_admin.js"></script>
+    <link rel="shortcut icon" href="Zentrox.ico" type="image/x-icon" />
+  </head>
+
+  <body>
+    <div id="driveModal" hidden>
+      <h3 id="driveName"></h3>
+      <table>
+        <tr>
+          <td>Size</td>
+          <td id="driveSize"></td>
+        </tr>
+        <tr>
+          <td>Mountpoint</td>
+          <td id="driveMountpoint"></td>
+        </tr>
+        <tr>
+          <td>Model</td>
+          <td id="driveModel"></td>
+        </tr>
+        <tr>
+          <td>Location in file system</td>
+          <td id="drivePath"></td>
+        </tr>
+        <tr>
+          <td>Ussage</td>
+          <td id="driveUssage"></td>
+        </tr>
+        <tr>
+          <td>Mounted</td>
+          <td id="driveMounted"></td>
+        </tr>
+      </table>
+      <button
+        class="call_to_action"
+        onclick="document.getElementById('driveModal').hidden = true"
+      >
+        Close
+      </button>
+    </div>
+    <div id="sideBar">
+      <h2>Zentrox</h2>
+      <button onclick="changePage('overview')">
+        <img src="status.png" alt="status" />Overview</button
+      ><br />
+      <button onclick="changePage('applications');">
+        <img src="applications.png" alt="applications" />Applications</button
+      ><br />
+      <button onclick="changePage('storage');renderFiles(currFPath)">
+        <img src="storage.png" alt="storage" />Storage</button
+      ><br />
+      <button onclick="changePage('shell')">
+        <img src="shell.png" alt="shell" />Shell</button
+      ><br />
+      <button><img src="shield.png" alt="shield" />Securitry</button><br />
+      <button onclick="changePage('users')">
+        <img src="users.png" alt="users" />Users</button
+      ><br />
+      <button onclick="changePage('connections')">
+        <img src="network.png" alt="users" />Connections</button
+      ><br />
+      <button><img src="settings.png" alt="settings" />Settings</button><br />
+      <button onclick="location.href='/logout'">
+        <img src="logout.png" alt="logout" />Logout
+      </button>
+    </div>
+    <div id="pages">
+      <div id="overview">
+        <h2>Overview</h2>
+        <details open>
+          <summary>
+            <h3>Resources</h3>
+          </summary>
+          <div style="padding: 10px">
+            <div class="line_bar_chart">
+              <div id="cpu_bar" style="width: 200px">CPU</div>
+            </div>
+            <br />
+            <div class="line_bar_chart">
+              <div id="ram_bar" style="width: 20px">RAM</div>
+            </div>
+            <br />
+            <div class="line_bar_chart">
+              <div id="disk_bar" style="width: 20px">Disk</div>
+            </div>
+            <br />
+          </div>
+        </details>
+      </div>
+      <div id="applications" hidden>
+        <h2>Applications</h2>
+        <input
+          type="text"
+          placeholder="Search all packages"
+          id="packageSearch"
+          onkeyup="lookForPackage()"
+        />
+        <div id="loadingApplications">
+          <img src="Loading.svg" alt="Loading" />
+        </div>
+        <br />
+        <div id="packageSearchResults" hidden></div>
+        <details id="installedAppsDetails" hidden>
+          <summary>Installed apps</summary>
+          <div id="installedApps"></div>
+        </details>
+        <details id="installedPackagesDetails" hidden>
+          <summary>Installed packages</summary>
+          <div id="installedPackages"></div>
+        </details>
+      </div>
+      <div id="storage" oncontextmenu="return false;" hidden>
+        <div id="contextmenu" hidden>
+          <button id="renameButton">Rename</button>
+          <button id="deleteButton">Delete</button>
+        </div>
+        <h2>Storage</h2>
+        <details>
+          <summary>Disks</summary>
+          <br />
+          <button class="call_to_action" onclick="getDriveList()">
+            Reload
+          </button>
+          <br /><br />
+          <div id="disks"></div>
+        </details>
+        <details>
+          <summary>Files</summary>
+          <button onclick="goFUp()">Up</button
+          ><input
+            type="checkbox"
+            id="showHiddenFiles"
+            name="showHiddenFiles"
+            onchange="renderFiles(currFPath)"
+          /><label for="showHiddenFiles">Show hidden files</label>
+          <div id="filesContainer"></div>
+        </details>
+      </div>
+      <div id="users" hidden>
+        <h2>Users</h2>
+        <button class="call_to_action" onclick="addNewUser()">New user</button>
+        <div id="usersTable"></div>
+      </div>
+      <div id="connections" hidden>
+        <!--
+                FTP, SMB, WebDav, SSH, Git Server Setup, Samba, NFS
+            -->
+        <div id="conectionsTabs">
+          <button onclick="otherConnectionsTab('ftp')" id="ftpButton">
+            FTP
+          </button>
+          <button onclick="otherConnectionsTab('smb')" id="smbButton">
+            SMB
+          </button>
+          <button onclick="otherConnectionsTab('webdav')" id="Button">
+            WebDav
+          </button>
+          <button onclick="otherConnectionsTab('ssh')" id="Button">SSH</button>
+          <button onclick="otherConnectionsTab('nfs')" id="Button">NFS</button>
+        </div>
+        <div id="connectionTabsPages">
+          <div id="ftp">
+            <h3>FTP</h3>
+            <b style="color: red">
+              Please do not change the ftp username, ftp user password or FTP
+              path, since Zentrox is not yet done and you could potentially
+              break your system!<br />If you think, that you may have broken
+              something, please check your /etc/passwd and /etc/shadow file for
+              integrity.<br />In addition to that, please look at the README.md
+              in the repo, if you want to remove Zentrox.<br />Every further
+              step is done on your own risk.<br />
+              <small>
+                Zentrox will obviously be tested on these problems before it
+                gets released.
+              </small> </b
+            ><br />
+            <h4 id="ftpError"></h4>
+            <input type="checkbox" id="enableFTP" name="enableFTP" />
+            <label for="enableFTP">Enable FTP</label><br />
+            <br />
+            <input
+              type="text"
+              placeholder="FTP Root Folder"
+              id="ftpLocalRoot"
+            />
+            <br />
+            <br />
+            <input
+              type="text"
+              placeholder="FTP User Username"
+              id="ftpUserUsername"
+            /><br />
+            <input
+              type="password"
+              placeholder="FTP User Password"
+              id="ftpUserPassword"
+            />
+            <br /><br />
+            <button
+              onclick="updateFTPConnectionSettings()"
+              id="ftpSettingsApply"
+            >
+              Apply</button
+            ><br />
+            <small>
+              <details>
+                <summary>Information</summary>
+                <div>
+                  Zentrox uses
+                  <a href="https://security.appspot.com/vsftpd.html">VSFTPD</a>
+                  and
+                  <a
+                    href="https://manpages.ubuntu.com/manpages/bionic/en/man8/ufw.8.html"
+                    >UFW</a
+                  >
+                  to mange FTP and Firewall. <br />
+                  Please note: Zentrox manipulates the vsftpd.conf and
+                  vsftpd.user_list file on first use of Zentrox. <br />In
+                  addition to that, it creates a new user on the system.
+                  <br />To remove the account, use the current ftp user
+                  username.
+                </div>
+              </details>
+            </small>
+          </div>
+          <div id="smb"></div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
