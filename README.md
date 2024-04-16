@@ -18,33 +18,42 @@
 Zentrox helps you manage and set up a NAS and collaboration applications on your server or computer.
 
 > [!IMPORTANT]
-> Zentrox is still in development. You can use the commands bellow to see what the current state is.
-> Please DO NOT actually use it only test it! It is not yet ready.
+> Zentrox is still in development.
+> At the time, many parts of the application are not done and properly tested.
+> If you want to see, what the current state is, you can test it using the commands bellow.
+> Please do not ignore any disclaimers, as you may break your system.
+> You can also run it in a VM.
 
-## Requirements
+## Features
 
-- NodeJS >=v20
-- OpenSSL
-- NPM
-- Git
+Zentrox will offer many features for different purposes:
+
+- *File sharing protocols*
+- Package manager
+- *Storage* & Files overview
+- System resource measurement
+- *Web shell*
+
+###### *Italic* means, that the feature is not fully implemented yet
 
 ## Installation
 
 Zentrox only supports Linux at the time.
-
-You can use this script to install Zentrox on your system. It will auto generate a .key and .crt file for HTTPS support.
-
+You can use the script bellow to install Zentrox on your system.   
+It will auto generate a .key and .crt file for HTTPS support.
 If you already have a .key and .crt, please copy it to the folder and call it selfsigned.crt / selfsigned.key.
 
-> [!IMPORTANT]
-> Zentrox is not done yet. If you want to try the latest state of development, you can install it using the commands bellow.
-> Please do NOT ignore any disclaimers, as you could potentially break your system.
-> Look under [Removing](#Removing), to remove Zentrox from your system again.
+### Requirements
+- NodeJS 18+
+- git
+- npm
+- Linux
+
+### Installing
 
 ```bash
-git clone https://github.com/Wervice/Codelink/ # Clones Codelink repo to current folder
-mv Codelink/zentrox ~/zentrox_server # Moves zentrox to ~/zentrox_server. This folder includes the zentrox code
-cd ~/zentrox_server # Got to zentrox_server folder
+git clone https://github.com/Wervice/zentrox/ # Clones Codelink repo to current folder
+cd ~/zentrox # Got to zentrox_server folder
 npm install express body-parser cookie-parser express-session node-os-utils ejs # Install node_packages
 openssl genrsa -out selfsigned.key 2048
 openssl req -new -key selfsigned.key -out csr.pem
@@ -53,33 +62,24 @@ clear
 node index.js # Run zentrox main JS
 ```
 
-> [!NOTE]
-> You can remove the Codelink folder after installing Zentrox. It doesn't contain anything important anymore
+After installing Zentrox, it will store it the server code in `~/zentrox` and the config, user data... in `~/zentrox_data`
 
-Zentrox will now be hosted on `localhost:3000`. You can continue with a GUI setup from there.
+Zentrox will now be hosted on [https://localhost:3000](https://localhost:3000).
+
+Depending on your your .crt and .key file, you may be prompted with a warning about the connection being insecure.   
+You can ignore this.
+If you want to, you can get an official certificate for this, but your connection will still be fairly safe without one.
 
 ## Usage
 
-After rebooting the server or closing Zentrox, please restart it using:
+After rebooting the server or closing Zentrox, you can restart it using:
 
 ```bash
-cd ~/zentrox_server # Go to Zentrox code folder
+cd ~/zentrox # Go to Zentrox code folder
 node index.js # Start zentrox
 ```
 
 You can now login to Zentrox using your admin credentials.
-
-## Features
-
-Zentrox offers many features for different purposes:
-
-### Administration & Management
-
-- File sharing protocols
-- Package manager
-- Storage & Files overview
-- System resource measurement
-- Web shell
 
 # Why...
 
@@ -103,7 +103,7 @@ In addition to that, it also is very fast and lightweight on the system.
 You can remove Zentrox by deleting the zentrox_server folder. If you also want to erase all user & admin data, you can remove zentrox_data.
 
 > [!IMPORTANT]
-> You can not restore your data after removing it once.
+> You can not restore your data using Zentrox after removing it once.
 
 ### System changes
 
