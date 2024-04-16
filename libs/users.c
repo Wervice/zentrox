@@ -7,6 +7,9 @@
 #include <pwd.h>
 
 #define MAX_STRING 2048
+#define shadow_location "/home/constantin/shadow.txt"
+#define passwd_location "/home/constantin/passwd.txt"
+#define group_location "/home/constantin/group.txt "
 
 // This application creates and updates users for Zentrox
 
@@ -17,6 +20,52 @@
 // TODO 2. Initial configuration update
 // TODO     a) Like 1.b and .c
 // TODO     b) systemctl restart
+
+char * replace(
+    char const * const original, 
+    char const * const pattern, 
+    char const * const replacement
+) {
+  size_t const replen = strlen(replacement);
+  size_t const patlen = strlen(pattern);
+  size_t const orilen = strlen(original);
+
+  size_t patcnt = 0;
+  const char * oriptr;
+  const char * patloc;
+
+  // find how many times the pattern occurs in the original string
+  for (oriptr = original; (patloc = strstr(oriptr, pattern)); oriptr = patloc + patlen)
+  {
+    patcnt++;
+  }
+
+  {
+    // allocate memory for the new string
+    size_t const retlen = orilen + patcnt * (replen - patlen);
+    char * const returned = (char *) malloc( sizeof(char) * (retlen + 1) );
+
+    if (returned != NULL)
+    {
+      // copy the original string, 
+      // replacing all the instances of the pattern
+      char * retptr = returned;
+      for (oriptr = original; (patloc = strstr(oriptr, pattern)); oriptr = patloc + patlen)
+      {
+        size_t const skplen = patloc - oriptr;
+        // copy the section until the occurence of the pattern
+        strncpy(retptr, oriptr, skplen);
+        retptr += skplen;
+        // copy the replacement 
+        strncpy(retptr, replacement, replen);
+        retptr += replen;
+      }
+      // copy the rest of the string.
+      strcpy(retptr, oriptr);
+    }
+    return returned;
+  }
+}
 
 int chpasswd(const char *username, const char *password)
 {
@@ -30,7 +79,7 @@ int chpasswd(const char *username, const char *password)
     struct spwd *shadow_entry;
     FILE *tempfile = tmpfile();
 
-    FILE *shadow_file = fopen("/home/constantin/shadow.txt", "r");
+    FILE *shadow_file = fopen(shadow_location, "r");
 
     if (!shadow_file)
     {
@@ -94,7 +143,7 @@ int chpasswd(const char *username, const char *password)
 
     fclose(shadow_file);
 
-    shadow_file = fopen("/home/constantin/shadow.txt", "w"); // ? I changed the file to a copy for now.
+    shadow_file = fopen(shadow_location, "w"); // ? I changed the file to a copy for now.
 
     int c;
 
@@ -115,18 +164,23 @@ int chusernm(const char *username, char *new_username) {
   struct passwd *passwd_entry;
   
   char *passwd_line = NULL;
+  char *group_line;
   char new_passwd_line[1024];
   char new_shadow_line[2048];
+  char new_group_line[512];
   char c;
   
   FILE *tempfile = tmpfile(); // Tempfile for shadow
   FILE *tempfile_p = tmpfile(); // Tempfile for passwd
+  FILE *tempfile_g = tmpfile(); // Tempfile for passwd
   
-  FILE *shadow_file = fopen("/home/constantin/shadow.txt", "r"); // Shadow file pointer
-  FILE *passwd_file = fopen("/home/constantin/passwd.txt", "r"); // Passwd file pointer
-  
+  FILE *shadow_file = fopen(shadow_location, "r"); // Shadow file pointer
+  FILE *passwd_file = fopen(passwd_location, "r"); // Passwd file pointer
+  FILE *group_file = fopen(group_location, "r");
+
   int change_username_shadow = 0;
   size_t passwd_line_len; 
+  size_t group_line_len;
   
   if (!shadow_file)
   {
@@ -140,15 +194,37 @@ int chusernm(const char *username, char *new_username) {
     exit(-2);
   }
 
+  if (!group_file)
+  {
+    printf("Failed to open /etc/group\nPlease make sure, you run this program as root.\n");
+    exit(-2);
+  }  
+
   // Change shadow entry
   while ((shadow_entry = fgetspent(shadow_file)) != NULL) {
     if (!strcmp(shadow_entry->sp_namp, username)) {
-      snprintf(new_shadow_line, sizeof(new_shadow_line) - 1, "%s:%s:%ld:%ld:%ld:%ld:%ld:%ld\n", new_username, shadow_entry->sp_pwdp, shadow_entry->sp_lstchg, shadow_entry->sp_min, shadow_entry->sp_max, shadow_entry->sp_warn, shadow_entry->sp_inact, shadow_entry->sp_expire);
+      snprintf(new_shadow_line, sizeof(new_shadow_line) - 1, "%s:%s:%ld:%ld:%ld:%ld:%ld:%ld\n",
+      new_username,
+      shadow_entry->sp_pwdp,
+      shadow_entry->sp_lstchg,
+      shadow_entry->sp_min,
+      shadow_entry->sp_max,
+      shadow_entry->sp_warn,
+      shadow_entry->sp_inact,
+      shadow_entry->sp_expire);
       change_username_shadow = 1;
       fputs(new_shadow_line, tempfile);
     }
     else {
-      snprintf(new_shadow_line, sizeof(new_shadow_line) - 1, "%s:%s:%ld:%ld:%ld:%ld:%ld:%ld\n", shadow_entry->sp_namp, shadow_entry->sp_pwdp, shadow_entry->sp_lstchg, shadow_entry->sp_min, shadow_entry->sp_max, shadow_entry->sp_warn, shadow_entry->sp_inact, shadow_entry->sp_expire);
+      snprintf(new_shadow_line, sizeof(new_shadow_line) - 1, "%s:%s:%ld:%ld:%ld:%ld:%ld:%ld\n",
+      shadow_entry->sp_namp,
+      shadow_entry->sp_pwdp,
+      shadow_entry->sp_lstchg,
+      shadow_entry->sp_min,
+      shadow_entry->sp_max,
+      shadow_entry->sp_warn,
+      shadow_entry->sp_inact,
+      shadow_entry->sp_expire);
       fputs(new_shadow_line, tempfile);
     }
   }
@@ -165,7 +241,14 @@ int chusernm(const char *username, char *new_username) {
   while((getlineval = getline(&passwd_line, &passwd_line_len, passwd_file)) != -1) { 
     if (strstr(passwd_line, username)) {
       printf("Found user %s\n", username);
-      snprintf(new_passwd_line, sizeof(new_passwd_line) - 1, "%s:%s:%d:%d:%s:%s:%s\n", new_username, passwd_entry->pw_passwd, passwd_entry->pw_uid, passwd_entry->pw_gid, passwd_entry->pw_gecos, passwd_entry->pw_dir, passwd_entry->pw_shell);
+      snprintf(new_passwd_line, sizeof(new_passwd_line) - 1, "%s:%s:%d:%d:%s:%s:%s\n", 
+      new_username,
+      passwd_entry->pw_passwd,
+      passwd_entry->pw_uid,
+      passwd_entry->pw_gid, 
+      passwd_entry->pw_gecos, 
+      passwd_entry->pw_dir,
+      passwd_entry->pw_shell);
       fputs(new_passwd_line, tempfile_p);
       printf("%s", new_passwd_line);
     }
@@ -173,17 +256,35 @@ int chusernm(const char *username, char *new_username) {
       fputs(passwd_line, tempfile_p);
     }
   }
-  // Write tempfile to passwd
+  
+  // Edit group file
+  getlineval = 0;
+  while((getlineval = getline(&group_line, &group_line_len, group_file)) != -1) { 
+    if (strstr(group_line, username)) {
+      printf("Found user %s\n", username);
+      snprintf(new_group_line, sizeof(new_group_line) - 1, "%s", replace(group_line, username, new_username));
+      fputs(new_group_line, tempfile_g);
+      printf("%s", new_group_line);
+    }
+    else {   
+      fputs(group_line, tempfile_g);
+    }
+  }
 
   // Change home folder name
 
   // Write data to files
   rewind(tempfile);
   rewind(tempfile_p);
+  rewind(tempfile_g);
+
   fclose(shadow_file);
   fclose(passwd_file);
-  shadow_file = fopen("/home/constantin/shadow.txt", "w");
-  passwd_file = fopen("/home/constantin/passwd.txt", "w"); 
+  fclose(group_file);
+  
+  shadow_file = fopen(shadow_location, "w");
+  passwd_file = fopen(passwd_location, "w"); 
+  group_file = fopen(group_location, "w");
 
   c = 0;
   while ((c = fgetc(tempfile)) != EOF)
@@ -192,15 +293,25 @@ int chusernm(const char *username, char *new_username) {
   }
 
   c = 0;
+  while ((c = fgetc(tempfile_g)) != EOF)
+  {
+    fputc(c, group_file);
+  }
+  
+  c = 0;
   while ((c = fgetc(tempfile_p)) != EOF)
   {
     fputc(c, passwd_file);
   }
-  
+
   fclose(tempfile);
-  fclose(shadow_file);
   fclose(tempfile_p);
+  fclose(tempfile_g);
+  
+  fclose(shadow_file);
   fclose(passwd_file);
+  fclose(group_file);
+
   return 0; 
 }
 
