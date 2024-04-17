@@ -130,8 +130,9 @@ Zentrox changes a few configurations on your system, so it will work properly. T
 
 ## Contributing
 
-Pull requests are welcome. For major changes, please open an issue first
-to discuss what you would like to change.
+You can contribute this project in many ways. I am happy about any feedback.   
+If you found a bug, please open an issue and I will try to fix it.   
+Also, you are very welcome to **star** this project.
 
 ## Legal
 
