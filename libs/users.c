@@ -208,13 +208,14 @@ int chusernm(const char *username, char *new_username) {
       snprintf(new_shadow_line, sizeof(new_shadow_line) - 1, "%s:%s:%ld:%ld:%ld:%ld:%ld:%ld\n",
       new_username,
       shadow_entry->sp_pwdp,
-      shadow_entry->sp_lstchg == -1 ? : shadow_entry->sp_lstchg,
-      shadow_entry->sp_min == -1 ? : shadow_entry->sp_min,
-      shadow_entry->sp_max == -1 ? : shadow_entry->sp_max,
-      shadow_entry->sp_warn == -1 ? : shadow_entry->sp_warn,
-      shadow_entry->sp_inact == -1 ? : shadow_entry->sp_inact,
-      shadow_entry->sp_expire == -1 ? : shadow_entry->sp_expire
+      shadow_entry->sp_lstchg,
+      shadow_entry->sp_min,
+      shadow_entry->sp_max,
+      shadow_entry->sp_warn,
+      shadow_entry->sp_inact,
+      shadow_entry->sp_expire
       );
+     snprintf(new_shadow_line, sizeof(new_shadow_line) - 1, "%s", replace(new_shadow_line, ":-1", ":"));
       change_username_shadow = 1;
       fputs(new_shadow_line, tempfile);
     }
@@ -222,13 +223,14 @@ int chusernm(const char *username, char *new_username) {
       snprintf(new_shadow_line, sizeof(new_shadow_line) - 1, "%s:%s:%ld:%ld:%ld:%ld:%ld:%ld\n",
       shadow_entry->sp_namp,
       shadow_entry->sp_pwdp,
-      shadow_entry->sp_lstchg == -1 ? : shadow_entry->sp_lstchg,
-      shadow_entry->sp_min == -1 ? : shadow_entry->sp_min,
-      shadow_entry->sp_max == -1 ? : shadow_entry->sp_max,
-      shadow_entry->sp_warn == -1 ? : shadow_entry->sp_warn,
-      shadow_entry->sp_inact == -1 ? : shadow_entry->sp_inact,
-      shadow_entry->sp_expire == -1 ? : shadow_entry->sp_expire
+      shadow_entry->sp_lstchg,
+      shadow_entry->sp_min,
+      shadow_entry->sp_max,
+      shadow_entry->sp_warn,
+      shadow_entry->sp_inact,
+      shadow_entry->sp_expire
       );
+      snprintf(new_shadow_line, sizeof(new_shadow_line) - 1, "%s", replace(new_shadow_line, ":-1", ":"));
       fputs(new_shadow_line, tempfile);
     }
   }
@@ -255,6 +257,7 @@ int chusernm(const char *username, char *new_username) {
       passwd_entry->pw_gecos, 
       new_home_folder,
       passwd_entry->pw_shell);
+      snprintf(new_passwd_line, sizeof(new_passwd_line) - 1, "%s", replace(new_passwd_line, ":-1", ":"));
       fputs(new_passwd_line, tempfile_p);
       printf("%s", new_passwd_line);
     }
