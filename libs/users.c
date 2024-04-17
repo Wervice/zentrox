@@ -9,7 +9,7 @@
 #define MAX_STRING 2048
 #define shadow_location "/home/constantin/shadow.txt"
 #define passwd_location "/home/constantin/passwd.txt"
-#define group_location "/home/constantin/group.txt "
+#define group_location "/home/constantin/group.txt"
 
 // This application creates and updates users for Zentrox
 
@@ -168,6 +168,8 @@ int chusernm(const char *username, char *new_username) {
   char new_passwd_line[1024];
   char new_shadow_line[2048];
   char new_group_line[512];
+  char new_home_folder[2048];
+  char *old_home_folder;
   char c;
   
   FILE *tempfile = tmpfile(); // Tempfile for shadow
@@ -198,7 +200,7 @@ int chusernm(const char *username, char *new_username) {
   {
     printf("Failed to open /etc/group\nPlease make sure, you run this program as root.\n");
     exit(-2);
-  }  
+  }
 
   // Change shadow entry
   while ((shadow_entry = fgetspent(shadow_file)) != NULL) {
@@ -206,12 +208,13 @@ int chusernm(const char *username, char *new_username) {
       snprintf(new_shadow_line, sizeof(new_shadow_line) - 1, "%s:%s:%ld:%ld:%ld:%ld:%ld:%ld\n",
       new_username,
       shadow_entry->sp_pwdp,
-      shadow_entry->sp_lstchg,
-      shadow_entry->sp_min,
-      shadow_entry->sp_max,
-      shadow_entry->sp_warn,
-      shadow_entry->sp_inact,
-      shadow_entry->sp_expire);
+      shadow_entry->sp_lstchg == -1 ? : shadow_entry->sp_lstchg,
+      shadow_entry->sp_min == -1 ? : shadow_entry->sp_min,
+      shadow_entry->sp_max == -1 ? : shadow_entry->sp_max,
+      shadow_entry->sp_warn == -1 ? : shadow_entry->sp_warn,
+      shadow_entry->sp_inact == -1 ? : shadow_entry->sp_inact,
+      shadow_entry->sp_expire == -1 ? : shadow_entry->sp_expire
+      );
       change_username_shadow = 1;
       fputs(new_shadow_line, tempfile);
     }
@@ -219,12 +222,13 @@ int chusernm(const char *username, char *new_username) {
       snprintf(new_shadow_line, sizeof(new_shadow_line) - 1, "%s:%s:%ld:%ld:%ld:%ld:%ld:%ld\n",
       shadow_entry->sp_namp,
       shadow_entry->sp_pwdp,
-      shadow_entry->sp_lstchg,
-      shadow_entry->sp_min,
-      shadow_entry->sp_max,
-      shadow_entry->sp_warn,
-      shadow_entry->sp_inact,
-      shadow_entry->sp_expire);
+      shadow_entry->sp_lstchg == -1 ? : shadow_entry->sp_lstchg,
+      shadow_entry->sp_min == -1 ? : shadow_entry->sp_min,
+      shadow_entry->sp_max == -1 ? : shadow_entry->sp_max,
+      shadow_entry->sp_warn == -1 ? : shadow_entry->sp_warn,
+      shadow_entry->sp_inact == -1 ? : shadow_entry->sp_inact,
+      shadow_entry->sp_expire == -1 ? : shadow_entry->sp_expire
+      );
       fputs(new_shadow_line, tempfile);
     }
   }
@@ -238,6 +242,8 @@ int chusernm(const char *username, char *new_username) {
   
   int getlineval;
   passwd_entry = getpwnam(username);
+  old_home_folder = passwd_entry->pw_dir;
+  snprintf(new_home_folder, sizeof(new_home_folder) - 1, "%s", replace(old_home_folder, username, new_username));
   while((getlineval = getline(&passwd_line, &passwd_line_len, passwd_file)) != -1) { 
     if (strstr(passwd_line, username)) {
       printf("Found user %s\n", username);
@@ -247,12 +253,12 @@ int chusernm(const char *username, char *new_username) {
       passwd_entry->pw_uid,
       passwd_entry->pw_gid, 
       passwd_entry->pw_gecos, 
-      passwd_entry->pw_dir,
+      new_home_folder,
       passwd_entry->pw_shell);
       fputs(new_passwd_line, tempfile_p);
       printf("%s", new_passwd_line);
     }
-    else {   
+    else {  
       fputs(passwd_line, tempfile_p);
     }
   }
@@ -272,6 +278,10 @@ int chusernm(const char *username, char *new_username) {
   }
 
   // Change home folder name
+  if (rename(old_home_folder, new_home_folder) != 0) {
+    printf("Failed to rename user");
+    exit(-3);
+  }
 
   // Write data to files
   rewind(tempfile);
