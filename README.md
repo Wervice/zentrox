@@ -17,12 +17,12 @@
 ![C](https://img.shields.io/badge/C%20Language-white.svg?style=for-the-badge&logo=c&logoColor=white&color=blue)
 ![Linux](https://img.shields.io/badge/Linux-white.svg?style=for-the-badge&logo=linux&logoColor=white&color=grey)
 
-## Which problem does Zentrox solve?
+## 💡 Which problem does Zentrox solve?
 Zentrox helps you with the setup and administration of a server.   
 It gives you the right tools to do almost everything with your device.   
 The installation is very simple and doesn't require great background knowledge.
 
-## Features
+## 🎯 Features
 
 Zentrox will offer many features for different purposes:
 
@@ -34,7 +34,7 @@ Zentrox will offer many features for different purposes:
 
 ###### *Italic* means, that the feature is not fully implemented yet.
 
-## Installation
+## 🛠️ Installation
 
 > [!IMPORTANT]
 > Zentrox is still in development.
@@ -43,18 +43,7 @@ Zentrox will offer many features for different purposes:
 > Please do not ignore any disclaimers, as you may break your system.
 > You can also run it in a VM.
 
-Zentrox only supports Linux at the time.
-You can use the script bellow to install Zentrox on your system.   
-It will auto generate a .key and .crt file for HTTPS support.
-If you already have a .key and .crt, please copy it to the folder and call it selfsigned.crt / selfsigned.key.
-
-### Requirements
-- NodeJS 18+
-- git
-- npm
-- Linux
-
-### Installing
+To install Zentrox, please run the following commands in your terminal:
 
 ```bash
 git clone https://github.com/Wervice/zentrox/ # Clones Codelink repo to current folder
@@ -67,15 +56,16 @@ clear
 node index.js # Run zentrox main JS
 ```
 
+Zentrox only supports Linux at the time.
+
 After installing Zentrox, it will store it the server code in `~/zentrox` and the config, user data... in `~/zentrox_data`
+It will now be hosted on [https://localhost:3000](https://localhost:3000).
 
-Zentrox will now be hosted on [https://localhost:3000](https://localhost:3000).
-
-Depending on your your .crt and .key file, you may be prompted with a warning about the connection being insecure.   
+Depending on your your SSL certificates, you may be prompted with a warning about the connection being insecure.   
 You can ignore this.
 If you want to, you can get an official certificate for this, but your connection will still be fairly safe without one.
 
-## Usage
+## 🗃️ Usage
 
 After rebooting the server or closing Zentrox, you can restart it using:
 
@@ -85,25 +75,7 @@ node index.js # Start zentrox
 ```
 
 You can now login to Zentrox using your admin credentials.
-
-# Why...
-
-## ... JavaScript?
-
-JavaScript is a very fast and extensible language.  
-It features most of the things I was looking for and doesn't stress the hardware it runs on to much.
-
-## ... C?
-
-Zentrox also uses C to speed up certain tasks.  
-C had the libraries and features I needed to change the system.
-
-## ... Express?
-
-Express is very fast and small. It can be extended using libraries.  
-In addition to that, it also is very fast and lightweight on the system.
-
-## Removing
+## 🗑️ Removing
 
 You can remove Zentrox by deleting the zentrox_server folder. If you also want to erase all user & admin data, you can remove zentrox_data.
 
@@ -128,16 +100,34 @@ Zentrox changes a few configurations on your system, so it will work properly. T
    - Sub token user to $USER
 6. Stopping / Starting vsftpd
 
-## Contributing
+# ❓ Why...
+
+## ... JavaScript?
+
+JavaScript is a very fast and extensible language.  
+It features most of the things I was looking for and doesn't stress the hardware it runs on to much.
+
+## ... C?
+
+Zentrox also uses C to speed up certain tasks.  
+C had the libraries and features I needed to change the system.
+
+## ... Express?
+
+Express is very fast and small. It can be extended using libraries.  
+In addition to that, it also is very fast and lightweight on the system.
+
+## ✏️ Contributing
 
 You can contribute this project in many ways. I am happy about any feedback.   
 If you found a bug, please open an issue and I will try to fix it.   
 Also, you are very welcome to **star** this project.
 
-## Legal
+## 📖 Legal
 
-Codelink is released under [Apache 2.0](https://github.com/Wervice/Codelink?tab=Apache-2.0-1-ov-file#readme)
+Zentrox is released under [Apache 2.0](https://github.com/Wervice/Codelink?tab=Apache-2.0-1-ov-file#readme)
 
-Codelink uses/requires the following resources:  
-Icons8 Icons [icons8.com](https://icons8.com)  
-VSFTPD as an FTP server [https://security.appspot.com/vsftpd.html](https://security.appspot.com/vsftpd.html) (Has not been modified)
+Zentrox uses/requires the following resources:  
+- Icons8 Icons [icons8.com](https://icons8.com)  
+- Work Sans Font [OFL](https://github.com/weiweihuanghuang/Work-Sans/blob/master/OFL.txt)
+- VSFTPD as an FTP server [https://security.appspot.com/vsftpd.html](https://security.appspot.com/vsftpd.html) (Has not been modified)
