@@ -16,15 +16,15 @@
 ![C](https://img.shields.io/badge/C%20Language-white.svg?style=for-the-badge&logo=c&logoColor=white&color=blue)
 ![Linux](https://img.shields.io/badge/Linux-white.svg?style=for-the-badge&logo=linux&logoColor=white&color=grey)
 
-
 ## Which problem does Zentrox solve?
 
 Zentrox helps you with the setup and administration of a server.  
-It gives you the right tools to do almost everything with your device.  
+It gives you the right tools to do almost everything with your device.
 
 ## 💡 Which problem does Zentrox solve?
-Zentrox helps you with the setup and administration of a server.   
-It gives you the right tools to do almost everything with your device.   
+
+Zentrox helps you with the setup and administration of a server.  
+It gives you the right tools to do almost everything with your device.  
 The installation is very simple and doesn't require great background knowledge.
 
 ## 🎯 Features
@@ -74,6 +74,7 @@ openssl x509 -req -days 365 -in csr.pem -signkey selfsigned.key -out selfsigned.
 clear
 node index.js # Run zentrox main JS
 ```
+
 Zentrox only supports Linux at the time.
 
 After installing Zentrox, it will store it the server code in `~/zentrox` and the config, user data... in `~/zentrox_data`
@@ -81,7 +82,7 @@ It will now be hosted on [https://localhost:3000](https://localhost:3000).
 
 Zentrox will now be hosted on [https://localhost:3000](https://localhost:3000).
 
-Depending on your your SSL certificates, you may be prompted with a warning about the connection being insecure.   
+Depending on your your SSL certificates, you may be prompted with a warning about the connection being insecure.  
 You can ignore this.
 If you want to, you can get an official certificate for this, but your connection will still be fairly safe without one.
 
@@ -95,6 +96,7 @@ node index.js # Start zentrox
 ```
 
 You can now login to Zentrox using your admin credentials.
+
 ## 🗑️ Removing
 
 You can remove Zentrox by deleting the zentrox_server folder. If you also want to erase all user & admin data, you can remove zentrox_data.
@@ -147,7 +149,8 @@ Also, you are very welcome to **star** this project.
 
 Zentrox is released under [Apache 2.0](https://github.com/Wervice/Codelink?tab=Apache-2.0-1-ov-file#readme)
 
-Zentrox uses/requires the following resources:  
-- Icons8 Icons [icons8.com](https://icons8.com)  
+Zentrox uses/requires the following resources:
+
+- Icons8 Icons [icons8.com](https://icons8.com)
 - Work Sans Font [OFL](https://github.com/weiweihuanghuang/Work-Sans/blob/master/OFL.txt)
 - VSFTPD as an FTP server [https://security.appspot.com/vsftpd.html](https://security.appspot.com/vsftpd.html) (Has not been modified)

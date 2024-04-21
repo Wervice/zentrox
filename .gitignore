@@ -132,3 +132,4 @@ dist
 # Certificates
 selfsigned.crt
 selfsigned.key
+vsftpd.c
