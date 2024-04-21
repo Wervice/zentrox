@@ -50,11 +50,15 @@ body {
     width: 200px;
     padding: 8px;
     border-radius: 5px;
-    border: 3px #ffffff80 solid;
+    border: 0px;
     background-color: var(--accent-color);
-
+    transition: ease-in-out 0.25s;
     & img {
       height: 16px;
+    }
+
+    &:focus {
+      filter: brightness(0.9);
     }
   }
 }

@@ -630,7 +630,7 @@ function updateFTPConnectionSettings() {
           }
           return res.json(); // ! The JSON is empty => Fix on server side!!!!
         })
-        .then((data) => {
+        .then(() => {
           fetchFTPconnectionInformation();
           document.getElementById("ftpSettingsApply").innerText = "Apply";
         });

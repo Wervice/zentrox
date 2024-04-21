@@ -21,11 +21,9 @@ if (process.argv[2] == "init") {
   let changed_value;
 
   conf_file = fs.readFileSync("/etc/vsftpd.conf").toString("ascii");
-  conf_file_value = conf_file
-    .split("\n")
-    .map((value) => {
-      return value.split("=");
-    })
+  conf_file_value = conf_file.split("\n").map((value) => {
+    return value.split("=");
+  });
 
   changed_value = 0;
 
@@ -43,14 +41,12 @@ if (process.argv[2] == "init") {
   for (key_value_pair of conf_file_value) {
     if (key_value_pair[1] != null) {
       reassmbled_config_file_contents += `${key_value_pair[0]}=${key_value_pair[1]}\n`;
-    }
-    else {
+    } else {
       reassmbled_config_file_contents += `${key_value_pair[0]}\n`;
     }
   }
 
   fs.writeFileSync("/etc/vsftpd.conf", reassmbled_config_file_contents);
-
 } else {
   console.log("This command is not know to this program");
   process.exit(-1);
