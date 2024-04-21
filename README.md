@@ -48,7 +48,6 @@ Zentrox will offer many features for different purposes:
 > Please do not ignore any disclaimers, as you may break your system.
 > You can also run it in a VM.
 
-<<<<<<< HEAD
 Zentrox only supports Linux at the time.
 You can use the script bellow to install Zentrox on your system.  
 It will auto generate a .key and .crt file for HTTPS support.
@@ -82,8 +81,6 @@ It will now be hosted on [https://localhost:3000](https://localhost:3000).
 
 Zentrox will now be hosted on [https://localhost:3000](https://localhost:3000).
 
-Depending on your your .crt and .key file, you may be prompted with a warning about the connection being insecure.  
-=======
 Depending on your your SSL certificates, you may be prompted with a warning about the connection being insecure.   
 You can ignore this.
 If you want to, you can get an official certificate for this, but your connection will still be fairly safe without one.
