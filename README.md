@@ -61,7 +61,7 @@ If you already have a .key and .crt, please copy it to the folder and call it se
 - Linux
 
 ### Installing
-=======
+
 To install Zentrox, please run the following commands in your terminal:
 
 ```bash
