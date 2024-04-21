@@ -16,16 +16,15 @@
 ![C](https://img.shields.io/badge/C%20Language-white.svg?style=for-the-badge&logo=c&logoColor=white&color=blue)
 ![Linux](https://img.shields.io/badge/Linux-white.svg?style=for-the-badge&logo=linux&logoColor=white&color=grey)
 
-<<<<<<< HEAD
+
 ## Which problem does Zentrox solve?
 
 Zentrox helps you with the setup and administration of a server.  
 It gives you the right tools to do almost everything with your device.  
-=======
+
 ## 💡 Which problem does Zentrox solve?
 Zentrox helps you with the setup and administration of a server.   
 It gives you the right tools to do almost everything with your device.   
->>>>>>> c996a5377b359cbf836fac4592fd4fce55c0feaa
 The installation is very simple and doesn't require great background knowledge.
 
 ## 🎯 Features
@@ -65,7 +64,6 @@ If you already have a .key and .crt, please copy it to the folder and call it se
 ### Installing
 =======
 To install Zentrox, please run the following commands in your terminal:
->>>>>>> c996a5377b359cbf836fac4592fd4fce55c0feaa
 
 ```bash
 git clone https://github.com/Wervice/zentrox/ # Clones Codelink repo to current folder
@@ -77,19 +75,16 @@ openssl x509 -req -days 365 -in csr.pem -signkey selfsigned.key -out selfsigned.
 clear
 node index.js # Run zentrox main JS
 ```
-
 Zentrox only supports Linux at the time.
 
 After installing Zentrox, it will store it the server code in `~/zentrox` and the config, user data... in `~/zentrox_data`
 It will now be hosted on [https://localhost:3000](https://localhost:3000).
 
-<<<<<<< HEAD
 Zentrox will now be hosted on [https://localhost:3000](https://localhost:3000).
 
 Depending on your your .crt and .key file, you may be prompted with a warning about the connection being insecure.  
 =======
 Depending on your your SSL certificates, you may be prompted with a warning about the connection being insecure.   
->>>>>>> c996a5377b359cbf836fac4592fd4fce55c0feaa
 You can ignore this.
 If you want to, you can get an official certificate for this, but your connection will still be fairly safe without one.
 
