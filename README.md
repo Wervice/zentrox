@@ -10,7 +10,6 @@
 
 <h3 align="center">Easy server admin and setup</h3>
 
-
 ![GitHub License](https://img.shields.io/github/license/Wervice/zentrox?style=for-the-badge)
 ![GitHub Repo stars](https://img.shields.io/github/stars/Wervice/zentrox?style=for-the-badge)
 ![JavaScript](https://img.shields.io/badge/JavaScript-white.svg?style=for-the-badge&logo=javascript&logoColor=black&color=gold)
@@ -18,21 +17,22 @@
 ![Linux](https://img.shields.io/badge/Linux-white.svg?style=for-the-badge&logo=linux&logoColor=white&color=grey)
 
 ## Which problem does Zentrox solve?
-Zentrox helps you with the setup and administration of a server.   
-It gives you the right tools to do almost everything with your device.   
+
+Zentrox helps you with the setup and administration of a server.  
+It gives you the right tools to do almost everything with your device.  
 The installation is very simple and doesn't require great background knowledge.
 
 ## Features
 
 Zentrox will offer many features for different purposes:
 
-- *File sharing protocols*
+- _File sharing protocols_
 - Package manager
-- *Storage* & Files overview
+- _Storage_ & Files overview
 - System resource measurement
-- *Web shell*
+- _Web shell_
 
-###### *Italic* means, that the feature is not fully implemented yet.
+###### _Italic_ means, that the feature is not fully implemented yet.
 
 ## Installation
 
@@ -44,11 +44,12 @@ Zentrox will offer many features for different purposes:
 > You can also run it in a VM.
 
 Zentrox only supports Linux at the time.
-You can use the script bellow to install Zentrox on your system.   
+You can use the script bellow to install Zentrox on your system.  
 It will auto generate a .key and .crt file for HTTPS support.
 If you already have a .key and .crt, please copy it to the folder and call it selfsigned.crt / selfsigned.key.
 
 ### Requirements
+
 - NodeJS 18+
 - git
 - npm
@@ -71,7 +72,7 @@ After installing Zentrox, it will store it the server code in `~/zentrox` and th
 
 Zentrox will now be hosted on [https://localhost:3000](https://localhost:3000).
 
-Depending on your your .crt and .key file, you may be prompted with a warning about the connection being insecure.   
+Depending on your your .crt and .key file, you may be prompted with a warning about the connection being insecure.  
 You can ignore this.
 If you want to, you can get an official certificate for this, but your connection will still be fairly safe without one.
 
@@ -130,8 +131,8 @@ Zentrox changes a few configurations on your system, so it will work properly. T
 
 ## Contributing
 
-You can contribute this project in many ways. I am happy about any feedback.   
-If you found a bug, please open an issue and I will try to fix it.   
+You can contribute this project in many ways. I am happy about any feedback.  
+If you found a bug, please open an issue and I will try to fix it.  
 Also, you are very welcome to **star** this project.
 
 ## Legal
