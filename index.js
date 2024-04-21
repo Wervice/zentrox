@@ -5,20 +5,22 @@ Licence: Apache 2.0 (See GitHub repo (https://github.com/Wervice/Codelink))
 */
 
 const express = require("express");
-const port = 3000;
 const path = require("path");
-const app = express();
 const os = require("os");
 const fs = require("fs");
-var compression = require("compression");
+const compression = require("compression");
 const bodyParser = require("body-parser");
 const crypto = require("crypto");
 const cookieParser = require("cookie-parser");
 const session = require("express-session");
 const https = require("https");
-var osu = require("node-os-utils");
+const osu = require("node-os-utils");
 const chpr = require("child_process");
-const { Worker } = require("node:worker_threads");
+const Worker = require("node:worker_threads").Worker;
+
+const port = 3000;
+const app = express();
+
 eval(fs.readFileSync(path.join(__dirname, "libs", "packages.js")) + ""); //
 eval(fs.readFileSync(path.join(__dirname, "libs", "drives.js")) + "");
 
@@ -90,7 +92,7 @@ function zlog(string, type) {
   }
 }
 
-function auth(username, password, req) {
+function auth(username, password) {
   // ? Check if user can be authenticated
   users = fs
     .readFileSync(path.join(zentroxInstPath, "users.txt"))
@@ -160,6 +162,13 @@ function startsetup() {
   fs.writeFileSync(path.join(zentroxInstPath, "zentrox.txt"), "");
   fs.writeFileSync(path.join(zentroxInstPath, "users.txt"), "");
   fs.writeFileSync(path.join(zentroxInstPath, "vsftpd_passwd.txt"), "");
+}
+
+function sudoSanitize(string) {
+  return string
+    .replaceAll('"', '\\"')
+    .replaceAll("'", "\\'")
+    .replaceAll("`", "\\`");
 }
 
 function hash512(str) {
@@ -300,7 +309,6 @@ app.post("/setup/regMode", (req, res) => {
 
 app.post("/setup/custom", (req, res) => {
   // ? Final installation changes
-
   if (fs.existsSync(path.join(zentroxInstPath, "custom.txt"))) {
     res.status(403).send("This action is not allowed");
   } else {
@@ -328,13 +336,9 @@ app.post("/setup/custom", (req, res) => {
     // ? Installing packages
     installPackage("vsftpd ufw", req.body.sudo); // * Install FTP server
     chpr.exec(
-      `echo ${req.body.sudo
-        .replaceAll('"', '\\"')
-        .replaceAll("'", "\\'")
-        .replaceAll(
-          "`",
-          "\\`",
-        )} | sudo -S ufw enable; sudo ufw allow 20; sudo ufw allow 21; sudo systemctl stop --now vsftpd`,
+      `echo ${sudoSanitize(
+        req.body.sudo,
+      )} | sudo -S ufw enable; sudo ufw allow 20; sudo ufw allow 21; sudo systemctl stop --now vsftpd`,
     );
 
     // ? Creating system user
@@ -346,19 +350,14 @@ app.post("/setup/custom", (req, res) => {
     );
     try {
       chpr.exec(
-        `echo ${req.body.sudo
-          .replaceAll('"', '\\"')
-          .replaceAll("'", "\\'")
-          .replaceAll(
-            "`",
-            "\\`",
-          )} | sudo -S useradd -p $(openssl passwd -1 change_me) ftp_zentrox`,
+        `echo ${sudoSanitize(req.body.sudo)}
+          | sudo -S useradd ftp_zentrox`,
         { stdio: "pipe" },
       );
     } catch {}
-    chpr.execSync(
-      `echo ${req.body.sudo} | sudo -S node libs/vsftpd_conf_init.js`,
-    );
+
+    chpr.exec(`sudo ${sudoSanitize(req.body.sudo)} 
+          ./libs/users password ftp_zentrox change_me`);
 
     res.send({
       status: "s",
@@ -468,7 +467,6 @@ app.get("/logout", (req, res) => {
     res.redirect("/");
   }, 1000);
 });
-// ? Make it RESRful? 👇
 
 app.post("/api", (req, res) => {
   // ? Handle post API
@@ -603,7 +601,6 @@ app.post("/api", (req, res) => {
       res.status(403).send("You have no permissions to access this resource");
       return;
     }
-
     zlog("Request Package Database JSON", "info");
 
     // * Get applications, that feature a GUI
@@ -631,6 +628,7 @@ app.post("/api", (req, res) => {
         for (line of desktopFileContentLines) {
           if (line.split("=")[0] == "Name") {
             // ? Find nice name
+
             var appName = line.split("=")[1];
             break;
           }
@@ -639,6 +637,7 @@ app.post("/api", (req, res) => {
         for (line of desktopFileContentLines) {
           if (line.split("=")[0] == "Icon") {
             // ? Find icon name
+
             var appIconName = line.split("=")[1].split(" ")[0];
             break;
           }
@@ -646,6 +645,7 @@ app.post("/api", (req, res) => {
 
         for (line of desktopFileContentLines) {
           // ? Find exec command
+
           if (line.split("=")[0] == "Exec") {
             var appExecName = line.split("=")[1].split(" ")[0];
             break;
@@ -695,6 +695,7 @@ app.post("/api", (req, res) => {
     }
   } else if (req.body.r == "removePackage") {
     // ? Remove package from the system using apt, dnf, pacman
+
     if (!req.session.isAdmin) {
       res.status(403).send("You have no permissions to access this resource");
       return;
@@ -710,6 +711,7 @@ app.post("/api", (req, res) => {
     }
   } else if (req.body.r == "installPackage") {
     //? Install a package on the system
+
     zlog("Install package " + req.body.packageName, "info");
     if (!req.session.isAdmin) {
       res.status(403).send("You have no permissions to access this resource");
@@ -726,42 +728,39 @@ app.post("/api", (req, res) => {
     }
   } else if (req.body.r == "updateFTPconfig") {
     // ? Change the FTP configuration on the system
+
     if (!req.session.isAdmin) {
       res.status(403).send("You have no permissions to access this resource");
       return;
     }
 
     zlog("Change FTP Settings");
-    // ? enable / disable FTP
 
+    // ? enable / disable FTP
     var currentFtpUserUsername = fs
       .readFileSync(path.join(zentroxInstPath, "ftp.txt"))
       .toString("utf-8")
       .split("\n")[0];
+    var currentFtpUserPassword = fs
+      .readFileSync(path.join(zentroxInstPath, "ftp.txt"))
+      .toString()
+      .split("\n")[2];
 
-    if (req.body.enableFTP == "true" || req.body.enableFTP == true) {
+    if (req.body.enableFTP == true) {
       chpr.execSync(
-        `echo ${req.body.sudo
-          .replaceAll('"', '\\"')
-          .replaceAll("'", "\\'")
-          .replaceAll("`", "\\`")} | sudo -S systemctl enable --now vsftpd`,
+        `echo ${sudoSanitize(req.body.sudo)} | sudo -S systemctl enable --now vsftpd`,
         { stdio: "pipe" },
       );
     } else {
       try {
         chpr.execSync(
-          `echo ${req.body.sudo
-            .replaceAll('"', '\\"')
-            .replaceAll("'", "\\'")
-            .replaceAll("`", "\\`")} | sudo -S systemctl disable --now vsftpd`,
+          `echo ${sudoSanitize(req.body.sudo)} | sudo -S systemctl disable --now vsftpd`,
           { stdio: "pipe" },
         );
       } catch {}
     }
-    // TODO Use C
 
-    // ? FTP User
-
+    // Update ftp user
     if (
       fs
         .readFileSync("/etc/passwd")
@@ -769,14 +768,7 @@ app.post("/api", (req, res) => {
         .replaceAll(currentFtpUserUsername, "")
         .includes(req.body.ftpUserUsername)
     ) {
-      // ? Zentrox deletes the ftp user and then creates it another time, to update the password (this is due to chpasswd failing).
-      // ? If the user changes an username that already exists on the system, it will delete the user
       res.status(500).send({ details: "Please chose another FTP username" });
-      return;
-    }
-
-    if (req.body.ftpUserPassword.length == 0) {
-      res.status(500).send({ details: "FTP password can not be empty" });
       return;
     }
 
@@ -785,64 +777,57 @@ app.post("/api", (req, res) => {
       return;
     }
 
-    // TODO Replace code until next note with C
-
+    // Change local root (uses vsftpd.js)
     if (
-      req.body.ftpUserUsername !=
+      req.body.ftpLocalRoot !=
       fs
         .readFileSync(path.join(zentroxInstPath, "ftp.txt"))
         .toString()
-        .split("\n")[0]
+        .split("\n")[1]
     ) {
-      // Username routine
-      console.log(
-        req.body.ftpUserUsername +
-          "|" +
-          fs
-            .readFileSync(path.join(zentroxInstPath, "ftp.txt"))
-            .toString()
-            .split("\n")[0],
-      );
-      const usernameChangeCout = chpr.execSync(
-        `echo ${req.body.sudo
-          .replaceAll('"', '\\"')
-          .replaceAll("'", "\\'")
-          .replaceAll(
-            "`",
-            "\\`",
-          )} | sudo -S ./libs/users updateUser username ${req.body.ftpUserUsername} ${req.body.ftpUserPassword}`,
-        { stdio: "pipe" },
-      );
+      try {
+        chpr.execSync(
+          `echo ${sudoSanitize(req.body.sudo)} | sudo -S node ./libs/vsftpd.js update_config local_root ${req.body.localRoot}`,
+          { stdio: "pipe" },
+        );
+      } catch (e) {
+        console.log(e);
+        res.status(500).send({});
+      }
     }
 
+    // Change user name (users users.c)
+    if (req.body.ftpUserUsername != currentFtpUserUsername) {
+      try {
+        chpr.execSync(
+          `echo ${sudoSanitize(req.body.sudo)} | sudo -S ./libs/users updateUser username ${req.body.ftpUserUsername} ${req.body.ftpUserPassword}`,
+          { stdio: "pipe" },
+        );
+      } catch (e) {
+        console.log(e);
+        res.status(500).send({});
+      }
+    }
+
+    // Changes user password (uses users.c)
     if (
-      req.body.ftpUserPassword !=
-      hash512(
-        fs
-          .readFileSync(path.join(zentroxInstPath, "ftp.txt"))
-          .toString()
-          .split("\n")[2],
-      )
+      hash512(req.body.ftpUserPassword) != currentFtpUserPassword &&
+      req.body.ftpUserPassword.length > 0
     ) {
-      // Password routine
-      const passwordChangeCout = chpr.execSync(
-        `echo ${req.body.sudo // ? Add new user
-          .replaceAll('"', '\\"')
-          .replaceAll("'", "\\'")
-          .replaceAll(
-            "`",
-            "\\`",
+      try {
+        chpr.execSync(
+          `echo ${sudoSanitize(
+            req.body.sudo, // ? Add new user
           )} | sudo -S ./libs/users updateUser password ${req.body.ftpUserUsername} ${req.body.ftpUserPassword}`,
-        { stdio: "pipe" },
-      );
+          { stdio: "pipe" },
+        );
+      } catch (e) {
+        console.log(e);
+        res.status(500).send({});
+      }
     }
 
-    // ! Replace with C code as well
-    /* chpr.execSync(
-      `echo ${req.body.sudo} | sudo -S node libs/vsftpd_update.js ${req.body.ftpUserUsername} ${req.body.ftpLocalRoot} ${os.userInfo().username}`,
-    );*/
-    // TODO C can do it instead
-
+    // Write changes to ftp.txt
     fs.writeFileSync(
       path.join(zentroxInstPath, "ftp.txt"),
       req.body.ftpUserUsername +
@@ -859,6 +844,7 @@ app.post("/api", (req, res) => {
       .readFileSync(path.join(zentroxInstPath, "ftp.txt"))
       .toString("utf-8")
       .split("\n")[0];
+
     const localRoot = fs
       .readFileSync(path.join(zentroxInstPath, "ftp.txt"))
       .toString("utf-8")
@@ -871,13 +857,12 @@ app.post("/api", (req, res) => {
 
     try {
       var enableFTP = chpr
-        .execSync("systemctl status vsftpd", { timeout: 2000 })
+        .execSync("systemctl status vsftpd", { timeout: 1000 })
         .toString("ascii")
         .includes("active");
     } catch (e) {
       var enableFTP = false;
     }
-    // TODO Update using execSync
 
     res.send({
       enabled: enableFTP,
@@ -886,10 +871,12 @@ app.post("/api", (req, res) => {
     });
   } else if (req.body.r == "driveInformation") {
     // ? Send the current drive information to the frontent
+
     if (!req.session.isAdmin) {
       res.status(403).send("You have no permissions to access this resource");
       return;
     }
+
     const dfOutput = chpr.execSync("df -P").toString("ascii"); // TODO Replace with execSync
     const dfLines = dfOutput.trim().split("\n").slice(1); // ? Split output by lines, removing header
     const dfData = dfLines.map((line) => {
