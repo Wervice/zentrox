@@ -8,8 +8,8 @@ if (process.argv[2] == "init") {
       "/etc/vsftpd.conf",
       "userlist_enable=YES\nuserlist_file=/etc/vsftpd.userlist\nuserlist_deny=NO",
     );
+    fs.writeFileSync("/etc/vsftpd.userlist", "ftp_zentrox");
   } catch (e) {
-    console.log("Failed to write /etc/vsftpd.conf");
     process.exit(-1);
   }
 } else if (process.argv[2] == "update_config") {
@@ -47,6 +47,10 @@ if (process.argv[2] == "init") {
   }
 
   fs.writeFileSync("/etc/vsftpd.conf", reassmbled_config_file_contents);
+} else if (process.argv[2] == "update_username_list") {
+  let task = process.argv[3];
+  let username = process.argv[4];
+  let userlist_file = fs.readFileSync("/etc/vsftpd.userlist");
 } else {
   console.log("This command is not know to this program");
   process.exit(-1);

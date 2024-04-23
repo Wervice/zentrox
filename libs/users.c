@@ -75,6 +75,7 @@ int chpasswd(const char *username, const char *password)
         return -4;
     }    
     char *password_encrypted;
+    char new_shadow_line[2048];
     int user_password_changed = 0;
     struct spwd *shadow_entry;
     FILE *tempfile = tmpfile();
@@ -87,52 +88,53 @@ int chpasswd(const char *username, const char *password)
         return -2;
     }
   
-    while ((shadow_entry = fgetspent(shadow_file)) != NULL)
-    {
-        if (!strcmp(shadow_entry->sp_namp, username))
-        {
-            printf("Found user with name %s \n", shadow_entry->sp_namp);
-            
-            char setting_prefix[MAX_STRING] = "$6$";
-            char setting_suffix[2] = "$";
-            char time_string[16];
-            time_t current_time;
-            current_time = time(NULL);
-            snprintf(time_string, 16, "%ld", current_time);
-            snprintf(setting_prefix, MAX_STRING - 8, "$6$%s$", time_string);
-            
-            password_encrypted = crypt(password, setting_prefix);
+   while ((shadow_entry = fgetspent(shadow_file)) != NULL) {
+    if (!strcmp(shadow_entry->sp_namp, username)) {
 
-            if (password_encrypted == NULL)
-            {
-                printf("Failed to encrypt password.\n");
-                exit(-3);
-            }
-             
-            strncpy(shadow_entry->sp_pwdp, password_encrypted, sizeof(shadow_entry->sp_pwdp)+512);
-            if (strcmp(shadow_entry->sp_pwdp, password_encrypted)) {
-              printf("Failed to strncpy to struct\n");
-              exit(-3);
-            }
+      char setting_prefix[MAX_STRING] = "$6$";
+      char setting_suffix[2] = "$";
+      char time_string[16];
+      time_t current_time;
+      current_time = time(NULL);
+      snprintf(time_string, 16, "%ld", current_time);
+      snprintf(setting_prefix, MAX_STRING - 8, "$6$%s$", time_string);     
+      password_encrypted = crypt(password, setting_prefix);
+      if (password_encrypted == NULL)
+      {
+        printf("Failed to encrypt password.\n");
+        exit(-3);
+      }       
+      strncpy(shadow_entry->sp_pwdp, password_encrypted, sizeof(shadow_entry->sp_pwdp)+512);
 
-            printf("Password in struct is changed to %s\n", shadow_entry->sp_pwdp);
-            
-            int write_to_file = putspent(shadow_entry, tempfile);
-
-            if (write_to_file != 0)
-            {
-                printf("Failed to write to file (%d)\n", write_to_file);
-                exit(-4);
-            }
-
-            user_password_changed = 1;
-        }
-        else
-        {
-            putspent(shadow_entry, tempfile);
-        }
+      snprintf(new_shadow_line, sizeof(new_shadow_line) - 1, "%s:%s:%ld:%ld:%ld:%ld:%ld:%ld:\n",
+      shadow_entry->sp_namp,
+      password_encrypted,
+      shadow_entry->sp_lstchg,
+      shadow_entry->sp_min,
+      shadow_entry->sp_max,
+      shadow_entry->sp_warn,
+      shadow_entry->sp_inact,
+      shadow_entry->sp_expire
+      );
+      snprintf(new_shadow_line, sizeof(new_shadow_line) - 1, "%s", replace(new_shadow_line, ":-1", ":"));
+      user_password_changed = 1;
+      fputs(new_shadow_line, tempfile);
     }
-  
+    else {
+      snprintf(new_shadow_line, sizeof(new_shadow_line) - 1, "%s:%s:%ld:%ld:%ld:%ld:%ld:%ld:\n",
+      shadow_entry->sp_namp,
+      shadow_entry->sp_pwdp,
+      shadow_entry->sp_lstchg,
+      shadow_entry->sp_min,
+      shadow_entry->sp_max,
+      shadow_entry->sp_warn,
+      shadow_entry->sp_inact,
+      shadow_entry->sp_expire
+      ); 
+      snprintf(new_shadow_line, sizeof(new_shadow_line) - 1, "%s", replace(new_shadow_line, ":-1", ":"));
+      fputs(new_shadow_line, tempfile);
+    }
+  }
     if (user_password_changed == 0)
     {
         printf("No user was found");
@@ -159,7 +161,7 @@ int chpasswd(const char *username, const char *password)
 
 int chusernm(const char *username, char *new_username) {
   // Define variables before user
-  
+  printf("1\n"); 
   struct spwd *shadow_entry; // Shadow entry is a struct and stored in this var
   struct passwd *passwd_entry;
   
@@ -202,10 +204,11 @@ int chusernm(const char *username, char *new_username) {
     exit(-2);
   }
 
+  printf("2\n");
   // Change shadow entry
   while ((shadow_entry = fgetspent(shadow_file)) != NULL) {
     if (!strcmp(shadow_entry->sp_namp, username)) {
-      snprintf(new_shadow_line, sizeof(new_shadow_line) - 1, "%s:%s:%ld:%ld:%ld:%ld:%ld:%ld\n",
+      snprintf(new_shadow_line, sizeof(new_shadow_line) - 1, "%s:%s:%ld:%ld:%ld:%ld:%ld:%ld:\n",
       new_username,
       shadow_entry->sp_pwdp,
       shadow_entry->sp_lstchg,
@@ -220,7 +223,7 @@ int chusernm(const char *username, char *new_username) {
       fputs(new_shadow_line, tempfile);
     }
     else {
-      snprintf(new_shadow_line, sizeof(new_shadow_line) - 1, "%s:%s:%ld:%ld:%ld:%ld:%ld:%ld\n",
+      snprintf(new_shadow_line, sizeof(new_shadow_line) - 1, "%s:%s:%ld:%ld:%ld:%ld:%ld:%ld:\n",
       shadow_entry->sp_namp,
       shadow_entry->sp_pwdp,
       shadow_entry->sp_lstchg,
@@ -234,19 +237,20 @@ int chusernm(const char *username, char *new_username) {
       fputs(new_shadow_line, tempfile);
     }
   }
+  printf("3\n");
 
   if (change_username_shadow == 0) {
     printf("Failed to change username in shadow file\n");
     exit(-3);
-  }
-  
+  } 
   // Change passwd entry 
-  
   int getlineval;
   passwd_entry = getpwnam(username);
-  old_home_folder = passwd_entry->pw_dir;
-  snprintf(new_home_folder, sizeof(new_home_folder) - 1, "%s", replace(old_home_folder, username, new_username));
-  while((getlineval = getline(&passwd_line, &passwd_line_len, passwd_file)) != -1) { 
+  // old_home_folder = passwd_entry->pw_dir;
+  // snprintf(new_home_folder, sizeof(new_home_folder) - 1, "%s", replace(old_home_folder, username, new_username));
+  printf("3c\n\n");
+  while((getlineval = getline(&passwd_line, &passwd_line_len, passwd_file)) != -1) {
+    printf("3b\n\n");
     if (strstr(passwd_line, username)) {
       printf("Found user %s\n", username);
       snprintf(new_passwd_line, sizeof(new_passwd_line) - 1, "%s:%s:%d:%d:%s:%s:%s\n", 
@@ -265,6 +269,7 @@ int chusernm(const char *username, char *new_username) {
       fputs(passwd_line, tempfile_p);
     }
   }
+  printf("4\n");
   
   // Edit group file
   getlineval = 0;
@@ -285,7 +290,7 @@ int chusernm(const char *username, char *new_username) {
     printf("Failed to rename user");
     exit(-3);
   }
-
+  printf("5\n");
   // Write data to files
   rewind(tempfile);
   rewind(tempfile_p);
@@ -331,7 +336,7 @@ int chusernm(const char *username, char *new_username) {
 int main(int argc, char *argv[])
 {
 
-    if (geteuid() == 0 || !strcmp(argv[5], "t")) {
+    if (geteuid() == 0) {
         ;
     } else {
         printf("You are not root.\n");
