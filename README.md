@@ -67,7 +67,7 @@ To install Zentrox, please run the following commands in your terminal:
 ```bash
 git clone https://github.com/Wervice/zentrox/ # Clones Codelink repo to current folder
 cd ~/zentrox # Got to zentrox_server folder
-npm install express body-parser cookie-parser express-session node-os-utils ejs # Install node_packages
+npm install express body-parser cookie-parser express-session node-os-utils ejs compression # Install node_packages
 openssl genrsa -out selfsigned.key 2048
 openssl req -new -key selfsigned.key -out csr.pem
 openssl x509 -req -days 365 -in csr.pem -signkey selfsigned.key -out selfsigned.crt

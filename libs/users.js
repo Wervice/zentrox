@@ -79,9 +79,9 @@ function change_username() {
   passwd_file_content_mod = passwd_file_content_mod.replaceAll("\n\n", "");
   group_file_content_mod = group_file_content_mod.replaceAll("\n\n", "");
   
-  fs.writeFileSync(shadow_file, shadow_file_content_mod);
-  fs.writeFileSync(passwd_file, passwd_file_content_mod);
-  fs.writeFileSync(group_file, group_file_content_mod);
+  fs.writeFileSync(shadow_file, shadow_file_content_mod+"\n");
+  fs.writeFileSync(passwd_file, passwd_file_content_mod+"\n");
+  fs.writeFileSync(group_file, group_file_content_mod+"\n");
 }
 
 function change_password() {
@@ -104,7 +104,7 @@ function change_password() {
   }
 
   shadow_file_content_mod = shadow_file_content_mod.replaceAll("\n\n", "");
-  fs.writeFileSync(shadow_file, shadow_file_content_mod);
+  fs.writeFileSync(shadow_file, shadow_file_content_mod+"\n");
 }
 
 if (process.argv[2] == "updateUser") {

@@ -857,7 +857,7 @@ app.post("/api", (req, res) => {
 
     try {
       var enableFTP = chpr
-        .execSync("systemctl status vsftpd", { timeout: 1000 })
+        .execSync("systemctl status vsftpd", { timeout: 500 })
         .toString("ascii")
         .includes("active");
     } catch (e) {
@@ -871,7 +871,6 @@ app.post("/api", (req, res) => {
     });
   } else if (req.body.r == "driveInformation") {
     // ? Send the current drive information to the frontent
-
     if (!req.session.isAdmin) {
       res.status(403).send("You have no permissions to access this resource");
       return;
