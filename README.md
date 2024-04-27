@@ -1,7 +1,7 @@
 <h1 align="center">Zentrox</h1>
 
 <div align=center>
-<img src="static/zentrox_lines.svg" width="100">
+<img src="static/zentrox_light.svg" width="100">
 </div>
 <br>
 <div align="center">
