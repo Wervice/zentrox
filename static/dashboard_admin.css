@@ -129,10 +129,10 @@ a {
 }
 
 button {
-  margin-top: 8px;
-  padding: 8px;
+  margin: 5px;
+  padding: 10px;
   font-size: large;
-  border-radius: 3px;
+  border-radius: 4px;
   color: white;
   background: #222;
   border: 0px;
@@ -438,10 +438,13 @@ div.warning {
     padding-bottom: 2px;
     border-bottom-left-radius: 0px;
     border-bottom-right-radius: 0px;
+    background: transparent;
+    text-decoration-color: var(--accent-color);
   }
 
   & button.active {
-    border-bottom: 2px var(--accent-color) solid;
+    text-decoration: underline;
+    text-decoration-color: var(--accent-color); 
   }
 }
 
