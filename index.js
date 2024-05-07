@@ -346,7 +346,7 @@ app.post("/setup/custom", (req, res) => {
 
     fs.writeFileSync(
       path.join(zentroxInstPath, "ftp.txt"),
-      "ftp_zentrox\n/\n!",
+      "ftp_zentrox\n/\n" + hash512("change_me"),
     );
     try {
       chpr.exec(
@@ -355,10 +355,7 @@ app.post("/setup/custom", (req, res) => {
         { stdio: "pipe" },
       );
     } catch {}
-
-    chpr.exec(`sudo ${sudoSanitize(req.body.sudo)} 
-          ./libs/users password ftp_zentrox change_me`);
-
+    fs.writeFileSync(path.join(zentroxInstPath, "ftp_ppid.txt"), "---");
     res.send({
       status: "s",
     });
@@ -736,96 +733,21 @@ app.post("/api", (req, res) => {
 
     zlog("Change FTP Settings");
 
-    // ? enable / disable FTP
-    var currentFtpUserUsername = fs
-      .readFileSync(path.join(zentroxInstPath, "ftp.txt"))
-      .toString("utf-8")
-      .split("\n")[0];
-    var currentFtpUserPassword = fs
-      .readFileSync(path.join(zentroxInstPath, "ftp.txt"))
-      .toString()
-      .split("\n")[2];
-
-    if (req.body.enableFTP == true) {
-      chpr.execSync(
-        `echo ${sudoSanitize(req.body.sudo)} | sudo -S systemctl enable --now vsftpd`,
-        { stdio: "pipe" },
-      );
-    } else {
-      try {
-        chpr.execSync(
-          `echo ${sudoSanitize(req.body.sudo)} | sudo -S systemctl disable --now vsftpd`,
-          { stdio: "pipe" },
-        );
-      } catch {}
+    // Control ftp server
+    if (req.body.enableFTP == false) {
+	  chpr.exec(`kill ${req.session.ftpPID}`)
+      req.session.ftpProcessRunning = false
     }
-
-    // Update ftp user
-    if (
-      fs
-        .readFileSync("/etc/passwd")
-        .toString("ascii")
-        .replaceAll(currentFtpUserUsername, "")
-        .includes(req.body.ftpUserUsername)
-    ) {
-      res.status(500).send({ details: "Please chose another FTP username" });
-      return;
-    }
-
-    if (req.body.ftpLocalRoot.length == 0) {
-      res.status(500).send({ details: "Local root may not be empty" });
-      return;
-    }
-
-    // Change local root (uses vsftpd.js)
-    if (
-      req.body.ftpLocalRoot !=
-      fs
-        .readFileSync(path.join(zentroxInstPath, "ftp.txt"))
-        .toString()
-        .split("\n")[1]
-    ) {
-      try {
-        chpr.execSync(
-          `echo ${sudoSanitize(req.body.sudo)} | sudo -S node ./libs/vsftpd.js update_config local_root ${req.body.localRoot}`,
-          { stdio: "pipe" },
-        );
-      } catch (e) {
-        console.log(e);
-        res.status(500).send({});
-      }
-    }
-
-    // Change user name (users users.c)
-    if (req.body.ftpUserUsername != currentFtpUserUsername) {
-      try {
-        chpr.execSync(
-          `echo ${sudoSanitize(req.body.sudo)} | sudo -S ./libs/users updateUser username ${req.body.ftpUserUsername} ${req.body.ftpUserPassword}`,
-          { stdio: "pipe" },
-        );
-      } catch (e) {
-        console.log(e);
-        res.status(500).send({});
-      }
-    }
-
-    // Changes user password (uses users.c)
-    if (
-      hash512(req.body.ftpUserPassword) != currentFtpUserPassword &&
-      req.body.ftpUserPassword.length > 0
-    ) {
-      try {
-        chpr.execSync(
-          `echo ${sudoSanitize(
-            req.body.sudo, // ? Add new user
-          )} | sudo -S ./libs/users updateUser password ${req.body.ftpUserUsername} ${req.body.ftpUserPassword}`,
-          { stdio: "pipe" },
-        );
-      } catch (e) {
-        console.log(e);
-        res.status(500).send({});
-      }
-    }
+    else if (req.body.enableFTP == true) {
+      zlog("Starting FTP server");
+		let ftpProcess = chpr.exec(`sudo -S python3 ./libs/ftp.py ${os.userInfo().username}`);
+		ftpProcess.stderr.on('data', () => {
+			ftpProcess.stdin.write(req.body.sudo + "\n")
+		})
+		req.session.ftpPID = ftpProcess.pid
+		console.log("ftpProcess PID"+ftpProcess.pid)
+		req.session.ftpProcessRunning = true
+    } 
 
     // Write changes to ftp.txt
     fs.writeFileSync(
@@ -855,17 +777,8 @@ app.post("/api", (req, res) => {
       return;
     }
 
-    try {
-      var enableFTP = chpr
-        .execSync("systemctl status vsftpd", { timeout: 500 })
-        .toString("ascii")
-        .includes("active");
-    } catch (e) {
-      var enableFTP = false;
-    }
-
-    res.send({
-      enabled: enableFTP,
+	res.send({
+      enabled: req.session.ftpProcessRunning == true,
       ftpUserUsername: currentFtpUserUsername,
       ftpLocalRoot: localRoot,
     });
@@ -888,6 +801,11 @@ app.post("/api", (req, res) => {
       ussage: dfData,
     });
   }
+});
+
+process.on("exit", function () {
+  zlog("Process exiting...");
+  fs.writeFileSync(path.join(zentroxInstPath, "ftp_ppid.txt"), "---");
 });
 
 server = https.createServer(options, app);

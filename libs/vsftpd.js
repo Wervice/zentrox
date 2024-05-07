@@ -48,9 +48,38 @@ if (process.argv[2] == "init") {
 
   fs.writeFileSync("/etc/vsftpd.conf", reassmbled_config_file_contents);
 } else if (process.argv[2] == "update_username_list") {
-  let task = process.argv[3];
-  let username = process.argv[4];
-  let userlist_file = fs.readFileSync("/etc/vsftpd.userlist");
+  task = process.argv[3];
+  userlist_file = fs.readFileSync("/etc/vsftpd.userlist").toString("ascii");
+  usernames = userlist_file.split("\n");
+  userlist_r = "";
+
+  if (task == "replace") {
+    old_username = process.argv[5];
+    new_username = process.argv[6];
+    new_usernames = usernames.map((x) => {
+      if (x == old_username) {
+        return new_username;
+      } else {
+        return x;
+      }
+    });
+  } else if (task == "add") {
+    new_username = process.argv[4];
+    new_usernames = usernames;
+    new_usernames.push(new_username);
+  } else if (task == "remove") {
+    old_username = process.argv[5];
+    new_usernames = usernames.filter((x) => {
+      return x != old_username;
+    });
+  }
+  for (username of new_usernames) {
+    if (username != undefined) {
+      userlist_r += `${username}\n`;
+    }
+  }
+  userlist_r = userlist_r;
+  console.log(userlist_r);
 } else {
   console.log("This command is not know to this program");
   process.exit(-1);
