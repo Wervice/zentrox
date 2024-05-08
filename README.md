@@ -67,16 +67,7 @@ If you already have a .key and .crt, please copy it to the folder and call it se
 
 To install Zentrox, please run the following commands in your terminal:
 
-```bash
-git clone https://github.com/Wervice/zentrox/ # Clones Codelink repo to current folder
-cd ~/zentrox # Got to zentrox_server folder
-npm install express body-parser cookie-parser express-session node-os-utils ejs compression # Install node_packages
-openssl genrsa -out selfsigned.key 2048
-openssl req -new -key selfsigned.key -out csr.pem
-openssl x509 -req -days 365 -in csr.pem -signkey selfsigned.key -out selfsigned.crt
-clear
-node index.js # Run zentrox main JS
-```
+`curl-fsSL https://raw.githubusercontent.com/Wervice/zentrox/main/install.sh | bash`
 
 Zentrox only supports Linux at the time.
 
