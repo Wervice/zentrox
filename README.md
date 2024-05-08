@@ -16,16 +16,19 @@
 ![C](https://img.shields.io/badge/C%20Language-white.svg?style=for-the-badge&logo=c&logoColor=white&color=blue)
 ![Linux](https://img.shields.io/badge/Linux-white.svg?style=for-the-badge&logo=linux&logoColor=white&color=grey)
 
+> [!IMPORTANT]
+> ⚠️ Zentrox is a work in progress
+
 ## Which problem does Zentrox solve?
 
 Zentrox helps you with the setup and administration of a server.  
 It gives you the right tools to do almost everything with your device.
 
-## 💡 Which problem does Zentrox solve?
+## 💡 Which problems does Zentrox solve?
 
-Zentrox helps you with the setup and administration of a server.  
-It gives you the right tools to do almost everything with your device.  
-The installation is very simple and doesn't require great background knowledge.
+Zentrox helps you with the administration of your home server.
+It will provide you with the most important tools for managin your device.
+The installation very fast and doesn't require great background knowledge.
 
 ## 🎯 Features
 
@@ -42,7 +45,7 @@ Zentrox will offer many features for different purposes:
 ## 🛠️ Installation
 
 > [!IMPORTANT]
-> Zentrox is still in development.
+> Zentrox is a work in progress.
 > At the time, many parts of the application are not done and properly tested.
 > If you want to see, what the current state is, you can test it using the commands bellow.
 > Please do not ignore any disclaimers, as you may break your system.
