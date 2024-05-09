@@ -1,520 +1,541 @@
 @font-face {
-  font-family: "Work Sans";
-  src: url(WorkSansVar.ttf);
+	font-family: "Work Sans";
+	src: url(WorkSansVar.ttf);
 }
 
 :root {
-  --accent-color: #1f9af7;
-  --accent-color-dark: #1278c5;
-  --red: #ff4848;
-  --green: #65a017;
+	--accent-color: #1f9af7;
+	--accent-color-dark: #1278c5;
+	--red: #ff4848;
+	--green: #65a017;
 }
 
 ::selection {
-  background: transparent;
+	background: transparent;
 }
 
 ::placeholder {
-  color: #888;
+	color: #888;
 }
 
 *:focus {
-  outline: none;
-  filter: brightness(1.2);
+	outline: none;
+	filter: brightness(1.2);
 }
 
 * {
-  font-family: "Work Sans", sans-serif;
+	font-family: "Work Sans", sans-serif;
 }
 
 @keyframes fade-in {
-  0% {
-    opacity: 0%;
-  }
+	0% {
+		opacity: 0%;
+	}
 }
 
 @keyframes turning {
-  0% {
-    transform: rotate(0deg);
-  }
-  100% {
-    transform: rotate(360deg);
-  }
+	0% {
+		transform: rotate(0deg);
+	}
+	100% {
+		transform: rotate(360deg);
+	}
 }
 
 @keyframes pop_open {
-  0% {
-    transform: scale(10%);
-  }
+	0% {
+		transform: scale(10%);
+	}
 
-  70% {
-    transform: scale(115%);
-  }
+	70% {
+		transform: scale(115%);
+	}
 
-  100% {
-    transform: scale(100%);
-  }
+	100% {
+		transform: scale(100%);
+	}
 }
 
 body {
-  background-color: #111;
-  color: white;
-  padding: 0px;
-  margin: 0px;
-  overflow: hidden;
-  animation-name: fade-in;
-  animation-duration: 0.25s;
+	background-color: #111;
+	color: white;
+	padding: 0px;
+	margin: 0px;
+	overflow: hidden;
+	animation-name: fade-in;
+	animation-duration: 0.25s;
 }
 
 input[type="text"],
 input[type="password"],
 select {
-  margin: 8px;
-  margin-left: 0px;
-  padding: 8px;
-  font-size: large;
-  border-radius: 8px;
-  color: white;
-  background-color: #222;
-  border: 0px;
-  transition: ease-in-out 0.25s;
-  width: 200px;
+	margin: 8px;
+	margin-left: 0px;
+	padding: 8px;
+	font-size: large;
+	border-radius: 8px;
+	color: white;
+	background-color: #222;
+	border: 0px;
+	transition: ease-in-out 0.25s;
+	width: 200px;
 }
 
 input[type="checkbox"] {
-  margin-top: -1px;
-  appearance: none;
-  vertical-align: middle;
-  width: 15px;
-  height: 15px;
-  background: #ffffff22;
-  border-radius: 2px;
-  background-size: 0%;
-  background-position: center;
-  transition: ease-in-out 0.125s;
+	margin-top: -1px;
+	appearance: none;
+	vertical-align: middle;
+	width: 15px;
+	height: 15px;
+	background: #ffffff22;
+	border-radius: 2px;
+	background-size: 0%;
+	background-position: center;
+	transition: ease-in-out 0.125s;
 }
 
 input[type="checkbox"]:checked {
-  animation-duration: 0.25s;
-  animation-iteration-count: 1;
-  background: var(--accent-color-dark);
-  background-image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAYAAABXAvmHAAAACXBIWXMAAAsTAAALEwEAmpwYAAAA0klEQVR4nO2XWwrCMBQF7w59oPRD9y4oqNAlVBgJtOqHSmrT5EbOfBUKzZyT9pKaCSGEEGJegBVwAVpgYzUBNEDHk9Yqlg9crWL5Dlibd4DtG/kbsDPvIPlCoOYLgZovhJr/y+aBBXAEDuE6iXHc8aBJtcB5lgfnkA/07SdfIIv8yyuUdKFs8gPhj+fDR7a3WkYlCUIUn/NMCFFcfkoIN/K/hHAnPyaEW/mYEO7lI2Z6vjk/0074bn5ECP/yX0LUIz8ALIFTfwhcPm4IIYQQwqK4A05/JpzKhHQ2AAAAAElFTkSuQmCC");
-  background-size: 50%;
-  background-position: center;
-  background-repeat: no-repeat;
+	animation-duration: 0.25s;
+	animation-iteration-count: 1;
+	background: var(--accent-color-dark);
+	background-image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAYAAABXAvmHAAAACXBIWXMAAAsTAAALEwEAmpwYAAAA0klEQVR4nO2XWwrCMBQF7w59oPRD9y4oqNAlVBgJtOqHSmrT5EbOfBUKzZyT9pKaCSGEEGJegBVwAVpgYzUBNEDHk9Yqlg9crWL5Dlibd4DtG/kbsDPvIPlCoOYLgZovhJr/y+aBBXAEDuE6iXHc8aBJtcB5lgfnkA/07SdfIIv8yyuUdKFs8gPhj+fDR7a3WkYlCUIUn/NMCFFcfkoIN/K/hHAnPyaEW/mYEO7lI2Z6vjk/0074bn5ECP/yX0LUIz8ALIFTfwhcPm4IIYQQwqK4A05/JpzKhHQ2AAAAAElFTkSuQmCC");
+	background-size: 50%;
+	background-position: center;
+	background-repeat: no-repeat;
 }
 
 select {
-  width: 225px;
+	width: 225px;
 }
 
 small {
-  color: #a0a0a0;
+	color: #a0a0a0;
 }
 
 h2 {
-  margin-bottom: 5px;
+	margin-bottom: 5px;
 }
 
 span.caption {
-  color: #888;
-  max-width: 200px;
-  font-size: 14px;
+	color: #888;
+	max-width: 200px;
+	font-size: 14px;
 }
 
 a {
-  color: var(--accent-color);
-  text-decoration: none;
-  opacity: 80%;
+	color: var(--accent-color);
+	text-decoration: none;
+	opacity: 80%;
 }
 
 button {
-  margin: 5px;
-  padding: 10px;
-  font-size: large;
-  border-radius: 4px;
-  color: white;
-  background: #222;
-  border: 0px;
-  transition: ease-in-out 0.25s;
-  margin-right: 5px;
+	margin: 5px;
+	padding: 10px;
+	font-size: large;
+	border-radius: 4px;
+	color: white;
+	background: #222;
+	border: 0px;
+	transition: ease-in-out 0.25s;
+	margin-right: 5px;
 
-  & img {
-    width: 18px;
-    margin-bottom: -3px;
-    padding-right: 5px;
-  }
+	& img {
+		width: 18px;
+		margin-bottom: -3px;
+		padding-right: 5px;
+	}
 
-  & :hover {
-    filter: brightness(1.1);
-  }
+	& :hover {
+		filter: brightness(1.1);
+	}
 
-  & :disabled {
-    filter: grayscale();
-  }
+	& :disabled {
+		filter: grayscale();
+	}
 }
 
 .outline {
-  border: 1px solid #8c8c8c;
-  background-color: transparent;
-  color: #8c8c8c;
+	border: 1px solid #8c8c8c;
+	background-color: transparent;
+	color: #8c8c8c;
 }
 
 #sideBar button {
-  width: 175px;
-  text-align: left;
-  background: #242424;
+	width: 175px;
+	text-align: left;
+	background: #242424;
 }
 
 #sideBar {
-  display: inline-block;
-  background-color: #242424;
-  padding: 5px;
-  height: 100vh;
-  animation-name: fade-in;
-  animation-duration: 0.5s;
-  & h2 {
-    margin: 0px;
-    padding-top: 5px;
-    padding-bottom: 5px;
-    padding-left: 5px;
-  }
+	display: inline-block;
+	background-color: #242424;
+	padding: 5px;
+	height: 100vh;
+	animation-name: fade-in;
+	animation-duration: 0.5s;
+	& h2 {
+		margin: 0px;
+		padding-top: 5px;
+		padding-bottom: 5px;
+		padding-left: 5px;
+	}
 }
 
 details {
-  padding: 10px;
-  border-radius: 2.5px;
-  cursor: default;
+	padding: 10px;
+	border-radius: 2.5px;
+	cursor: default;
 }
 
 #pages {
-  display: inline-block;
-  height: 100vh;
-  padding: 10px;
-  position: fixed;
+	display: inline-block;
+	height: 100vh;
+	padding: 10px;
+	position: fixed;
 
-  & summary h3 {
-    font-size: 20px;
-    font-weight: 500;
-    padding: 2.5px;
-    color: #ffffff88;
-    display: contents;
-  }
+	& summary h3 {
+		font-size: 20px;
+		font-weight: 500;
+		padding: 2.5px;
+		color: #ffffff88;
+		display: contents;
+	}
 
-  & div {
-    animation-name: fade-in;
-    animation-duration: 0.25s;
-  }
+	& div {
+		animation-name: fade-in;
+		animation-duration: 0.25s;
+	}
 }
 
 .line_bar_chart {
-  width: 210px;
-  height: 35px;
-  border-radius: 5px;
-  background-color: #242424;
-  overflow: hidden;
-  display: inline-block;
-  margin-right: 10px;
+	width: 210px;
+	height: 35px;
+	border-radius: 5px;
+	background-color: #242424;
+	overflow: hidden;
+	display: inline-block;
+	margin-right: 10px;
 
-  & div {
-    padding: 5px;
-    height: 25px;
-    font-size: 20px;
-    background-color: var(--accent-color-dark);
-    transition: width ease-in-out 0.125s;
-    border-radius: 5px;
-  }
+	& div {
+		padding: 5px;
+		height: 25px;
+		font-size: 20px;
+		background-color: var(--accent-color-dark);
+		transition: width ease-in-out 0.125s;
+		border-radius: 5px;
+	}
 }
 
 #filesContainer {
-  overflow: scroll;
-  max-height: 80vh;
-  width: calc(100vw - 250px);
+	overflow: scroll;
+	max-height: 80vh;
+	width: calc(100vw - 250px);
 }
 
 #filesContainer::-webkit-scrollbar {
-  display: none;
+	display: none;
 }
 
 .fileButtons {
-  height: 80px;
-  max-height: 80px;
-  width: 160px;
-  text-overflow: ellipsis;
-  overflow: hidden;
-  padding: 5px;
-  border-radius: 2.5px;
-  border: 1px solid #333;
-  text-align: center;
-  align-content: center;
-  white-space: nowrap;
+	height: 80px;
+	max-height: 80px;
+	width: 160px;
+	text-overflow: ellipsis;
+	overflow: hidden;
+	padding: 5px;
+	border-radius: 2.5px;
+	border: 1px solid #333;
+	text-align: center;
+	align-content: center;
+	white-space: nowrap;
 
-  &:hover {
-    background-color: #222 !important;
-  }
+	&:hover {
+		background-color: #222 !important;
+	}
 }
 
 #storage #contextmenu {
-  border-radius: 5px;
-  padding: 10px;
-  background-color: #222;
-  border: #111 1px solid;
-  position: fixed;
-  z-index: 300;
+	border-radius: 5px;
+	padding: 10px;
+	background-color: #222;
+	border: #111 1px solid;
+	position: fixed;
+	z-index: 300;
 
-  & button {
-    width: calc(100% - 5px);
-    display: block;
-    text-align: left;
-    padding: 5px;
-    margin: 5px;
-    transition: linear 0.125s;
+	& button {
+		width: calc(100% - 5px);
+		display: block;
+		text-align: left;
+		padding: 5px;
+		margin: 5px;
+		transition: linear 0.125s;
 
-    &:hover {
-      background-color: #111;
-    }
-  }
+		&:hover {
+			background-color: #111;
+		}
+	}
 }
 
 td {
-  padding: 10px;
+	padding: 10px;
 
-  & button {
-    background: transparent;
-    color: white;
-    padding: 0px;
-    margin: 0px;
-  }
+	& button {
+		background: transparent;
+		color: white;
+		padding: 0px;
+		margin: 0px;
+	}
 
-  & :hover {
-    background: transparent;
-    opacity: 80%;
-  }
+	& :hover {
+		background: transparent;
+		opacity: 80%;
+	}
 }
 
 #renameNameInput {
-  padding: 8px;
-  background-color: #444;
-  border: 1px solid #333 !important;
+	padding: 8px;
+	background-color: #444;
+	border: 1px solid #333 !important;
 }
 
 label[for="showHiddenFiles"] {
-  position: fixed;
-  right: 50px;
+	position: fixed;
+	right: 50px;
 }
 
 #showHiddenFiles {
-  position: fixed;
-  right: 195px;
+	position: fixed;
+	right: 195px;
 }
 
 .package {
-  height: 120px;
-  max-height: 120px;
-  width: 10%;
-  text-overflow: ellipsis;
-  overflow: hidden;
-  padding: 10px;
-  vertical-align: middle;
-  border-radius: 2.5px;
-  border: 1px solid #333;
-  text-align: center;
-  align-content: center;
-  white-space: nowrap;
-  display: inline-block;
-  margin: 15px;
+	height: 120px;
+	max-height: 120px;
+	width: 10%;
+	text-overflow: ellipsis;
+	overflow: hidden;
+	padding: 10px;
+	vertical-align: middle;
+	border-radius: 2.5px;
+	border: 1px solid #333;
+	text-align: center;
+	align-content: center;
+	white-space: nowrap;
+	display: inline-block;
+	margin: 15px;
 
-  &:hover {
-    background-color: #222 !important;
-  }
+	&:hover {
+		background-color: #222 !important;
+	}
 
-  & img {
-    height: 50px;
-    width: 50px;
-  }
+	& img {
+		height: 50px;
+		width: 50px;
+	}
 }
 
 .package_small {
-  height: auto;
-  display: block;
-  background-color: #111;
-  border-bottom: #333 1px solid;
-  color: white;
-  padding: 5px;
-  font-size: 14px;
+	height: auto;
+	display: block;
+	background-color: #111;
+	border-bottom: #333 1px solid;
+	color: white;
+	padding: 5px;
+	font-size: 14px;
 
-  & .remove_package {
-    color: var(--red);
-    background-color: transparent;
-  }
+	& .remove_package {
+		color: var(--red);
+		background-color: transparent;
+	}
 
-  & .install_package {
-    color: var(--green);
-    background-color: transparent;
-  }
+	& .install_package {
+		color: var(--green);
+		background-color: transparent;
+	}
 
-  & button {
-    position: relative;
-    right: 10px;
-    background-color: #111;
-    padding: 0px;
-    margin: 0px;
-    margin-right: 5px;
-    float: right;
+	& button {
+		position: relative;
+		right: 10px;
+		background-color: #111;
+		padding: 0px;
+		margin: 0px;
+		margin-right: 5px;
+		float: right;
 
-    & :hover {
-      background-color: transparent !important;
-    }
-  }
+		& :hover {
+			background-color: transparent !important;
+		}
+	}
 
-  &:hover {
-    background-color: #222 !important;
-  }
+	&:hover {
+		background-color: #222 !important;
+	}
 }
 
 #installedApps,
 #installedPackages,
 #packageSearchResults {
-  overflow-y: scroll;
-  height: calc(100vh - 190px);
-  margin: 9px;
-  width: calc(100vw - 220px) !important;
-  padding: 10px;
-  cursor: default;
+	overflow-y: scroll;
+	height: calc(100vh - 190px);
+	margin: 9px;
+	width: calc(100vw - 220px) !important;
+	padding: 10px;
+	cursor: default;
 }
 
 #installedApps::-webkit-scrollbar,
 #installedPackages::-webkit-scrollbar,
 #packageSearchResults::-webkit-scrollbar {
-  display: none;
+	display: none;
 }
 
 .remove_package,
 .install_package {
-  padding: 5px;
-  border-radius: 2.5px;
-  background-color: var(--red);
-  color: white;
-  border-width: 0px;
-  cursor: pointer;
+	padding: 5px;
+	border-radius: 2.5px;
+	background-color: var(--red);
+	color: white;
+	border-width: 0px;
+	cursor: pointer;
 }
 
 .install_package {
-  background-color: var(--green);
+	background-color: var(--green);
 }
 
 #loadingApplications {
-  margin-top: 50px;
-  font-size: large;
-  text-align: center;
-  width: calc(100vw - 185px);
+	margin-top: 50px;
+	font-size: large;
+	text-align: center;
+	width: calc(100vw - 185px);
 
-  & img {
-    width: 128px;
-    height: 128px;
-    animation: turning 0.5s linear infinite;
-  }
+	& img {
+		width: 128px;
+		height: 128px;
+		animation: turning 0.5s linear infinite;
+	}
 }
 
 div.warning {
-  background-color: rgba(255, 124, 124, 0.102);
-  padding: 15px;
-  border-radius: 2.5px;
-  margin: 5px;
+	background-color: rgba(255, 124, 124, 0.102);
+	padding: 15px;
+	border-radius: 2.5px;
+	margin: 5px;
 
-  & button {
-    padding: 5px;
-    margin: 0px;
-    margin-left: 5px;
-    background: #ffffff3e;
-  }
+	& button {
+		padding: 5px;
+		margin: 0px;
+		margin-left: 5px;
+		background: #ffffff3e;
+	}
 }
 
 #conectionsTabs {
-  padding: 5px;
-  margin-bottom: 5px;
+	padding: 5px;
+	margin-bottom: 5px;
 
-  & button {
-    padding-bottom: 2px;
-    border-bottom-left-radius: 0px;
-    border-bottom-right-radius: 0px;
-    background: transparent;
-    text-decoration-color: var(--accent-color);
-  }
+	& button {
+		padding-bottom: 2px;
+		border-bottom-left-radius: 0px;
+		border-bottom-right-radius: 0px;
+		background: transparent;
+		text-decoration-color: var(--accent-color);
+	}
 
-  & button.active {
-    text-decoration: underline;
-    text-decoration-color: var(--accent-color); 
-  }
+	& button.active {
+		text-decoration: underline;
+		text-decoration-color: var(--accent-color);
+	}
 }
 
 #connectionTabsPages {
-  padding-left: 20px;
+	padding-left: 20px;
 }
 
 @media screen and (max-width: 550px) {
-  #sideBar button {
-    width: min-content;
-    font-size: 0px;
-    padding: 0px;
-    margin-bottom: 5px;
-  }
+	#sideBar button {
+		width: min-content;
+		font-size: 0px;
+		padding: 0px;
+		margin-bottom: 5px;
+	}
 
-  #sideBar h2 {
-    display: none;
-  }
+	#sideBar h2 {
+		display: none;
+	}
 
-  #sideBar {
-    width: min-content;
-  }
+	#sideBar {
+		width: min-content;
+	}
 
-  #filesContainer {
-    width: calc(100vw - 50px);
-  }
+	#filesContainer {
+		width: calc(100vw - 50px);
+	}
 }
 
 button.drive {
-  margin: 10px;
-  padding: 10px;
-  border-radius: 5px;
-  background-color: #333;
+	margin: 10px;
+	padding: 10px;
+	border-radius: 5px;
+	background-color: #333;
 }
 
 #driveModal {
-  background-color: #333;
-  position: fixed;
-  top: calc(50vh - 250px);
-  left: calc(50vw - 250px);
-  width: 500px;
-  height: 500px;
-  max-width: 100vw;
-  max-height: 100vh;
-  padding: 10px;
-  border-radius: 5px;
-  box-shadow:
-    0px 0px 20px #111,
-    0px 0px 0px 100vw #00000033;
-  animation-name: pop_open;
-  animation-duration: 0.5s;
-  z-index: 200;
+	background-color: #333;
+	position: fixed;
+	top: calc(50vh - 250px);
+	left: calc(50vw - 250px);
+	width: 500px;
+	height: 500px;
+	max-width: 100vw;
+	max-height: 100vh;
+	padding: 10px;
+	border-radius: 5px;
+	box-shadow:
+		0px 0px 20px #111,
+		0px 0px 0px 100vw #00000033;
+	animation-name: pop_open;
+	animation-duration: 0.5s;
+	z-index: 200;
 
-  & h3 {
-    margin: 0px;
-    padding: 5px;
-  }
+	& h3 {
+		margin: 0px;
+		padding: 5px;
+	}
 
-  & button {
-    position: absolute;
-    right: 10px;
-    bottom: 10px;
-  }
+	& button {
+		position: absolute;
+		right: 10px;
+		bottom: 10px;
+	}
 }
 
 .disclaimer {
-  background: #e23d2844;
-  color: #ffffff;
-  border: 1px solid #800020;
-  border-radius: 5px;
-  padding: 10px;
-  width: 100%;
+	background: #e23d2844;
+	color: #ffffff;
+	border: 1px solid #800020;
+	border-radius: 5px;
+	padding: 10px;
+	width: 100%;
+}
+
+small {
+	padding-bottom: 7.5px !important;
+	display: block;
+	font-size: 14px;
+}
+
+.information_chip {
+	padding: 5px;
+	border-radius: 2.5px;
+	background: #ffffff22;
+	width: 100%;
+	margin-bottom: 10px;
+	display: inline-block;
+
+	.caption {
+		font-size: smaller;
+		opacity: 70%;
+		display: block;
+	}
 }

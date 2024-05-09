@@ -1,53 +1,53 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Zentrox</title>
-    <link rel="stylesheet" href="welcome.css" />
-    <link rel="shortcut icon" href="Zentrox.ico" type="image/x-icon" />
-    <script>
-      function submitLogin() {
-        (username = document.getElementById("usernameInput").value),
-          (password = document.getElementById("passwordInput").value);
-        fetch("/login", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            username: username,
-            password: password,
-          }),
-        })
-          .then((res) => res.json())
-          .then((data) => {
-            if (data["status"] == "s") {
-              location.href = "/dashboard";
-            }
-          });
-      }
-    </script>
-  </head>
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Zentrox</title>
+		<link rel="stylesheet" href="welcome.css" />
+		<link rel="shortcut icon" href="Zentrox.ico" type="image/x-icon" />
+		<script>
+			function submitLogin() {
+				(username = document.getElementById("usernameInput").value),
+					(password = document.getElementById("passwordInput").value);
+				fetch("/login", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+					},
+					body: JSON.stringify({
+						username: username,
+						password: password,
+					}),
+				})
+					.then((res) => res.json())
+					.then((data) => {
+						if (data["status"] == "s") {
+							location.href = "/dashboard";
+						}
+					});
+			}
+		</script>
+	</head>
 
-  <body>
-    <div id="topBar"><%=serverName %></div>
-    <div class="contentPage">
-      <br />
-      <div id="form">
-        <h1>Welcome</h1>
-        <h3>Login to server</h3>
-        <label>Username</label><br />
-        <input type="text" placeholder="" id="usernameInput" />
-        <br />
-        <label>Password</label><br />
-        <input type="password" placeholder="" id="passwordInput" /><br />
-        <button onclick="submitLogin()">Login</button>
-        <%- registrationButton %>
-        <br />
-      </div>
-    </div>
+	<body>
+		<div id="topBar"><%=serverName %></div>
+		<div class="contentPage">
+			<br />
+			<div id="form">
+				<h1>Welcome</h1>
+				<h3>Login to server</h3>
+				<label>Username</label><br />
+				<input type="text" placeholder="" id="usernameInput" />
+				<br />
+				<label>Password</label><br />
+				<input type="password" placeholder="" id="passwordInput" /><br />
+				<button onclick="submitLogin()">Login</button>
+				<%- registrationButton %>
+				<br />
+			</div>
+		</div>
 
-    <img src="Zentrox.png" id="logo" />
-  </body>
+		<img src="Zentrox.png" id="logo" />
+	</body>
 </html>

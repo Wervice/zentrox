@@ -1,69 +1,69 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Zentrox</title>
-    <link rel="stylesheet" href="setup.css" />
-    <script src="setup.js"></script>
-    <script src="modal.js"></script>
-    <link rel="shortcut icon" href="Zentrox.ico" type="image/x-icon" />
-  </head>
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Zentrox</title>
+		<link rel="stylesheet" href="setup.css" />
+		<script src="setup.js"></script>
+		<script src="modal.js"></script>
+		<link rel="shortcut icon" href="Zentrox.ico" type="image/x-icon" />
+	</head>
 
-  <body>
-    <div id="loader" hidden></div>
-    <div class="contentPage">
-      <h1>Setup</h1>
-      <div style="text-align: center; padding: 20px">
-        <img src="/Zentrox.png" alt="" class="logo" />
-      </div>
-      <div id="adminSetup">
-        <h3>Admin Account</h3>
-        <input
-          type="text"
-          placeholder="Admin Username*"
-          id="adminUsername"
-        /><br />
-        <input
-          type="password"
-          placeholder="Admin Password*"
-          id="adminPassword"
-        /><br />
-        <span class="caption">
-          This user can log in to Zentrox <br />
-          and control the server using the remote<br />
-          interface.
-        </span>
-        <br />
-        <button onclick="submitRegistration()">Next</button>
-      </div>
+	<body>
+		<div id="loader" hidden></div>
+		<div class="contentPage">
+			<h1>Setup</h1>
+			<div style="text-align: center; padding: 20px">
+				<img src="/Zentrox.png" alt="" class="logo" />
+			</div>
+			<div id="adminSetup">
+				<h3>Admin Account</h3>
+				<input
+					type="text"
+					placeholder="Admin Username*"
+					id="adminUsername"
+				/><br />
+				<input
+					type="password"
+					placeholder="Admin Password*"
+					id="adminPassword"
+				/><br />
+				<span class="caption">
+					This user can log in to Zentrox <br />
+					and control the server using the remote<br />
+					interface.
+				</span>
+				<br />
+				<button onclick="submitRegistration()">Next</button>
+			</div>
 
-      <div id="userSetup" hidden>
-        <h3>User Setup</h3>
-        <h4 style="color: #888">Registration mode</h4>
-        <select id="userRegistrationMode" onchange="updateDescriptionRegMode()">
-          <option value="linkInvite">Link Invite</option>
-          <option value="multiLinkInvite">Multi Link Invite</option>
-          <option value="public">Public (not recommended)</option>
-        </select>
-        <br />
-        <small class="caption" id="descriptionRegMode"></small>
-        <br />
-        <button onclick="submitUserRegMode()">Submit</button>
-      </div>
+			<div id="userSetup" hidden>
+				<h3>User Setup</h3>
+				<h4 style="color: #888">Registration mode</h4>
+				<select id="userRegistrationMode" onchange="updateDescriptionRegMode()">
+					<option value="linkInvite">Link Invite</option>
+					<option value="multiLinkInvite">Multi Link Invite</option>
+					<option value="public">Public (not recommended)</option>
+				</select>
+				<br />
+				<small class="caption" id="descriptionRegMode"></small>
+				<br />
+				<button onclick="submitUserRegMode()">Submit</button>
+			</div>
 
-      <div id="customization" hidden>
-        <h2 style="color: #888">Customization</h2>
-        <input type="text" id="serverName" placeholder="Server Name" /><br />
-        <select id="colorTheme">
-          <option value="dark">Dark</option>
-          <option value="light">Light</option>
-        </select>
-        <br />
-        <button onclick="submitCustomization()" id="customizationFinishButton">
-          Finish
-        </button>
-      </div>
-    </div>
-  </body>
+			<div id="customization" hidden>
+				<h2 style="color: #888">Customization</h2>
+				<input type="text" id="serverName" placeholder="Server Name" /><br />
+				<select id="colorTheme">
+					<option value="dark">Dark</option>
+					<option value="light">Light</option>
+				</select>
+				<br />
+				<button onclick="submitCustomization()" id="customizationFinishButton">
+					Finish
+				</button>
+			</div>
+		</div>
+	</body>
 </html>

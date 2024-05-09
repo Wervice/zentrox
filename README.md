@@ -19,11 +19,6 @@
 > [!IMPORTANT]
 > ⚠️ Zentrox is a work in progress
 
-## Which problem does Zentrox solve?
-
-Zentrox helps you with the setup and administration of a server.  
-It gives you the right tools to do almost everything with your device.
-
 ## 💡 Which problems does Zentrox solve?
 
 Zentrox helps you with the administration of your home server.

@@ -1,122 +1,122 @@
 @font-face {
-  font-family: "Work Sans";
-  src: url(WorkSansVar.ttf);
+	font-family: "Work Sans";
+	src: url(WorkSansVar.ttf);
 }
 
 :root {
-  --accent-color: #57cfc8;
+	--accent-color: #57cfc8;
 }
 
 *:focus {
-  outline: none;
-  filter: brightness(0.9);
+	outline: none;
+	filter: brightness(0.9);
 }
 
 ::placeholder {
-  color: #888;
+	color: #888;
 }
 
 * {
-  font-family: "Work Sans", sans-serif;
+	font-family: "Work Sans", sans-serif;
 }
 
 body {
-  background-color: #111;
-  color: white;
-  padding: 0px;
-  margin: 0px;
-  margin-left: 10px;
+	background-color: #111;
+	color: white;
+	padding: 0px;
+	margin: 0px;
+	margin-left: 10px;
 }
 
 h1 {
-  font-size: xx-large;
-  color: #ffffff;
-  margin: 10px;
-  margin-left: 0px;
-  font-weight: 500;
+	font-size: xx-large;
+	color: #ffffff;
+	margin: 10px;
+	margin-left: 0px;
+	font-weight: 500;
 }
 
 input[type="text"],
 input[type="password"],
 select {
-  margin: 10px;
-  margin-left: 0px;
-  padding: 12px;
-  font-size: large;
-  border-radius: 8px;
-  color: white;
-  background-color: #222;
-  border: 0px;
-  transition: ease-in-out 0.25s;
-  width: 200px;
+	margin: 10px;
+	margin-left: 0px;
+	padding: 12px;
+	font-size: large;
+	border-radius: 8px;
+	color: white;
+	background-color: #222;
+	border: 0px;
+	transition: ease-in-out 0.25s;
+	width: 200px;
 }
 
 select {
-  width: 225px;
+	width: 225px;
 }
 
 small {
-  color: #666;
+	color: #666;
 }
 
 span.caption {
-  color: #888;
-  max-width: 200px;
-  font-size: 14px;
+	color: #888;
+	max-width: 200px;
+	font-size: 14px;
 }
 
 a {
-  color: dodgerblue;
-  text-decoration: none;
-  opacity: 40%;
+	color: dodgerblue;
+	text-decoration: none;
+	opacity: 40%;
 }
 
 button {
-  margin-top: 10px;
-  padding: 8px;
-  border-radius: 3px;
-  background-color: #5ab0ac;
-  border: 0px;
-  transition: ease-in-out 0.25s;
+	margin-top: 10px;
+	padding: 8px;
+	border-radius: 3px;
+	background-color: #5ab0ac;
+	border: 0px;
+	transition: ease-in-out 0.25s;
 }
 
 h3 {
-  color: #888;
+	color: #888;
 }
 
 h1 {
-  text-align: center;
+	text-align: center;
 }
 
 .logo {
-  width: 100px;
-  height: 100px;
-  box-shadow: 0px 5px 10px #111;
+	width: 100px;
+	height: 100px;
+	box-shadow: 0px 5px 10px #111;
 }
 
 div.contentPage {
-  height: 70vh;
-  width: 70vw;
-  margin-left: 15vw;
-  margin-top: 15vh;
-  padding: 20px;
-  background-color: #181818;
-  box-shadow: 0px 10px 20px rgba(0, 0, 0, 0.52);
-  border: 1px solid #222;
-  border-radius: 10px;
+	height: 70vh;
+	width: 70vw;
+	margin-left: 15vw;
+	margin-top: 15vh;
+	padding: 20px;
+	background-color: #181818;
+	box-shadow: 0px 10px 20px rgba(0, 0, 0, 0.52);
+	border: 1px solid #222;
+	border-radius: 10px;
 }
 
 #loader {
-  position: fixed;
-  top: calc(50vh - 50px);
-  left: calc(50vw - 100px);
-  text-align: center;
-  box-shadow: 0px 0px 100vw 0px #00000033;
-  width: 200px;
-  padding: 20px;
-  font-size: 15px;
-  color: white;
-  background-color: #111;
-  border: 1px solid #222;
-  border-radius: 5px;
+	position: fixed;
+	top: calc(50vh - 50px);
+	left: calc(50vw - 100px);
+	text-align: center;
+	box-shadow: 0px 0px 100vw 0px #00000033;
+	width: 200px;
+	padding: 20px;
+	font-size: 15px;
+	color: white;
+	background-color: #111;
+	border: 1px solid #222;
+	border-radius: 5px;
 }

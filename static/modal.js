@@ -125,100 +125,100 @@ code = `
 popupDataIsThere = false;
 
 function dataInit() {
-  if (!popupDataIsThere) {
-    this.document.head.innerHTML += "<style>" + cssCode + "</style>";
-    this.document.body.innerHTML += code;
-    popupDataIsThere = true;
-  }
+	if (!popupDataIsThere) {
+		this.document.head.innerHTML += "<style>" + cssCode + "</style>";
+		this.document.body.innerHTML += code;
+		popupDataIsThere = true;
+	}
 }
 
 function killModalPopup() {
-  document.getElementById("modalMain").classList.remove("red");
-  setTimeout(function () {
-    document.getElementById("modalMain").hidden = true;
-  }, 510);
-  flyOut("modalMain", 500);
+	document.getElementById("modalMain").classList.remove("red");
+	setTimeout(function () {
+		document.getElementById("modalMain").hidden = true;
+	}, 510);
+	flyOut("modalMain", 500);
 }
 
 function errorModal(title, message, command) {
-  document.getElementById("modalMain").hidden = false;
-  document.getElementById("modalMain").classList.add("red");
-  document.getElementById("modalTitle").innerHTML = title;
-  document.getElementById("modalMessage").innerHTML = message;
-  document.getElementById("buttonConfirm").onclick = function () {
-    command();
-    killModalPopup();
-  };
+	document.getElementById("modalMain").hidden = false;
+	document.getElementById("modalMain").classList.add("red");
+	document.getElementById("modalTitle").innerHTML = title;
+	document.getElementById("modalMessage").innerHTML = message;
+	document.getElementById("buttonConfirm").onclick = function () {
+		command();
+		killModalPopup();
+	};
 }
 
 function confirmModal(title, message, command) {
-  document.getElementById("modalMain").hidden = false;
-  document.getElementById("modalTitle").innerHTML = title;
-  document.getElementById("modalMessage").innerHTML = message;
-  document.getElementById("buttonConfirm").onclick = function () {
-    command();
-    killModalPopup();
-  };
+	document.getElementById("modalMain").hidden = false;
+	document.getElementById("modalTitle").innerHTML = title;
+	document.getElementById("modalMessage").innerHTML = message;
+	document.getElementById("buttonConfirm").onclick = function () {
+		command();
+		killModalPopup();
+	};
 }
 
 function confirmModalWarning(title, message, command) {
-  document.getElementById("modalMain").hidden = false;
-  document.getElementById("modalTitle").innerHTML = title;
-  document.getElementById("modalMessage").innerHTML = message;
-  document.getElementById("buttonConfirm").onclick = function () {
-    command();
-    killModalPopup();
-  };
-  document.getElementById("buttonConfirm").classList.add("red");
+	document.getElementById("modalMain").hidden = false;
+	document.getElementById("modalTitle").innerHTML = title;
+	document.getElementById("modalMessage").innerHTML = message;
+	document.getElementById("buttonConfirm").onclick = function () {
+		command();
+		killModalPopup();
+	};
+	document.getElementById("buttonConfirm").classList.add("red");
 }
 
 function inputModal(title, message, inputName, type, command) {
-  document.getElementById("modalMain").hidden = false;
-  document.getElementById("modalTitle").innerHTML = title;
-  document.getElementById("modalMessage").innerHTML =
-    message + `<br><input type="${type}" id="${inputName}" class="inputModal">`;
-  document.getElementById("buttonConfirm").onclick = function () {
-    command();
-    killModalPopup();
-  };
+	document.getElementById("modalMain").hidden = false;
+	document.getElementById("modalTitle").innerHTML = title;
+	document.getElementById("modalMessage").innerHTML =
+		message + `<br><input type="${type}" id="${inputName}" class="inputModal">`;
+	document.getElementById("buttonConfirm").onclick = function () {
+		command();
+		killModalPopup();
+	};
 }
 
 function flyOut(id, duration) {
-  animationName_before = document.getElementById(id).style.animationName;
-  animationDuration_before =
-    document.getElementById(id).style.animationDuration;
-  document.getElementById(id).style.animationDuration = duration + "ms";
-  document.getElementById(id).style.animationName = "fly-out";
-  document.getElementById(id).classList.add("fly-out");
-  setTimeout(function () {
-    document.getElementById(id).hidden = true;
-    document.getElementById(id).classList.remove("fly-out");
-    document.getElementById(id).style.animationName = animationName_before;
-    document.getElementById(id).style.animationDuration =
-      animationDuration_before;
-  }, duration - 10);
+	animationName_before = document.getElementById(id).style.animationName;
+	animationDuration_before =
+		document.getElementById(id).style.animationDuration;
+	document.getElementById(id).style.animationDuration = duration + "ms";
+	document.getElementById(id).style.animationName = "fly-out";
+	document.getElementById(id).classList.add("fly-out");
+	setTimeout(function () {
+		document.getElementById(id).hidden = true;
+		document.getElementById(id).classList.remove("fly-out");
+		document.getElementById(id).style.animationName = animationName_before;
+		document.getElementById(id).style.animationDuration =
+			animationDuration_before;
+	}, duration - 10);
 }
 
 function fadeOut(id, duration) {
-  animationName_before = document.getElementById(id).style.animationName;
-  animationDuration_before =
-    document.getElementById(id).style.animationDuration;
-  document.getElementById(id).style.animationDuration = duration + "ms";
-  document.getElementById(id).style.animationName = "fade-out";
-  document.getElementById(id).classList.add("fade-out");
-  setTimeout(function () {
-    document.getElementById(id).hidden = true;
-    document.getElementById(id).classList.remove("fade-out");
-    document.getElementById(id).style.animationName = animationName_before;
-    document.getElementById(id).style.animationDuration =
-      animationDuration_before;
-  }, duration - 10);
+	animationName_before = document.getElementById(id).style.animationName;
+	animationDuration_before =
+		document.getElementById(id).style.animationDuration;
+	document.getElementById(id).style.animationDuration = duration + "ms";
+	document.getElementById(id).style.animationName = "fade-out";
+	document.getElementById(id).classList.add("fade-out");
+	setTimeout(function () {
+		document.getElementById(id).hidden = true;
+		document.getElementById(id).classList.remove("fade-out");
+		document.getElementById(id).style.animationName = animationName_before;
+		document.getElementById(id).style.animationDuration =
+			animationDuration_before;
+	}, duration - 10);
 }
 
 function failPopup(message) {
-  document.getElementById("failPopup").hidden = false;
-  document.getElementById("failPopup").innerHTML = message;
-  setTimeout(function () {
-    fadeOut("failPopup", 3000);
-  }, 3000);
+	document.getElementById("failPopup").hidden = false;
+	document.getElementById("failPopup").innerHTML = message;
+	setTimeout(function () {
+		fadeOut("failPopup", 3000);
+	}, 3000);
 }

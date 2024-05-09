@@ -1,197 +1,197 @@
 @font-face {
-  font-family: "Work Sans";
-  src: url(WorkSansVar.ttf);
+	font-family: "Work Sans";
+	src: url(WorkSansVar.ttf);
 }
 
 :root {
-  --accent-color: #8c8c8c;
+	--accent-color: #8c8c8c;
 }
 
 *:focus {
-  outline: none;
-  filter: brightness(1.2);
+	outline: none;
+	filter: brightness(1.2);
 }
 
 button:hover {
-  filter: brightness(1.1);
+	filter: brightness(1.1);
 }
 
 ::placeholder {
-  color: #888;
+	color: #888;
 }
 
 * {
-  font-family: "Work Sans", sans-serif;
+	font-family: "Work Sans", sans-serif;
 }
 
 body {
-  background-color: #111;
-  color: white;
-  padding: 0px;
-  margin: 0px;
-  margin-left: 10px;
-  height: 100vh;
+	background-color: #111;
+	color: white;
+	padding: 0px;
+	margin: 0px;
+	margin-left: 10px;
+	height: 100vh;
 }
 
 h1 {
-  font-size: xx-large;
-  color: #ffffff;
-  margin: 10px;
-  margin-left: 0px;
-  font-weight: 500;
+	font-size: xx-large;
+	color: #ffffff;
+	margin: 10px;
+	margin-left: 0px;
+	font-weight: 500;
 }
 
 input[type="text"],
 input[type="password"],
 select {
-  margin: 10px;
-  margin-left: 0px;
-  padding: 12px;
-  font-size: large;
-  border-radius: 8px;
-  color: white;
-  background-color: #222;
-  border: 0px;
-  transition: ease-in-out 0.25s;
-  width: 200px;
+	margin: 10px;
+	margin-left: 0px;
+	padding: 12px;
+	font-size: large;
+	border-radius: 8px;
+	color: white;
+	background-color: #222;
+	border: 0px;
+	transition: ease-in-out 0.25s;
+	width: 200px;
 }
 
 select {
-  width: 225px;
+	width: 225px;
 }
 
 small {
-  color: #666;
+	color: #666;
 }
 
 span.caption {
-  color: #888;
-  max-width: 200px;
-  font-size: 14px;
+	color: #888;
+	max-width: 200px;
+	font-size: 14px;
 }
 
 a {
-  color: dodgerblue;
-  text-decoration: none;
-  opacity: 40%;
+	color: dodgerblue;
+	text-decoration: none;
+	opacity: 40%;
 }
 
 button {
-  margin-top: 10px;
-  padding: 12px;
-  font-size: large;
-  border-radius: 3px;
-  background-color: #8c8c8c;
-  border: 0px;
-  transition: ease-in-out 0.25s;
-  margin-right: 5px;
+	margin-top: 10px;
+	padding: 12px;
+	font-size: large;
+	border-radius: 3px;
+	background-color: #8c8c8c;
+	border: 0px;
+	transition: ease-in-out 0.25s;
+	margin-right: 5px;
 }
 
 .outline {
-  border: 1px solid #8c8c8c;
-  background-color: transparent;
-  color: #8c8c8c;
+	border: 1px solid #8c8c8c;
+	background-color: transparent;
+	color: #8c8c8c;
 }
 
 h3 {
-  color: #888;
+	color: #888;
 }
 
 @keyframes scale_in {
-  0% {
-    position: relative;
-    opacity: 70%;
-    transform: scale(80%) translateY(-60%);
-  }
+	0% {
+		position: relative;
+		opacity: 70%;
+		transform: scale(80%) translateY(-60%);
+	}
 
-  100% {
-    top: 50%;
-  }
+	100% {
+		top: 50%;
+	}
 }
 
 @keyframes scale_in_logo {
-  0% {
-    opacity: 0%;
-    transform: scale(80%);
-  }
+	0% {
+		opacity: 0%;
+		transform: scale(80%);
+	}
 }
 
 #logo {
-  width: 100px;
-  height: 100px;
-  box-shadow: 0px 5px 10px #111;
-  position: fixed;
-  top: calc(50vh - 50px);
-  left: 600px;
-  animation-name: scale_in_logo;
-  animation-duration: 0.25s;
+	width: 100px;
+	height: 100px;
+	box-shadow: 0px 5px 10px #111;
+	position: fixed;
+	top: calc(50vh - 50px);
+	left: 600px;
+	animation-name: scale_in_logo;
+	animation-duration: 0.25s;
 }
 
 div.contentPage {
-  margin-left: 20px;
-  position: relative;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 500px;
-  max-width: 100vw;
-  padding: 20px;
-  background-color: #0e0e0e;
-  box-shadow: 0px 10px 20px rgba(0, 0, 0, 0.52);
-  border: 1px solid #222;
-  border-radius: 10px;
-  animation-name: scale_in;
-  animation-duration: 0.25s;
+	margin-left: 20px;
+	position: relative;
+	top: 50%;
+	transform: translateY(-50%);
+	width: 500px;
+	max-width: 100vw;
+	padding: 20px;
+	background-color: #0e0e0e;
+	box-shadow: 0px 10px 20px rgba(0, 0, 0, 0.52);
+	border: 1px solid #222;
+	border-radius: 10px;
+	animation-name: scale_in;
+	animation-duration: 0.25s;
 
-  & #form {
-    width: 100%;
-    padding: 20px;
+	& #form {
+		width: 100%;
+		padding: 20px;
 
-    & h1,
-    h2,
-    h4,
-    h5,
-    h6 {
-      margin-top: 0px;
-    }
+		& h1,
+		h2,
+		h4,
+		h5,
+		h6 {
+			margin-top: 0px;
+		}
 
-    & h3 {
-      padding-top: 1px;
-      font-weight: 400;
-    }
+		& h3 {
+			padding-top: 1px;
+			font-weight: 400;
+		}
 
-    & label {
-      font-weight: 300;
-      font-size: 14px;
-      padding-bottom: 2px;
-    }
-  }
+		& label {
+			font-weight: 300;
+			font-size: 14px;
+			padding-bottom: 2px;
+		}
+	}
 }
 
 #topBar {
-  position: fixed;
-  top: 0px;
-  left: 0px;
-  width: calc(100vw - 10px);
-  padding: 5px;
-  font-size: 14px;
-  cursor: default;
-  background-color: #222;
+	position: fixed;
+	top: 0px;
+	left: 0px;
+	width: calc(100vw - 10px);
+	padding: 5px;
+	font-size: 14px;
+	cursor: default;
+	background-color: #222;
 }
 
 @media screen and (max-width: 550px) {
-  div.contentPage {
-    margin-left: 0px;
-    width: calc(100vw - 80px);
-    background-color: transparent;
-    box-shadow: none;
-    border: none;
-  }
+	div.contentPage {
+		margin-left: 0px;
+		width: calc(100vw - 80px);
+		background-color: transparent;
+		box-shadow: none;
+		border: none;
+	}
 
-  #logo {
-    display: none;
-  }
+	#logo {
+		display: none;
+	}
 
-  #topBar {
-    font-size: 18px;
-  }
+	#topBar {
+		font-size: 18px;
+	}
 }
