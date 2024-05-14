@@ -208,263 +208,263 @@ const verboseLog = false;
 const noStdout = true;
 const fs = require("fs");
 if (noStdout) {
-  execOptions = {
-    stdio: "pipe",
-    encoding: "utf-8",
-    maxBuffer: 1024 * 1024 * 1024,
-  };
+	execOptions = {
+		stdio: "pipe",
+		encoding: "utf-8",
+		maxBuffer: 1024 * 1024 * 1024,
+	};
 } else {
-  execOptions = {
-    encoding: "utf-8",
-    maxBuffer: 1024 * 1024 * 1024,
-  };
+	execOptions = {
+		encoding: "utf-8",
+		maxBuffer: 1024 * 1024 * 1024,
+	};
 }
 
 supported_os = false;
 releaseInfo = fs.readFileSync("/etc/os-release").toString();
 
 if (releaseInfo.includes("debian") || releaseInfo.includes("ubuntu")) {
-  p_manager = "apt";
-  listInstalledCommand = "apt list --installed";
-  listCommand = "apt list";
-  installedCommand = "apt install PCKG -y";
-  removeCommand = "apt remove PCKG -y";
-  supported_os = true;
+	p_manager = "apt";
+	listInstalledCommand = "apt list --installed";
+	listCommand = "apt list";
+	installedCommand = "apt install PCKG -y";
+	removeCommand = "apt remove PCKG -y";
+	supported_os = true;
 } else if (releaseInfo.includes("fedora") || releaseInfo.includes("centos")) {
-  p_manager = "dnf";
-  listInstalledCommand = "dnf list installed -q";
-  listCommand = "dnf list -q";
-  installedCommand = "dnf install PCKG -y";
-  removeCommand = "dnf remove PCKG -y";
-  supported_os = true;
+	p_manager = "dnf";
+	listInstalledCommand = "dnf list installed -q";
+	listCommand = "dnf list -q";
+	installedCommand = "dnf install PCKG -y";
+	removeCommand = "dnf remove PCKG -y";
+	supported_os = true;
 } else if (releaseInfo.includes("arch")) {
-  p_manager = "pacman";
-  listCommand = "pacman -Sl";
-  listInstalledCommand = "pacman -Q";
-  installedCommand = "pacman -S PCKG --noconfirm";
-  removeCommand = "pacman -R PCKG --noconfirm";
-  supported_os = true;
+	p_manager = "pacman";
+	listCommand = "pacman -Sl";
+	listInstalledCommand = "pacman -Q";
+	installedCommand = "pacman -S PCKG --noconfirm";
+	removeCommand = "pacman -R PCKG --noconfirm";
+	supported_os = true;
 }
 
 keywordFromCLI = ["Listing", "Installed", "Last", "Latest", "Listing..."];
 
 function listPackages() {
-  packages = [];
-  i = 0;
+	packages = [];
+	i = 0;
 
-  if (supported_os) {
-    data = chpr.execSync(listCommand, execOptions);
-    index_to_chose = 0;
-    if (listCommand.includes("pacman")) {
-      index_to_chose = 1;
-      zlog(index_to_chose, "verb");
-    }
-    if (p_manager == "dnf" || p_manager == "pacman") {
-      for (line of data.split("\n")) {
-        packages[i] = line.split(" ")[index_to_chose];
-        i++;
-      }
-    } else {
-      for (line of data.split("\n")) {
-        packages[i] = line.split("/")[index_to_chose];
-        i++;
-      }
-    }
+	if (supported_os) {
+		data = chpr.execSync(listCommand, execOptions);
+		index_to_chose = 0;
+		if (listCommand.includes("pacman")) {
+			index_to_chose = 1;
+			zlog(index_to_chose, "verb");
+		}
+		if (p_manager == "dnf" || p_manager == "pacman") {
+			for (line of data.split("\n")) {
+				packages[i] = line.split(" ")[index_to_chose];
+				i++;
+			}
+		} else {
+			for (line of data.split("\n")) {
+				packages[i] = line.split("/")[index_to_chose];
+				i++;
+			}
+		}
 
-    for (e of keywordFromCLI) {
-      if (packages.includes(e)) {
-        packages.splice(packages.indexOf(e), 1);
-      }
-    }
+		for (e of keywordFromCLI) {
+			if (packages.includes(e)) {
+				packages.splice(packages.indexOf(e), 1);
+			}
+		}
 
-    return packages;
-  } else {
-    zlog("No supported OS", "error");
-  }
+		return packages;
+	} else {
+		zlog("No supported OS", "error");
+	}
 }
 
 function listInstalledPackages() {
-  packages = [];
-  i = 0;
-  if (supported_os) {
-    data = chpr.execSync(listInstalledCommand, execOptions);
+	packages = [];
+	i = 0;
+	if (supported_os) {
+		data = chpr.execSync(listInstalledCommand, execOptions);
 
-    index_to_chose = 0;
-    if (listCommand.includes("pacman")) {
-      index_to_chose = 1;
-      zlog(index_to_chose, "verb");
-    }
+		index_to_chose = 0;
+		if (listCommand.includes("pacman")) {
+			index_to_chose = 1;
+			zlog(index_to_chose, "verb");
+		}
 
-    if (p_manager == "dnf" || p_manager == "pacman") {
-      for (line of data.split("\n")) {
-        packages[i] = line.split(" ")[index_to_chose];
-        i++;
-      }
-    } else {
-      for (line of data.split("\n")) {
-        packages[i] = line.split("/")[index_to_chose];
-        i++;
-      }
-    }
+		if (p_manager == "dnf" || p_manager == "pacman") {
+			for (line of data.split("\n")) {
+				packages[i] = line.split(" ")[index_to_chose];
+				i++;
+			}
+		} else {
+			for (line of data.split("\n")) {
+				packages[i] = line.split("/")[index_to_chose];
+				i++;
+			}
+		}
 
-    for (e of keywordFromCLI) {
-      if (packages.includes(e)) {
-        packages.splice(packages.indexOf(e), 1);
-      }
-    }
+		for (e of keywordFromCLI) {
+			if (packages.includes(e)) {
+				packages.splice(packages.indexOf(e), 1);
+			}
+		}
 
-    zlog(packages, "verb");
+		zlog(packages, "verb");
 
-    return packages;
-  } else {
-    zlog("No supported OS", "error");
-  }
+		return packages;
+	} else {
+		zlog("No supported OS", "error");
+	}
 }
 
 function installPackage(name, password) {
-  try {
-    chpr.execSync(
-      `echo "${password
-        .replace('"', '\\"')
-        .replace("'", "\\'")
-        .replace("`", "\\`")}" | sudo -S -k ` +
-        installedCommand.replace(
-          "PCKG",
-          name.replace('"', '\\"').replace("'", "\\'").replace("`", "\\`"),
-        ),
-      execOptions,
-    );
-  } catch {
-    return false;
-  }
+	try {
+		chpr.execSync(
+			`echo "${password
+				.replace('"', '\\"')
+				.replace("'", "\\'")
+				.replace("`", "\\`")}" | sudo -S -k ` +
+				installedCommand.replace(
+					"PCKG",
+					name.replace('"', '\\"').replace("'", "\\'").replace("`", "\\`"),
+				),
+			execOptions,
+		);
+	} catch {
+		return false;
+	}
 
-  return true;
+	return true;
 }
 
 function removePackage(name, password) {
-  zlog(
-    `echo "${password
-      .replace('"', '\\"')
-      .replace("'", "\\'")
-      .replace("`", "\\`")}" | sudo -S -k ` +
-      removeCommand.replace(
-        "PCKG",
-        name.replace('"', '\\"').replace("'", "\\'").replace("`", "\\`"),
-      ),
-    "verb",
-  );
-  try {
-    chpr.execSync(
-      `echo "${password
-        .replace('"', '\\"')
-        .replace("'", "\\'")
-        .replace("`", "\\`")}" | sudo -S ` +
-        removeCommand.replace(
-          "PCKG",
-          name.replace('"', '\\"').replace("'", "\\'").replace("`", "\\`"),
-        ),
-      execOptions,
-    );
-  } catch {
-    return false;
-  }
+	zlog(
+		`echo "${password
+			.replace('"', '\\"')
+			.replace("'", "\\'")
+			.replace("`", "\\`")}" | sudo -S -k ` +
+			removeCommand.replace(
+				"PCKG",
+				name.replace('"', '\\"').replace("'", "\\'").replace("`", "\\`"),
+			),
+		"verb",
+	);
+	try {
+		chpr.execSync(
+			`echo "${password
+				.replace('"', '\\"')
+				.replace("'", "\\'")
+				.replace("`", "\\`")}" | sudo -S ` +
+				removeCommand.replace(
+					"PCKG",
+					name.replace('"', '\\"').replace("'", "\\'").replace("`", "\\`"),
+				),
+			execOptions,
+		);
+	} catch {
+		return false;
+	}
 
-  return true;
+	return true;
 }
 
 function getIconForPackage(packageName) {
-  if (fs.existsSync(path.join(os.homedir(), "/.local/share/icons"))) {
-    var noIconFoundInLoop = true;
-    var products = [
-      "8x8",
-      "16x16",
-      "32x32",
-      "64x64",
-      "128x128",
-      "256x256",
-      "512x512",
-    ];
-    for (p of products) {
-      for (folder of fs.readdirSync(
-        path.join(os.homedir(), "/.local/share/icons"),
-      )) {
-        if (
-          fs.existsSync(
-            path.join(
-              os.homedir(),
-              "/.local/share/icons",
-              folder,
-              "16x16",
-              "apps",
-            ),
-          ) &&
-          noIconFoundInLoop
-        ) {
-          iconFolder = path.join(
-            os.homedir(),
-            "/.local/share/icons",
-            folder,
-            "16x16",
-            "apps",
-          );
-          var noIconFoundInLoop = false;
-        }
-      }
+	if (fs.existsSync(path.join(os.homedir(), "/.local/share/icons"))) {
+		var noIconFoundInLoop = true;
+		var products = [
+			"8x8",
+			"16x16",
+			"32x32",
+			"64x64",
+			"128x128",
+			"256x256",
+			"512x512",
+		];
+		for (p of products) {
+			for (folder of fs.readdirSync(
+				path.join(os.homedir(), "/.local/share/icons"),
+			)) {
+				if (
+					fs.existsSync(
+						path.join(
+							os.homedir(),
+							"/.local/share/icons",
+							folder,
+							"16x16",
+							"apps",
+						),
+					) &&
+					noIconFoundInLoop
+				) {
+					iconFolder = path.join(
+						os.homedir(),
+						"/.local/share/icons",
+						folder,
+						"16x16",
+						"apps",
+					);
+					var noIconFoundInLoop = false;
+				}
+			}
 
-      if (
-        fs.existsSync(
-          path.join(
-            os.homedir(),
-            "/.local/share/icons",
-            folder,
-            "apps",
-            "scalable",
-          ),
-        ) &&
-        noIconFoundInLoop
-      ) {
-        iconFolder = path.join(
-          os.homedir(),
-          "/.local/share/icons",
-          folder,
-          "apps",
-          "scalable",
-        );
-      }
-    }
-    if (!iconFolder) {
-      zlog(
-        `Couldn't find an icon for this package.\nThis library looks for icon packages here: ${path.join(
-          os.homedir(),
-          "/.local/share/icons",
-        )}\nPlease make sure, if this package does have an icon in general.`,
-        "verb",
-      );
-    }
+			if (
+				fs.existsSync(
+					path.join(
+						os.homedir(),
+						"/.local/share/icons",
+						folder,
+						"apps",
+						"scalable",
+					),
+				) &&
+				noIconFoundInLoop
+			) {
+				iconFolder = path.join(
+					os.homedir(),
+					"/.local/share/icons",
+					folder,
+					"apps",
+					"scalable",
+				);
+			}
+		}
+		if (!iconFolder) {
+			zlog(
+				`Couldn't find an icon for this package.\nThis library looks for icon packages here: ${path.join(
+					os.homedir(),
+					"/.local/share/icons",
+				)}\nPlease make sure, if this package does have an icon in general.`,
+				"verb",
+			);
+		}
 
-    if (fs.existsSync(path.join(iconFolder, packageName + ".svg"))) {
-      return path.join(iconFolder, packageName + ".svg");
-    } else {
-      zlog(
-        `Couldn't find an icon for this package.\nThis library looks for icon packages here: ${path.join(
-          os.homedir(),
-          "/.local/share/icons",
-        )}.\nAssumed icon location: ${path.join(
-          iconFolder,
-          packageName + ".svg",
-        )}`,
-        "verb",
-      );
-    }
-  } else {
-    icon = null;
-    zlog(
-      `Couldn't find an icon for this package.\nThis library looks for icon packages here: ${path.join(
-        os.homedir(),
-        "/.local/share/icons",
-      )}\nPlease make sure, if this package does have an icon in general.`,
-      "verb",
-    );
-  }
-  return "";
+		if (fs.existsSync(path.join(iconFolder, packageName + ".svg"))) {
+			return path.join(iconFolder, packageName + ".svg");
+		} else {
+			zlog(
+				`Couldn't find an icon for this package.\nThis library looks for icon packages here: ${path.join(
+					os.homedir(),
+					"/.local/share/icons",
+				)}.\nAssumed icon location: ${path.join(
+					iconFolder,
+					packageName + ".svg",
+				)}`,
+				"verb",
+			);
+		}
+	} else {
+		icon = null;
+		zlog(
+			`Couldn't find an icon for this package.\nThis library looks for icon packages here: ${path.join(
+				os.homedir(),
+				"/.local/share/icons",
+			)}\nPlease make sure, if this package does have an icon in general.`,
+			"verb",
+		);
+	}
+	return "";
 }

@@ -18,6 +18,10 @@
 	color: #888;
 }
 
+::-webkit-scrollbar {
+	display: none;
+}
+
 *:focus {
 	outline: none;
 	filter: brightness(1.2);
@@ -192,6 +196,7 @@ details {
 	height: 100vh;
 	padding: 10px;
 	position: fixed;
+	overflow-y: scroll;
 
 	& summary h3 {
 		font-size: 20px;
@@ -209,7 +214,8 @@ details {
 
 .line_bar_chart {
 	width: 210px;
-	height: 35px;
+	margin-top: 5px;
+	height: 25px;
 	border-radius: 5px;
 	background-color: #242424;
 	overflow: hidden;
@@ -218,7 +224,7 @@ details {
 
 	& div {
 		padding: 5px;
-		height: 25px;
+		height: 15px;
 		font-size: 20px;
 		background-color: var(--accent-color-dark);
 		transition: width ease-in-out 0.125s;
@@ -230,10 +236,6 @@ details {
 	overflow: scroll;
 	max-height: 80vh;
 	width: calc(100vw - 250px);
-}
-
-#filesContainer::-webkit-scrollbar {
-	display: none;
 }
 
 .fileButtons {
@@ -529,9 +531,9 @@ small {
 	padding: 5px;
 	border-radius: 2.5px;
 	background: #ffffff22;
-	width: 100%;
+	width: 250px;
 	margin-bottom: 10px;
-	display: inline-block;
+	display: block;
 
 	.caption {
 		font-size: smaller;

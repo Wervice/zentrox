@@ -79,6 +79,58 @@ window.onload = function () {
 				},
 			);
 		});
+
+	document.getElementById("ftp_running").addEventListener("change", () => {
+		var enableFTP = this.checked;
+		var FTPlocalRoot = null;
+		var ftpUserUsername = null;
+		var ftpUserPassword = null;
+
+		inputModal(
+			"Sudo password",
+			"Please enter your sudo password to change these settings",
+			"sudoPasswordFTP",
+			"password",
+			function () {
+				// TODO Not yet reading the sudo password
+				document.getElementById("ftpSettingsApply").innerText = "Updating";
+				fetch("/api", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+					},
+					body: JSON.stringify({
+						r: "updateFTPconfig",
+						enableFTP: enableFTP,
+						ftpLocalRoot: FTPlocalRoot,
+						ftpUserUsername: ftpUserUsername,
+						ftpUserPassword: ftpUserPassword,
+						sudo: document.getElementById("sudoPasswordFTP").value,
+						enableDisable: true,
+					}),
+				})
+					.then((res) => {
+						if (!res.ok) {
+							res.json().then(function (jsonResponse) {
+								document.getElementById("ftpSettingsApply").innerHTML =
+									"Failed (retry)";
+								document.getElementById("ftpError").innerHTML =
+									jsonResponse["details"];
+								failPopup("Failed to update FTP configuration");
+								throw new Error("Failed to update FTP configuration");
+							});
+						} else {
+							document.getElementById("ftpError").innerHTML = "";
+						}
+						return res.json(); // ! The JSON is empty => Fix on server side!!!!
+					})
+					.then(() => {
+						fetchFTPconnectionInformation();
+						document.getElementById("ftpSettingsApply").innerText = "Apply";
+					});
+			},
+		);
+	});
 };
 
 // Intervals
@@ -480,7 +532,7 @@ function lookForPackage() {
 		document.getElementById("installedPackagesDetails").hidden = true;
 		document.getElementById("installedAppsDetails").hidden = true;
 		var htmlCode = "";
-		if (packageName.length > 2) {
+		if (packageName.length > 1) {
 			for (e of anyApps) {
 				if (e.includes(packageName)) {
 					var htmlCode =
@@ -658,6 +710,7 @@ function fetchFTPconnectionInformation() {
 		})
 		.then((data) => {
 			document.getElementById("enableFTP").checked = data["enabled"];
+			document.getElementById("ftp_running").checked = data["enabled"];
 			document.getElementById("ftpUserUsername").value =
 				data["ftpUserUsername"];
 			document.getElementById("ftpLocalRoot").value = data["ftpLocalRoot"];

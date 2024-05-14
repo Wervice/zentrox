@@ -78,19 +78,28 @@
 				<h2>Overview</h2>
 				<div style="padding: 10px">
 					<small>Resources</small>
-					<div class="line_bar_chart">
-						<div id="cpu_bar" style="width: 200px">CPU</div>
-					</div>
-					<br />
-					<div class="line_bar_chart">
-						<div id="ram_bar" style="width: 20px">RAM</div>
-					</div>
-					<br />
-					<div class="line_bar_chart">
-						<div id="disk_bar" style="width: 20px">Disk</div>
-					</div>
-					<br />
-					<span id="running_process_number"></span>
+					<span class="information_chip">
+						<span class="caption">CPU</span>
+						<div class="line_bar_chart">
+							<div id="cpu_bar" style="width: 200px"></div>
+						</div>
+					</span>
+					<span class="information_chip">
+						<span class="caption">Memory</span>
+						<div class="line_bar_chart">
+							<div id="ram_bar" style="width: 20px"></div>
+						</div>
+					</span>
+					<span class="information_chip">
+						<span class="caption">Disk</span>
+						<div class="line_bar_chart">
+							<div id="disk_bar" style="width: 20px"></div>
+						</div>
+					</span>
+					<span class="information_chip">
+						<span class="caption">Running tasks</span>
+						<span id="running_process_number"></span>
+					</span>
 					<br />
 				</div>
 				<div style="padding: 10px">
@@ -100,12 +109,10 @@
 						<span class="caption">OS Name</span>
 						<span id="operating_system_name"></span>
 					</span>
-					<br />
 					<span class="information_chip">
 						<span class="caption">Power supply</span>
 						<span id="power_supply"></span>
 					</span>
-					<br />
 					<span class="information_chip">
 						<span class="caption">Zentrox PID</span>
 						<span id="zentrox_pid"></span>
@@ -113,12 +120,14 @@
 				</div>
 				<div style="padding: 10px">
 					<small>Servers</small>
-					<label for="ftp_running" title="Zentrox FTP server (Python based)"
-						>FTP</label
-					>
-					<input type="checkbox" id="ftp_running" disabled /><br />
-					<label for="smb_running" title="Zentrox SMB server">SMB</label>
-					<input type="checkbox" id="smb_running" disabled /><br />
+					<span class="information_chip">
+						<span class="caption"> FTP Server </span>
+						<input type="checkbox" id="ftp_running" /><br />
+					</span>
+					<span class="information_chip">
+						<span class="caption"> SMB Server </span>
+						<input type="checkbox" id="smb_running" /><br />
+					</span>
 				</div>
 			</div>
 			<div id="applications" hidden>
