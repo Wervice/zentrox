@@ -81,14 +81,13 @@ window.onload = function () {
 		});
 
 	document.getElementById("ftp_running").addEventListener("change", () => {
-		var enableFTP = this.checked;
 		var FTPlocalRoot = null;
 		var ftpUserUsername = null;
 		var ftpUserPassword = null;
 
 		inputModal(
-			"Sudo password",
-			"Please enter your sudo password to change these settings",
+			"Elevated privileges",
+			"Please enter your root password to change these settings",
 			"sudoPasswordFTP",
 			"password",
 			function () {
@@ -101,7 +100,7 @@ window.onload = function () {
 					},
 					body: JSON.stringify({
 						r: "updateFTPconfig",
-						enableFTP: enableFTP,
+						enableFTP: document.getElementById("ftp_running").checked,
 						ftpLocalRoot: FTPlocalRoot,
 						ftpUserUsername: ftpUserUsername,
 						ftpUserPassword: ftpUserPassword,
@@ -117,6 +116,8 @@ window.onload = function () {
 								document.getElementById("ftpError").innerHTML =
 									jsonResponse["details"];
 								failPopup("Failed to update FTP configuration");
+								document.getElementById("ftp_running").checked =
+									!document.getElementById("ftp_running").checked;
 								throw new Error("Failed to update FTP configuration");
 							});
 						} else {
@@ -128,6 +129,10 @@ window.onload = function () {
 						fetchFTPconnectionInformation();
 						document.getElementById("ftpSettingsApply").innerText = "Apply";
 					});
+			},
+			function () {
+				document.getElementById("ftp_running").checked =
+					!document.getElementById("ftp_running").checked;
 			},
 		);
 	});
@@ -647,8 +652,8 @@ function updateFTPConnectionSettings() {
 	}
 
 	inputModal(
-		"Sudo password",
-		"Please enter your sudo password to change these settings",
+		"Elevated privileges",
+		"Please enter your root password to change these settings",
 		"sudoPasswordFTP",
 		"password",
 		function () {
@@ -759,6 +764,27 @@ function getDeviceInformation() {
 				data["os_name"];
 			document.getElementById("power_supply").innerText = data["power_supply"];
 			document.getElementById("zentrox_pid").innerText = data["zentrox_pid"];
+			document.getElementById("process_number").innerText =
+				data["process_number"];
+		});
+	fetch("/api", {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify({
+			r: "fetchFTPconfig",
+		}),
+	})
+		.then((res) => {
+			if (!res.ok) {
+				failPopup("Can not fetch device information");
+				throw new Error("Failed to fetch device information");
+			}
+			return res.json();
+		})
+		.then((data) => {
+			document.getElementById("ftp_running").checked = data["enabled"];
 		});
 }
 
@@ -842,6 +868,7 @@ cssCode = `@keyframes fly-in {
     border-radius: 2.5px;
     background: #ffffff11;
     margin-bottom: 0px;
+	max-width: 100%;
 }
 
 @keyframes fly-out {
@@ -906,7 +933,7 @@ function killModalPopup() {
 	flyOut("modalMain", 500);
 }
 
-function errorModal(title, message, command) {
+function errorModal(title, message, command, cancled = () => {}) {
 	document.getElementById("modalMain").hidden = false;
 	document.getElementById("modalMain").classList.add("red");
 	document.getElementById("modalTitle").innerHTML = title;
@@ -915,9 +942,10 @@ function errorModal(title, message, command) {
 		command();
 		killModalPopup();
 	};
+	cancled();
 }
 
-function confirmModal(title, message, command) {
+function confirmModal(title, message, command, cancled = () => {}) {
 	document.getElementById("modalMain").hidden = false;
 	document.getElementById("modalTitle").innerHTML = title;
 	document.getElementById("modalMessage").innerHTML = message;
@@ -925,9 +953,10 @@ function confirmModal(title, message, command) {
 		command();
 		killModalPopup();
 	};
+	cancled();
 }
 
-function confirmModalWarning(title, message, command) {
+function confirmModalWarning(title, message, command, cancled = () => {}) {
 	document.getElementById("modalMain").hidden = false;
 	document.getElementById("modalTitle").innerHTML = title;
 	document.getElementById("modalMessage").innerHTML = message;
@@ -936,9 +965,17 @@ function confirmModalWarning(title, message, command) {
 		killModalPopup();
 	};
 	document.getElementById("buttonConfirm").classList.add("red");
+	cancled();
 }
 
-function inputModal(title, message, inputName, type, command) {
+function inputModal(
+	title,
+	message,
+	inputName,
+	type,
+	command,
+	cancled = () => {},
+) {
 	document.getElementById("modalMain").hidden = false;
 	document.getElementById("modalTitle").innerHTML = title;
 	document.getElementById("modalMessage").innerHTML =
@@ -947,6 +984,7 @@ function inputModal(title, message, inputName, type, command) {
 		command();
 		killModalPopup();
 	};
+	cancled();
 }
 
 function flyOut(id, duration) {

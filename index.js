@@ -112,6 +112,17 @@ function auth(username, password) {
 	}
 }
 
+try {
+	let [ftp_username, ftp_root, ftp_password, ftp_state] = fs
+		.readFileSync(path.join(zentroxInstPath, "ftp.txt"))
+		.toString("ascii")
+		.split("\n");
+	fs.writeFileSync(
+		path.join(zentroxInstPath, "ftp.txt"),
+		`${ftp_username}\n${ftp_root}\n${ftp_password}\n0`,
+	);
+} catch {}
+
 function newUser(username, password, role = "user") {
 	// ? Create new Zentrox user
 	zlog(`Adding new user: Name = ${username} | Role = ${role}`, "info");
@@ -346,7 +357,7 @@ app.post("/setup/custom", (req, res) => {
 
 		fs.writeFileSync(
 			path.join(zentroxInstPath, "ftp.txt"),
-			"ftp_zentrox\n/\n" + hash512("change_me"),
+			"ftp_zentrox\n/\n" + hash512("change_me") + "\n0",
 		);
 		try {
 			chpr.exec(
@@ -355,7 +366,6 @@ app.post("/setup/custom", (req, res) => {
 				{ stdio: "pipe" },
 			);
 		} catch {}
-		fs.writeFileSync(path.join(zentroxInstPath, "ftp_ppid.txt"), "---");
 		res.send({
 			status: "s",
 		});
@@ -732,11 +742,18 @@ app.post("/api", (req, res) => {
 		}
 
 		zlog("Change FTP Settings");
-
+		console.log(req.body.enableFTP);
 		// Control ftp server
 		if (req.body.enableFTP == false) {
 			chpr.exec(`kill ${req.session.ftpPID}`);
-			req.session.ftpProcessRunning = false;
+			let [ftp_username, ftp_root, ftp_password, ftp_state] = fs
+				.readFileSync(path.join(zentroxInstPath, "ftp.txt"))
+				.toString("ascii")
+				.split("\n");
+			fs.writeFileSync(
+				path.join(zentroxInstPath, "ftp.txt"),
+				`${ftp_username}\n${ftp_root}\n${ftp_password}\n0`,
+			);
 		} else if (req.body.enableFTP == true) {
 			zlog("Starting FTP server");
 			let ftpProcess = chpr.exec(
@@ -747,18 +764,31 @@ app.post("/api", (req, res) => {
 			});
 			req.session.ftpPID = ftpProcess.pid;
 			console.log("ftpProcess PID" + ftpProcess.pid);
-			req.session.ftpProcessRunning = true;
+			let [ftp_username, ftp_root, ftp_password, ftp_state] = fs
+				.readFileSync(path.join(zentroxInstPath, "ftp.txt"))
+				.toString("ascii")
+				.split("\n");
+			fs.writeFileSync(
+				path.join(zentroxInstPath, "ftp.txt"),
+				`${ftp_username}\n${ftp_root}\n${ftp_password}\n1`,
+			);
 		}
 
 		// Write changes to ftp.txt
-		fs.writeFileSync(
-			path.join(zentroxInstPath, "ftp.txt"),
-			req.body.ftpUserUsername +
-				"\n" +
-				req.body.ftpLocalRoot +
-				"\n" +
-				hash512(req.body.ftpUserPassword),
-		);
+		if (req.body.enableDisable == undefined) {
+			fs.writeFileSync(
+				path.join(zentroxInstPath, "ftp.txt"),
+				req.body.ftpUserUsername +
+					"\n" +
+					req.body.ftpLocalRoot +
+					"\n" +
+					hash512(req.body.ftpUserPassword) +
+					"\n" +
+					(req.body.enableFTP == true ? "1" : "0"),
+			);
+		} else {
+			console.log("Enable/Disable FTP");
+		}
 
 		res.send({});
 	} else if (req.body.r == "fetchFTPconfig") {
@@ -778,8 +808,19 @@ app.post("/api", (req, res) => {
 			return;
 		}
 
+		console.log(
+			fs
+				.readFileSync(path.join(zentroxInstPath, "ftp.txt"))
+				.toString("ascii")
+				.split("\n"),
+		);
+
 		res.send({
-			enabled: req.session.ftpProcessRunning == true,
+			enabled:
+				fs
+					.readFileSync(path.join(zentroxInstPath, "ftp.txt"))
+					.toString("ascii")
+					.split("\n")[3] == "1",
 			ftpUserUsername: currentFtpUserUsername,
 			ftpLocalRoot: localRoot,
 		});
@@ -802,10 +843,40 @@ app.post("/api", (req, res) => {
 			ussage: dfData,
 		});
 	} else if (req.body.r == "deviceInformation") {
+		let os_name = chpr
+			.execSync("lsb_release -d", { stdio: "pipe", timeout: 500 })
+			.toString("ascii")
+			.replace("Description:\t", "")
+			.replace("\n", "");
+		let zentrox_pid = process.pid;
+		try {
+			let battery_status = fs
+				.readFileSync("/sys/class/power_supply/BAT0/status")
+				.toString("ascii");
+			let battery_capacity = fs
+				.readFileSync("/sys/class/power_supply/BAT0/capacity")
+				.toString("ascii");
+
+			if (battery_status == "Discharging") {
+				var battery_string = `Discharging (${battery_capacity}%)`;
+			} else if (battery_status != "Full") {
+				var battery_string = `Charging (${battery_capacity}%)`;
+			} else {
+				var battery_string = battery_status;
+			}
+
+			battery_string = battery_string.replaceAll("\n", "");
+		} catch {
+			battery_string = `No battery`;
+		}
+		let process_number = chpr
+			.execSync(" ps -e | wc -l", { stdio: "pipe" })
+			.toString("ascii");
 		res.send({
-			os_name: "Fedora 40",
-			power_supply: "Charging",
-			zentrox_pid: "2000",
+			os_name: os_name,
+			power_supply: battery_string,
+			zentrox_pid: zentrox_pid,
+			process_number: process_number,
 		});
 	}
 });
