@@ -49,6 +49,7 @@
 		</div>
 		<div id="sideBar">
 			<h2>Zentrox</h2>
+			<b style="color: red;" id="permissionError" hidden>Limited permissions<br></b>
 			<button onclick="changePage('overview')">
 				<img src="status.png" alt="status" />Overview</button
 			><br />
@@ -202,23 +203,6 @@
 				<div id="connectionTabsPages">
 					<div id="ftp">
 						<h3>FTP</h3>
-						<details class="disclaimer">
-							<summary>Disclaimer</summary>
-							<p>
-								Please do not change the ftp username, ftp user password or FTP
-								path, since Zentrox is not yet done and you could potentially
-								break your system!<br />If you think, that you may have broken
-								something, please check your /etc/passwd and /etc/shadow file
-								for integrity.<br />In addition to that, please look at the
-								README.md in the repo, if you want to remove Zentrox.<br />Every
-								further step is done on your own risk.<br />
-								<small>
-									Zentrox will obviously be tested on these problems before it
-									gets released.
-								</small>
-							</p>
-						</details>
-						<br />
 						<h4 id="ftpError"></h4>
 						<input type="checkbox" id="enableFTP" name="enableFTP" />
 						<label for="enableFTP">Enable FTP</label><br />
@@ -251,19 +235,12 @@
 							<details>
 								<summary>Information</summary>
 								<div>
-									Zentrox uses
-									<a href="https://security.appspot.com/vsftpd.html">VSFTPD</a>
-									and
+									The FTP server is powered using a library named pyftpdlib.<br />
 									<a
 										href="https://manpages.ubuntu.com/manpages/bionic/en/man8/ufw.8.html"
 										>UFW</a
 									>
-									to mange FTP and Firewall. <br />
-									Please note: Zentrox manipulates the vsftpd.conf and
-									vsftpd.user_list file on first use of Zentrox. <br />In
-									addition to that, it creates a new user on the system.
-									<br />To remove the account, use the current ftp user
-									username.
+									is used to manage the firewall on this device.
 								</div>
 							</details>
 						</small>

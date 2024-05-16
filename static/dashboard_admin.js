@@ -1,7 +1,6 @@
-// Global variables
-// TODO Send proper http status codes !!!!!
 currFPath = "/";
 
+updatingFTPstatus = false
 // Windows events
 
 window.onclick = function () {
@@ -84,8 +83,8 @@ window.onload = function () {
 		var FTPlocalRoot = null;
 		var ftpUserUsername = null;
 		var ftpUserPassword = null;
-
-		inputModal(
+		updatingFTPstatus = true
+		rootInputModal(
 			"Elevated privileges",
 			"Please enter your root password to change these settings",
 			"sudoPasswordFTP",
@@ -123,17 +122,16 @@ window.onload = function () {
 						} else {
 							document.getElementById("ftpError").innerHTML = "";
 						}
+						updatingFTPstatus = false
 						return res.json(); // ! The JSON is empty => Fix on server side!!!!
 					})
 					.then(() => {
+						updatingFTPstatus = false
 						fetchFTPconnectionInformation();
 						document.getElementById("ftpSettingsApply").innerText = "Apply";
 					});
-			},
-			function () {
-				document.getElementById("ftp_running").checked =
-					!document.getElementById("ftp_running").checked;
-			},
+			}
+			
 		);
 	});
 };
@@ -145,7 +143,30 @@ setInterval(function () {
 	setRAMBar();
 	setDiskBar();
 	getDriveList();
-}, 10000);
+	getDeviceInformation();	
+	fetch("/api", {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify({
+			r: "permissions",
+		}),
+	})
+		.then((res) => {
+			if (!res.ok) {
+				failPopup("Failed to check permissions");
+				throw new Error("Failed to check permissions");
+			}
+			return res.json();
+		})
+		.then((data) => {
+			if (data["username"] != "root") {
+				document.getElementById("permissionError").hidden = false
+			}	
+		});
+
+}, 1000);
 
 // Functions
 
@@ -651,7 +672,7 @@ function updateFTPConnectionSettings() {
 		return;
 	}
 
-	inputModal(
+	rootInputModal(
 		"Elevated privileges",
 		"Please enter your root password to change these settings",
 		"sudoPasswordFTP",
@@ -784,7 +805,7 @@ function getDeviceInformation() {
 			return res.json();
 		})
 		.then((data) => {
-			document.getElementById("ftp_running").checked = data["enabled"];
+			if (!updatingFTPstatus) {document.getElementById("ftp_running").checked = data["enabled"];}
 		});
 }
 
@@ -940,9 +961,9 @@ function errorModal(title, message, command, cancled = () => {}) {
 	document.getElementById("modalMessage").innerHTML = message;
 	document.getElementById("buttonConfirm").onclick = function () {
 		command();
-		killModalPopup();
+		killModalPopup()
 	};
-	cancled();
+	
 }
 
 function confirmModal(title, message, command, cancled = () => {}) {
@@ -953,7 +974,6 @@ function confirmModal(title, message, command, cancled = () => {}) {
 		command();
 		killModalPopup();
 	};
-	cancled();
 }
 
 function confirmModalWarning(title, message, command, cancled = () => {}) {
@@ -965,7 +985,6 @@ function confirmModalWarning(title, message, command, cancled = () => {}) {
 		killModalPopup();
 	};
 	document.getElementById("buttonConfirm").classList.add("red");
-	cancled();
 }
 
 function inputModal(
@@ -984,7 +1003,24 @@ function inputModal(
 		command();
 		killModalPopup();
 	};
-	cancled();
+}
+
+function rootInputModal(
+	title,
+	message,
+	inputName,
+	type,
+	command,
+	cancled = () => {},
+) {
+	document.getElementById("modalMain").hidden = false;
+	document.getElementById("modalTitle").innerHTML = title;
+	document.getElementById("modalMessage").innerHTML =
+		message + `<br><input type="${type}" id="${inputName}" class="inputModal">`;
+	document.getElementById("buttonConfirm").onclick = function () {
+		command();
+		killModalPopup();
+	};
 }
 
 function flyOut(id, duration) {

@@ -8,6 +8,8 @@ import sys
 import os
 
 home_path = "/home/"+sys.argv[1]
+if sys.argv[1] == "root":
+    home_path = "/root"
 
 class DummySHA512Authorizer(DummyAuthorizer):
 
@@ -22,7 +24,6 @@ class DummySHA512Authorizer(DummyAuthorizer):
             raise AuthenticationFailed
 
 def main():
-    open(os.path.join(home_path, "zentrox_data", "ftp_ppid.txt"), "w").write(str(os.getppid()))
     with open(os.path.join(home_path, "zentrox_data", "ftp.txt"), "r") as config_file:
         config_file_content = config_file.read()
         authorizer = DummySHA512Authorizer()

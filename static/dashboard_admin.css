@@ -437,16 +437,12 @@ div.warning {
 	margin-bottom: 5px;
 
 	& button {
-		padding-bottom: 2px;
-		border-bottom-left-radius: 0px;
-		border-bottom-right-radius: 0px;
+		padding: 5px;
 		background: transparent;
-		text-decoration-color: var(--accent-color);
 	}
 
 	& button.active {
-		text-decoration: underline;
-		text-decoration-color: var(--accent-color);
+		background: #222 !important;
 	}
 }
 

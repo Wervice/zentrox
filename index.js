@@ -21,8 +21,9 @@ const Worker = require("node:worker_threads").Worker;
 const port = 3000;
 const app = express();
 
-eval(fs.readFileSync(path.join(__dirname, "libs", "packages.js")) + ""); //
+eval(fs.readFileSync(path.join(__dirname, "libs", "packages.js")) + "");
 eval(fs.readFileSync(path.join(__dirname, "libs", "drives.js")) + "");
+eval(fs.readFileSync(path.join(__dirname, "libs", "elevate.js")) + "")
 
 var key = fs.readFileSync(__dirname + "/selfsigned.key");
 var cert = fs.readFileSync(__dirname + "/selfsigned.crt");
@@ -745,7 +746,7 @@ app.post("/api", (req, res) => {
 		console.log(req.body.enableFTP);
 		// Control ftp server
 		if (req.body.enableFTP == false) {
-			chpr.exec(`kill ${req.session.ftpPID}`);
+			req.session.ftpShell.kill()
 			let [ftp_username, ftp_root, ftp_password, ftp_state] = fs
 				.readFileSync(path.join(zentroxInstPath, "ftp.txt"))
 				.toString("ascii")
@@ -756,14 +757,12 @@ app.post("/api", (req, res) => {
 			);
 		} else if (req.body.enableFTP == true) {
 			zlog("Starting FTP server");
-			let ftpProcess = chpr.exec(
-				`sudo -S python3 ./libs/ftp.py ${os.userInfo().username}`,
+			let ftpProcess = new Shell("root", "sh", req.body.sudo)
+				ftpProcess.write(
+				`python3 ./libs/ftp.py ${os.userInfo().username}`
 			);
-			ftpProcess.stderr.on("data", () => {
-				ftpProcess.stdin.write(req.body.sudo + "\n");
-			});
-			req.session.ftpPID = ftpProcess.pid;
-			console.log("ftpProcess PID" + ftpProcess.pid);
+						
+			req.session.ftpShell = ftpProcess;
 			let [ftp_username, ftp_root, ftp_password, ftp_state] = fs
 				.readFileSync(path.join(zentroxInstPath, "ftp.txt"))
 				.toString("ascii")
@@ -790,7 +789,7 @@ app.post("/api", (req, res) => {
 			console.log("Enable/Disable FTP");
 		}
 
-		res.send({});
+		res.send({})
 	} else if (req.body.r == "fetchFTPconfig") {
 		// ? Send the current FTP information
 		const currentFtpUserUsername = fs
@@ -807,13 +806,6 @@ app.post("/api", (req, res) => {
 			res.status(403).send("You have no permissions to access this resource");
 			return;
 		}
-
-		console.log(
-			fs
-				.readFileSync(path.join(zentroxInstPath, "ftp.txt"))
-				.toString("ascii")
-				.split("\n"),
-		);
 
 		res.send({
 			enabled:
@@ -852,7 +844,8 @@ app.post("/api", (req, res) => {
 		try {
 			let battery_status = fs
 				.readFileSync("/sys/class/power_supply/BAT0/status")
-				.toString("ascii");
+				.toString("ascii")
+				.replaceAll("\n", "");
 			let battery_capacity = fs
 				.readFileSync("/sys/class/power_supply/BAT0/capacity")
 				.toString("ascii");
@@ -878,6 +871,8 @@ app.post("/api", (req, res) => {
 			zentrox_pid: zentrox_pid,
 			process_number: process_number,
 		});
+	} else if (req.body.r == "permissions") {
+		res.send({username: os.userInfo().username})
 	}
 });
 
