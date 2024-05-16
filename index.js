@@ -18,6 +18,8 @@ const osu = require("node-os-utils");
 const chpr = require("child_process");
 const Worker = require("node:worker_threads").Worker;
 
+const shell = import("./libs/elevate.mjs")
+
 const port = 3000;
 const app = express();
 
