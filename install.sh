@@ -40,6 +40,12 @@ openssl x509 -req -days 365 -in selfsigned.pem -signkey selfsigned.key -out self
 echo "Creating PEM file from key and crt"
 cat selfsigned.crt selfsigned.key > selfsigned.pem
 
+
+echo "Creating user 'zentrox'"
+useradd zentrox
+echo "" # Randomized password
+# Add user to sudoers
+
 echo -e "The installer has downloaded Zentrox and created a fresh set of self-signed certificates.\nThese will be used to protect your connections from hackers.\nIn addition to that several new NPM packages and Python (pip3) packages were downloaded.\n \n You can exit this change log by pressing [q] at any time. In the following you'll get a full explanaition of what the installer did.\n1. The installer clones wervice/zentrox into ~/zentrox\n2. The installer uses NPM to download these packages\n   express body-parser cookie-parser express-session node-os-utils ejs compression\n3. The installer used pip to globally install pyftpd and PyOpenSSL\n4. The installer uses OpenSSL to generate a three files: .key, .crt and .pem\n5. The installer will start Zentrox as soon as you press q\n\nIf you have any further questions, please visit the repo: https://github.com/wervice/zentrox"
 
 echo "Starting Zentrox on port 3000"

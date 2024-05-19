@@ -18,14 +18,11 @@ const osu = require("node-os-utils");
 const chpr = require("child_process");
 const Worker = require("node:worker_threads").Worker;
 
-const shell = import("./libs/elevate.mjs")
-
 const port = 3000;
 const app = express();
 
 eval(fs.readFileSync(path.join(__dirname, "libs", "packages.js")) + "");
 eval(fs.readFileSync(path.join(__dirname, "libs", "drives.js")) + "");
-eval(fs.readFileSync(path.join(__dirname, "libs", "elevate.js")) + "")
 
 var key = fs.readFileSync(__dirname + "/selfsigned.key");
 var cert = fs.readFileSync(__dirname + "/selfsigned.crt");
@@ -83,6 +80,45 @@ app.set("view engine", "ejs");
 app.use(compression());
 
 new Worker("./libs/packageWorker.js");
+
+class Shell {
+	constructor(username, shell, password, exitcall) {
+		// Username: Username to shell into
+		// Shell: Shell that will be used
+		// Password: Password to log into shell
+		// Exitcall: Callback that is ran on s_process exit
+		this.username = username;
+		this.shell = shell;
+		this.password = password;
+		this.s_process = chpr.exec(`su ${username}\n`);
+		this.authed = false;
+		this.s_process.stderr.on("data", (data) => {
+			console.log("Shell Err: " + data);
+			if (!this.authed && data.includes("su: Authentication failure")) {
+				throw new Error(`Failed to authentifcate as ${username}`);
+			}
+		});
+		this.s_process.stdout.on("data", (data) => {
+			console.log("Shell Out: " + data);
+		});
+		this.s_process.on("exit", (data) => {
+			console.log("Process Exit");
+			if (!this.authed) {
+				throw new Error(`Process failed before su could be finished`);
+			}
+			exitcall(data);
+		});
+		this.s_process.stdin.write(this.password + "\n");
+		this.authed = true;
+	}
+	write(command) {
+		this.s_process.stdin.write(command);
+		console.log("Shell In: " + command);
+	}
+	kill() {
+		this.s_process.kill();
+	}
+}
 
 function zlog(string, type) {
 	// ? Custom Zentrox login to replace console.log [Supprots info and error]
@@ -348,12 +384,13 @@ app.post("/setup/custom", (req, res) => {
 		);
 
 		// ? Installing packages
-		installPackage("vsftpd ufw", req.body.sudo); // * Install FTP server
-		chpr.exec(
-			`echo ${sudoSanitize(
-				req.body.sudo,
-			)} | sudo -S ufw enable; sudo ufw allow 20; sudo ufw allow 21; sudo systemctl stop --now vsftpd`,
-		);
+		// TODO Remove this code
+		// installPackage("vsftpd ufw", req.body.sudo); // * Install FTP server
+		// chpr.exec(
+		//	`echo ${sudoSanitize(
+		//		req.body.sudo,
+		//	)} | sudo -S ufw enable; sudo ufw allow 20; sudo ufw allow 21; sudo systemctl stop --now vsftpd`,
+		// );
 
 		// ? Creating system user
 		// * FTP
@@ -748,7 +785,7 @@ app.post("/api", (req, res) => {
 		console.log(req.body.enableFTP);
 		// Control ftp server
 		if (req.body.enableFTP == false) {
-			req.session.ftpShell.kill()
+			req.session.ftpShell.kill();
 			let [ftp_username, ftp_root, ftp_password, ftp_state] = fs
 				.readFileSync(path.join(zentroxInstPath, "ftp.txt"))
 				.toString("ascii")
@@ -759,11 +796,15 @@ app.post("/api", (req, res) => {
 			);
 		} else if (req.body.enableFTP == true) {
 			zlog("Starting FTP server");
-			let ftpProcess = new Shell("root", "sh", req.body.sudo)
-				ftpProcess.write(
-				`python3 ./libs/ftp.py ${os.userInfo().username}`
-			);
-						
+			let ftpProcess = new Shell("root", "sh", req.body.sudo, (data) => {
+				fs.writeFileSync(
+					path.join(zentroxInstPath, "ftp.txt"),
+					`${ftp_username}\n${ftp_root}\n${ftp_password}\n0`,
+				);
+				console.log(`FTP server exited with return of: \n${data}`);
+			});
+			ftpProcess.write(`python3 ./libs/ftp.py ${os.userInfo().username}`);
+			
 			req.session.ftpShell = ftpProcess;
 			let [ftp_username, ftp_root, ftp_password, ftp_state] = fs
 				.readFileSync(path.join(zentroxInstPath, "ftp.txt"))
@@ -791,7 +832,7 @@ app.post("/api", (req, res) => {
 			console.log("Enable/Disable FTP");
 		}
 
-		res.send({})
+		res.send({});
 	} else if (req.body.r == "fetchFTPconfig") {
 		// ? Send the current FTP information
 		const currentFtpUserUsername = fs
@@ -874,7 +915,7 @@ app.post("/api", (req, res) => {
 			process_number: process_number,
 		});
 	} else if (req.body.r == "permissions") {
-		res.send({username: os.userInfo().username})
+		res.send({ username: os.userInfo().username });
 	}
 });
 
