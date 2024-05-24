@@ -4,6 +4,48 @@
 # wervice@proton.me 
 # github.com/wervice/zentrox | Please 🌟 on GitHub
 
+npm_failed() {
+	echo -ne "❌ NPM failed while trying to install various NPM packages.\nDo you want to re-start the installation and ignore warnings? [y/N] "
+	read
+	if [[ $REPLY == "y" ]]; then
+		npm -q install express body-parser cookie-parser express-session node-os-utils ejs compression
+	else
+		echo "Program stopped"
+		exit -1
+	fi
+}
+
+python_failed() {
+	echo -ne "❌ The installer for Python modules failed. Do you want to ignore & restart pip3, use an alternative to pip3 or stop the program? [ignore/packageManager/N] "
+	read
+	if [[ $REPLY == "ignore" ]]; then
+		sudo pip3 -q install pyftpdlib PyOpenSSL --break-system-packages &> /dev/null
+	elif [[ $REPLY == "packageManager" ]]; then
+		echo "❓ Please enter the name of your package manager [apt/dnf/pacman/zypper]"
+		read PYTHON_PACKAGE_MANAGER
+		if [[ $PYTHON_PACKAGE_MANAGER == "apt" ]]; then
+			apt install python3-pyftpdlib python3-openssl -y &> /dev/null
+		elif [[ $PYTHON_PACKAGE_MANAGER == "dnf" ]]; then
+			dnf install python3-pyftpdlib python3-openssl -y &> /dev/null
+		elif [[ $PYTHON_PACKAGE_MANAGER == "pacman" ]]; then
+			pacman -Sy python3-pyftpdlib python3-openssl &> /dev/null
+		elif [[ $PYTHON_PACKAGE_MANAGER == "zypper" ]]; then
+			zypper -n install python3-pyftpdlib python3-openssl &> /dev/null
+		else
+			echo "❌ This package manager is not know to the installer.\nIt will attempt to run the command $PYTHON_PACKAGE_MANAGER install python3-pyopenssl python3-pyftpdlib -y"
+			$PYTHON_PACKAGE_MANAGER install python3-pyopenssl python3-pyftpdlib -y
+		fi
+	else
+		echo "Program stopped"
+		exit -1
+	fi
+}
+
+elevate() {
+	echo "⚠️  Elevated permissions required"
+	sudo echo "✅ Elevated"
+}
+
 echo -e '\033[34m'
 echo "███████╗███████╗███╗   ██╗████████╗██████╗  ██████╗ ██╗  ██╗"
 echo "╚══███╔╝██╔════╝████╗  ██║╚══██╔══╝██╔══██╗██╔═══██╗╚██╗██╔╝"
@@ -18,23 +60,22 @@ echo ""
 echo "This script will guide you through the process of installing and configuring zentrox."
 echo ""
 
-if [ "$EUID" -ne 0 ]; then
-  echo "Please run as root"
-  exit 1
-fi
+ACTUAL_USERNAME=""
 
-$ACTUAL_USERNAME=""
-
-echo "🤵 Please enter your linux username (not root): "
+echo -n "🤵 Please enter your linux username ($(whoami)) "
 read ACTUAL_USERNAME
 
-echo "🤵 Please enter your zentrox admin username (e.g. johndoe)"
+if [[ $ACTUAL_USERNAME == "" ]]; then
+	ACTUAL_USERNAME=$(whoami)
+fi
+
+echo -n "🤵 Please enter your zentrox admin username (e.g. johndoe) "
 read ADMIN_USERNAME
 
-echo "🔑 Please enter your zentrox admin password"
+echo -n "🔑 Please enter your zentrox admin password "
 read -s ADMIN_PASSWORD
-
-echo "🥏 Please enter a name for your zentrox server (e.g. glorious_server)"
+echo ""
+echo -n "🥏 Please enter a name for your zentrox server (e.g. glorious_server) "
 read ZENTROX_SERVER_NAME
 
 USERNAME_PATH="/home/$ACTUAL_USERNAME"
@@ -48,13 +89,13 @@ else
 	exit -1
 fi
 
-mkdir $ZENTROX_DATA_PATH
+mkdir $ZENTROX_DATA_PATH &> /dev/null || true
 
 if [[ $ZENTROX_PATH == "/" || $ZENTROX_PATH == $HOME || $ZENTROX_PATH == "$HOME/" ]] ; then
-	echo "⚠️  Critical problem detected: $ZENTROX_PATH equal to protected folder"
+	echo "⚠️ Critical problem detected: $ZENTROX_PATH equal to protected folder"
 fi
 
-echo "❓ Remove (rm -rf) $ZENTROX_PATH to make sure no old versions of Zentrox are left [Y/n]"
+echo -n "❓ Remove (rm -rf) $ZENTROX_PATH to make sure no old versions of Zentrox are left [Y/n] "
 
 read
 
@@ -67,7 +108,7 @@ rm -rf $ZENTROX_PATH
 
 echo "🔽 Cloning Zentrox to $ZENTROX_PATH"
 
-git clone https://github.com/Wervice/zentrox/ $ZENTROX_PATH # Clones Codelink repo to current folder
+git clone https://github.com/Wervice/zentrox/ $ZENTROX_PATH&> /dev/null # Clones Codelink repo to current folder
 
 cd $ZENTROX_PATH # Got to zentrox_server folder
 
@@ -92,20 +133,30 @@ then
 fi
 
 echo "⌛ Installing dependencies"
-npm -q install express body-parser cookie-parser express-session node-os-utils ejs compression || echo "❌ Installing NPM packages failed"
+if ! npm -q install express body-parser cookie-parser express-session node-os-utils ejs compression &> /dev/null; then
+	echo "❌ NPM package installation failed";
+	npm_failed;
+fi
 
 echo "✅ Installed NPM packages"
-
-sudo pip3 -H -q install pyftpdlib PyOpenSSL || echo "❌ Installing Python packages failed"
+										   
+if ! pip3 -q install pyftpdlib PyOpenSSL &> /dev/null; then
+	echo "❌ Python3 package installation failed"
+	python_failed
+fi
 
 echo "✅ Installed Python packages"
 
 echo "⌛ Compiling C programs"
-gcc ./libs/crypt_c.c -o ./libs/crypt_c -lcrypt || echo "❌ Compiling using gcc failed"
+if ! gcc ./libs/crypt_c.c -o ./libs/crypt_c -lcrypt; then
+	echo "❌ Compiling using GCC failed"
+fi
 
 echo "🔑 Generating selfsigned keys"
 
-echo "ℹ️  In the following, you will be asked to enter some information to generate the keys."
+echo "ℹ️ In the following, you will be asked to enter some information to generate tSSL keys and certificates."
+echo "ℹ️ You can all fields except the last two empty."
+echo "ℹ️ If you do not want to enter real information, you do not have to but it is recommended."
 
 echo ""
 
@@ -122,14 +173,13 @@ echo "✅ Generated .key, .crt and .pem file"
 
 echo "🤵 Creating user 'zentrox'"
 
-useradd -m -s /bin/bash "zentrox"
-usermod -aG root "zentrox"
+elevate
+sudo useradd -m -s /bin/bash "zentrox" &> /dev/null
+sudo usermod -aG root "zentrox" &> /dev/null
 USER_PASSWORD=$(openssl rand -base64 48)
-echo "zentrox:$USER_PASSWORD"
-echo $(echo $USER_PASSWORD | openssl aes-256-cbc -a -salt -pass pass:$ADMIN_PASSWORD) > "$ZENTROX_DATA_PATH/zentrox_user_password.txt" 
-
-sudo chown $ZENTROX_PATH/* $ACTUAL_USERNAME
-sudo chown $ZENTROX_PATH/* $ACTUAL_USERNAME
+echo "ℹ️  Changed Zentrox user password to $USER_PASSWORD"
+echo "zentrox:$USER_PASSWORD" | sudo chpasswd
+$(echo $(echo $USER_PASSWORD | openssl aes-256-cbc -a -salt -pass pass:$ADMIN_PASSWORD 2> /dev/null) > "$ZENTROX_DATA_PATH/zentrox_user_password.txt") &> /dev/null
 
 echo "📁 Creating file structure"
 touch "$ZENTROX_DATA_PATH/admin.txt"
@@ -137,12 +187,17 @@ touch "$ZENTROX_DATA_PATH/custom.txt"
 touch "$ZENTROX_DATA_PATH/regMode.txt"
 touch "$ZENTROX_DATA_PATH/setupDone.txt"
 touch "$ZENTROX_DATA_PATH/users.txt"
-mkdir "$ZENTROX_DATA_PATH/users"
+mkdir "$ZENTROX_DATA_PATH/users" &> /dev/null
+mkdir "$ZENTROX_DATA_PATH/users/$(echo $ADMIN_USERNAME | base64)" &> /dev/null
+touch "$ZENTROX_DATA_PATH/zentrox.txt" 
+openssl rand -base64 64 > "$ZENTROX_DATA_PATH/sessionSecret.txt"
 
-echo "$ADMIN_USERNAME" > "$ZENTROX_DATA_PATH/admin.txt"
-echo "$ZENTROX_SERVER_NAME\ndark" > "$ZENTROX_DATA_PATH/custom.txt"
+echo -n "$ADMIN_USERNAME" > "$ZENTROX_DATA_PATH/admin.txt"
+echo -ne "$ZENTROX_SERVER_NAME\ndark" > "$ZENTROX_DATA_PATH/custom.txt"
+echo -n "linkInvite" > "$ZENTROX_DATA_PATH/regMode.txt"
+echo -n "true" > "$ZENTROX_DATA_PATH/setupDone.txt"
+echo -n "$(echo -n $ADMIN_USERNAME | base64): $(echo -n "$ADMIN_PASSWORD" | sha512sum | cut -d ' ' -f 1): admin" > "$ZENTROX_DATA_PATH/users.txt"
+echo -ne "ftp_zentrox\n/\n$(echo -n "change_me" | sha512sum | cut -d ' ' -f 1)" > "$ZENTROX_DATA_PATH/ftp.txt"
 
-echo -e "The installer has downloaded Zentrox and created a fresh set of self-signed certificates.\nThese will be used to protect your connections from hackers.\nIn addition to that several new NPM packages and Python (pip3) packages were downloaded.\n \n You can exit this change log by pressing [q] at any time. In the following you'll get a full explanaition of what the installer did.\n1. The installer clones wervice/zentrox into ~/zentrox\n2. The installer uses NPM to download these packages\n   express body-parser cookie-parser express-session node-os-utils ejs compression\n3. The installer used pip to globally install pyftpd and PyOpenSSL\n4. The installer uses OpenSSL to generate a three files: .key, .crt and .pem\n5. The installer will start Zentrox as soon as you press q\n\nIf you have any further questions, please visit the repo: https://github.com/wervice/zentrox"
-
-echo "Starting Zentrox on port 3000"
-node index.js 
+echo "✅ Installation"
+echo "ℹ️  You can now start Zentrox using the command  [ cd $ZENTROX_PATH; node index.js ]"
