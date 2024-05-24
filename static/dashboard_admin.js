@@ -1,6 +1,6 @@
 currFPath = "/";
 
-updatingFTPstatus = false
+updatingFTPstatus = false;
 // Windows events
 
 window.onclick = function () {
@@ -83,7 +83,7 @@ window.onload = function () {
 		var FTPlocalRoot = null;
 		var ftpUserUsername = null;
 		var ftpUserPassword = null;
-		updatingFTPstatus = true
+		updatingFTPstatus = true;
 		rootInputModal(
 			"Elevated privileges",
 			"Please enter your root password to change these settings",
@@ -122,16 +122,15 @@ window.onload = function () {
 						} else {
 							document.getElementById("ftpError").innerHTML = "";
 						}
-						updatingFTPstatus = false
+						updatingFTPstatus = false;
 						return res.json(); // ! The JSON is empty => Fix on server side!!!!
 					})
 					.then(() => {
-						updatingFTPstatus = false
+						updatingFTPstatus = false;
 						fetchFTPconnectionInformation();
 						document.getElementById("ftpSettingsApply").innerText = "Apply";
 					});
-			}
-			
+			},
 		);
 	});
 };
@@ -143,7 +142,7 @@ setInterval(function () {
 	setRAMBar();
 	setDiskBar();
 	getDriveList();
-	getDeviceInformation();	
+	getDeviceInformation();
 	fetch("/api", {
 		method: "POST",
 		headers: {
@@ -162,10 +161,9 @@ setInterval(function () {
 		})
 		.then((data) => {
 			if (data["username"] != "root") {
-				document.getElementById("permissionError").hidden = false
-			}	
+				document.getElementById("permissionError").hidden = false;
+			}
 		});
-
 }, 1000);
 
 // Functions
@@ -805,7 +803,9 @@ function getDeviceInformation() {
 			return res.json();
 		})
 		.then((data) => {
-			if (!updatingFTPstatus) {document.getElementById("ftp_running").checked = data["enabled"];}
+			if (!updatingFTPstatus) {
+				document.getElementById("ftp_running").checked = data["enabled"];
+			}
 		});
 }
 
@@ -961,9 +961,8 @@ function errorModal(title, message, command, cancled = () => {}) {
 	document.getElementById("modalMessage").innerHTML = message;
 	document.getElementById("buttonConfirm").onclick = function () {
 		command();
-		killModalPopup()
+		killModalPopup();
 	};
-	
 }
 
 function confirmModal(title, message, command, cancled = () => {}) {
