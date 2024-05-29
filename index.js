@@ -23,6 +23,9 @@ const app = express();
 
 eval(fs.readFileSync(path.join(__dirname, "libs", "packages.js")) + "");
 eval(fs.readFileSync(path.join(__dirname, "libs", "drives.js")) + "");
+eval(
+	fs.readFileSync(path.join(__dirname, "libs", "cryptography_scripts.js")) + "",
+);
 
 var key = fs.readFileSync(__dirname + "/selfsigned.key");
 var cert = fs.readFileSync(__dirname + "/selfsigned.crt");
@@ -77,7 +80,12 @@ app.use(express.static("static"));
 app.set("views", __dirname + "/templates");
 app.engine("html", require("ejs").renderFile);
 app.set("view engine", "ejs");
-app.use(compression());
+app.use(
+	compression({
+		level: 9,
+		memLevel: 4,
+	}),
+);
 
 new Worker("./libs/packageWorker.js");
 
@@ -91,11 +99,13 @@ class Shell {
 		this.shell = shell;
 		this.password = password;
 		this.s_process = chpr.exec(`su ${username}\n`);
+		console.log("Shell summoned")
 		this.authed = false;
 		this.s_process.stderr.on("data", (data) => {
-			console.log("Shell Err: " + data);
-			if (!this.authed && data.includes("su: Authentication failure")) {
-				throw new Error(`Failed to authentifcate as ${username}`);
+			console.log("Stderr: "+data)	
+			if (data == "Password: ") {
+				this.s_process.stdin.write(this.password + "\n");
+console.log("Shell In: Entered password to shell "+password)
 			}
 		});
 		this.s_process.stdout.on("data", (data) => {
@@ -108,7 +118,7 @@ class Shell {
 			}
 			exitcall(data);
 		});
-		this.s_process.stdin.write(this.password + "\n");
+		
 		this.authed = true;
 	}
 	write(command) {
@@ -211,7 +221,6 @@ function startsetup() {
 	fs.mkdirSync(path.join(zentroxInstPath, "users"));
 	fs.writeFileSync(path.join(zentroxInstPath, "zentrox.txt"), "");
 	fs.writeFileSync(path.join(zentroxInstPath, "users.txt"), "");
-	fs.writeFileSync(path.join(zentroxInstPath, "vsftpd_passwd.txt"), "");
 }
 
 function sudoSanitize(string) {
@@ -231,6 +240,7 @@ function hash512(str) {
 app.get("/", (req, res) => {
 	// ? Main page
 	if (!fs.existsSync(path.join(zentroxInstPath, "setupDone.txt"))) {
+		console.log("Setup not done");
 		res.render(path.join(__dirname, "templates/index.html"));
 	} else {
 		if (req.session.signedIn != true) {
@@ -261,7 +271,6 @@ app.get("/", (req, res) => {
 });
 
 app.post("/login", (req, res) => {
-	// ? Login screen
 	var authTest = auth(req.body.username, req.body.password, req);
 	if (authTest == true) {
 		req.session.signedIn = true;
@@ -271,12 +280,29 @@ app.post("/login", (req, res) => {
 			fs.readFileSync(path.join(zentroxInstPath, "admin.txt"))
 		) {
 			req.session.isAdmin = true;
+			req.session.adminPassword = req.body.password;
+			req.session.zentroxPassword = decryptAES(
+				path.join(zentroxInstPath, "zentrox_user_password.txt"),
+				req.body.password,
+			);
+			console.log(req.session.zentroxPassword);
 		} else {
 			req.session.isAdmin = false;
 		}
 		res.send({
 			status: "s",
 		});
+		if (!fs.existsSync(path.join(zentroxInstPath, "allPackages.txt"))) {
+			var packagesString = String(new Date().getTime()) + "\n";
+			var allPackages = listPackages();
+			for (line of allPackages) {
+				packagesString = packagesString + "\n" + line;
+			}
+			fs.writeFileSync(
+				path.join(zentroxInstPath, "allPackages.txt"),
+				packagesString,
+			);
+		}
 	} else {
 		res.status("403").send({});
 	}
@@ -382,15 +408,6 @@ app.post("/setup/custom", (req, res) => {
 			path.join(zentroxInstPath, "allPackages.txt"),
 			packagesString,
 		);
-
-		// ? Installing packages
-		// TODO Remove this code
-		// installPackage("vsftpd ufw", req.body.sudo); // * Install FTP server
-		// chpr.exec(
-		//	`echo ${sudoSanitize(
-		//		req.body.sudo,
-		//	)} | sudo -S ufw enable; sudo ufw allow 20; sudo ufw allow 21; sudo systemctl stop --now vsftpd`,
-		// );
 
 		// ? Creating system user
 		// * FTP
@@ -507,9 +524,10 @@ app.get("/api", (req, res) => {
 
 app.get("/logout", (req, res) => {
 	//? Log user out of the Zentrox system
-	req.session.signedIn = null;
-	req.session.isAdmin = null;
-	zlog("Logout " + req.session, "info");
+	req.session.signedIn = false;
+	req.session.isAdmin = false;
+	req.session.adminPassword = "";
+	req.session.zentroxPassword = "";
 	setTimeout(function () {
 		res.redirect("/");
 	}, 1000);
@@ -796,15 +814,16 @@ app.post("/api", (req, res) => {
 			);
 		} else if (req.body.enableFTP == true) {
 			zlog("Starting FTP server");
-			let ftpProcess = new Shell("root", "sh", req.body.sudo, (data) => {
+			let ftpProcess = new Shell("zentrox", "sh", req.session.zentroxPassword, (data) => {
 				fs.writeFileSync(
 					path.join(zentroxInstPath, "ftp.txt"),
 					`${ftp_username}\n${ftp_root}\n${ftp_password}\n0`,
 				);
 				console.log(`FTP server exited with return of: \n${data}`);
 			});
-			ftpProcess.write(`python3 ./libs/ftp.py ${os.userInfo().username}`);
-			
+			setTimeout(() => {
+			ftpProcess.write(`python3 ./libs/ftp.py constantin \n`);}, 500)
+
 			req.session.ftpShell = ftpProcess;
 			let [ftp_username, ftp_root, ftp_password, ftp_state] = fs
 				.readFileSync(path.join(zentroxInstPath, "ftp.txt"))

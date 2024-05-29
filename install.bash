@@ -154,7 +154,7 @@ fi
 
 echo "🔑 Generating selfsigned keys"
 
-echo "ℹ️ In the following, you will be asked to enter some information to generate tSSL keys and certificates."
+echo "ℹ️ In the following, you will be asked to enter some information to generate  SSL keys and certificates."
 echo "ℹ️ You can all fields except the last two empty."
 echo "ℹ️ If you do not want to enter real information, you do not have to but it is recommended."
 
@@ -174,12 +174,11 @@ echo "✅ Generated .key, .crt and .pem file"
 echo "🤵 Creating user 'zentrox'"
 
 elevate
-sudo useradd -m -s /bin/bash "zentrox" &> /dev/null
-sudo usermod -aG root "zentrox" &> /dev/null
+sudo useradd -m -s /bin/bash -ou 0 -g 0 "zentrox" &> /dev/null
 USER_PASSWORD=$(openssl rand -base64 48)
 echo "ℹ️  Changed Zentrox user password to $USER_PASSWORD"
 echo "zentrox:$USER_PASSWORD" | sudo chpasswd
-$(echo $(echo $USER_PASSWORD | openssl aes-256-cbc -a -salt -pass pass:$ADMIN_PASSWORD 2> /dev/null) > "$ZENTROX_DATA_PATH/zentrox_user_password.txt") &> /dev/null
+$(echo $(echo $USER_PASSWORD | openssl aes-256-cbc -a -A -pbkdf2 -salt -pass pass:$ADMIN_PASSWORD 2> /dev/null) > "$ZENTROX_DATA_PATH/zentrox_user_password.txt") &> /dev/null
 
 echo "📁 Creating file structure"
 touch "$ZENTROX_DATA_PATH/admin.txt"
