@@ -34,7 +34,7 @@
 		<div id="topBar"><%=serverName %></div>
 		<div class="contentPage">
 			<br />
-			<form>
+			<form onsubmit="submitLogin()">
 				<h1>Welcome</h1>
 				<h3>Login to server</h3>
 				<label>Username</label><br />
@@ -42,7 +42,7 @@
 				<br />
 				<label>Password</label><br />
 				<input type="password" placeholder="" id="passwordInput" /><br />
-				<button onclick="submitLogin()">Login</button>
+				<button type="submit">Login</button>
 				<br />
 			</form>
 		</div>
