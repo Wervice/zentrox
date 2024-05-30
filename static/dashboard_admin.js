@@ -645,11 +645,6 @@ function updateFTPConnectionSettings() {
 	var ftpUserUsername = document.getElementById("ftpUserUsername").value;
 	var ftpUserPassword = document.getElementById("ftpUserPassword").value;
 
-	if (ftpUserPassword.length == 0) {
-		document.getElementById("ftpUserPassword").focus();
-		return;
-	}
-
 	rootInputModal(
 		"Elevated privileges",
 		"Please enter your root password to change these settings",
