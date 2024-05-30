@@ -62,7 +62,7 @@ If you already have a .key and .crt, please copy it to the folder and call it se
 
 To install Zentrox, please run the following commands in your terminal:
 
-`curl -fsSL https://raw.githubusercontent.com/Wervice/zentrox/main/install.sh | bash`
+`curl -fsSL https://raw.githubusercontent.com/Wervice/zentrox/main/install.bash | bash`
 
 Zentrox only supports Linux at the time.
 

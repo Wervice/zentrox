@@ -60,6 +60,8 @@ echo ""
 echo "This script will guide you through the process of installing and configuring zentrox."
 echo ""
 
+echo -e "Zentrox and related applications come with absolutely no guarantee\nEvery further step is done on your own risk\n"
+
 ACTUAL_USERNAME=""
 
 echo -n "🤵 Please enter your linux username ($(whoami)) "
