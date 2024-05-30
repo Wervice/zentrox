@@ -810,6 +810,11 @@ app.post("/api", (req, res) => {
 				`${ftp_username}\n${ftp_root}\n${ftp_password}\n0`,
 			);
 		} else if (req.body.enableFTP == true) {
+			if (fs
+				.readFileSync(path.join(zentroxInstPath, "ftp.txt"))
+				.toString("ascii")
+				.split("\n")[3] != "1") {			
+
 			zlog("Starting FTP server");
 			let ftpProcess = new Shell(
 				"zentrox",
@@ -835,6 +840,7 @@ app.post("/api", (req, res) => {
 				path.join(zentroxInstPath, "ftp.txt"),
 				`${ftp_username}\n${ftp_root}\n${ftp_password}\n1`,
 			);
+			}
 		}
 
 		// Write changes to ftp.txt
