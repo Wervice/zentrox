@@ -60,7 +60,7 @@ echo ""
 echo "This script will guide you through the process of installing and configuring zentrox."
 echo ""
 
-echo -e "Zentrox and related applications come with absolutely no guarantee\nEvery further step is done on your own risk\n"
+echo -e "Zentrox and related applications come with absolutely no guarantee\nEvery further step is done on your own risk\nBy installing Zentrox you agree to this and the Apache 2.0 license included with Zentrox"
 
 ACTUAL_USERNAME=""
 
