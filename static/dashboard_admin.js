@@ -738,6 +738,15 @@ function fetchFTPconnectionInformation() {
 			document.getElementById("ftpUserUsername").value =
 				data["ftpUserUsername"];
 			document.getElementById("ftpLocalRoot").value = data["ftpLocalRoot"];
+			if (data["enabled"] == true) {
+				document.getElementById("ftpUserUsername").disabled = true
+				document.getElementById("ftpUserPassword").disabled = true
+				document.getElementById("ftpLocalRoot").disabled = true
+			} else {
+				document.getElementById("ftpUserUsername").disabled = false
+				document.getElementById("ftpUserPassword").disabled = false
+				document.getElementById("ftpLocalRoot").disabled = false
+			}
 		});
 }
 

@@ -26,6 +26,9 @@
 	outline: none;
 	filter: brightness(1.2);
 }
+*:disabled {
+	filter: brightness(0.9);
+}
 
 * {
 	font-family: "Work Sans", sans-serif;
