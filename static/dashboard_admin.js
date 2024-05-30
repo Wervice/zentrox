@@ -143,27 +143,7 @@ setInterval(function () {
 	setDiskBar();
 	getDriveList();
 	getDeviceInformation();
-	fetch("/api", {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-		},
-		body: JSON.stringify({
-			r: "permissions",
-		}),
-	})
-		.then((res) => {
-			if (!res.ok) {
-				failPopup("Failed to check permissions");
-				throw new Error("Failed to check permissions");
-			}
-			return res.json();
-		})
-		.then((data) => {
-			if (data["username"] != "root") {
-				document.getElementById("permissionError").hidden = false;
-			}
-		});
+
 }, 1000);
 
 // Functions
@@ -794,6 +774,10 @@ function getDeviceInformation() {
 			document.getElementById("zentrox_pid").innerText = data["zentrox_pid"];
 			document.getElementById("process_number").innerText =
 				data["process_number"];
+			document.getElementById("hostname").innerText =
+				data["hostname"];
+			document.getElementById("uptime").innerText =
+				data["uptime"];
 		});
 	fetch("/api", {
 		method: "POST",

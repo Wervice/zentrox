@@ -459,6 +459,11 @@ div.warning {
 		font-size: 0px;
 		padding: 0px;
 		margin-bottom: 5px;
+		text-align: center;
+		img {
+			width: 25px;
+			padding-right: 10px;
+		}
 	}
 
 	#sideBar h2 {
@@ -466,7 +471,7 @@ div.warning {
 	}
 
 	#sideBar {
-		width: min-content;
+		width: 40px;
 	}
 
 	#filesContainer {
