@@ -800,7 +800,9 @@ app.post("/api", (req, res) => {
 		}
 		zlog("Change FTP Settings");
 		if (req.body.enableFTP == false) {
+			try {
 			chpr.execSync(`echo ${req.body.sudo} | sudo -S kill ${fs.readFileSync(path.join(zentroxInstPath, "ftpPid.txt")).toString("ascii")}`)
+			} catch {}
 			let [ftp_username, ftp_root, ftp_password, ftp_state] = fs
 				.readFileSync(path.join(zentroxInstPath, "ftp.txt"))
 				.toString("ascii")
@@ -843,6 +845,10 @@ app.post("/api", (req, res) => {
 			}
 		}
 
+		if (req.body.ftpUserPassword.length == 0) { new_ftp_password = fs.readFileSync(path.join(zentroxInstPath, "ftp.txt")).toString("ascii").split("\n")[2] } else {
+			new_ftp_password = hash512(req.body.ftpUserPassword)
+		}
+
 		// Write changes to ftp.txt
 		if (req.body.enableDisable == undefined) {
 			fs.writeFileSync(
@@ -851,7 +857,7 @@ app.post("/api", (req, res) => {
 					"\n" +
 					req.body.ftpLocalRoot +
 					"\n" +
-					hash512(req.body.ftpUserPassword) +
+					new_ftp_password +
 					"\n" +
 					(req.body.enableFTP == true ? "1" : "0"),
 			);
