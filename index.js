@@ -67,7 +67,7 @@ app.use(
 			.toString("utf8"),
 		name: "currentSessionCookies",
 		saveUninitialized: true,
-		resave: true,
+		resave: false,
 		cookie: {
 			sameSite: true,
 			secure: true,
@@ -99,13 +99,13 @@ class Shell {
 		this.shell = shell;
 		this.password = password;
 		this.s_process = chpr.exec(`su ${username}\n`);
-		console.log("Shell summoned")
+		console.log("Shell summoned");
 		this.authed = false;
 		this.s_process.stderr.on("data", (data) => {
-			console.log("Stderr: "+data)	
+			console.log("Stderr: " + data);
 			if (data == "Password: ") {
 				this.s_process.stdin.write(this.password + "\n");
-console.log("Shell In: Entered password to shell "+password)
+				console.log("Shell In: Entered password to shell " + password);
 			}
 		});
 		this.s_process.stdout.on("data", (data) => {
@@ -118,8 +118,9 @@ console.log("Shell In: Entered password to shell "+password)
 			}
 			exitcall(data);
 		});
-		
+
 		this.authed = true;
+		this.pid = this.s_process.pid;
 	}
 	write(command) {
 		this.s_process.stdin.write(command);
@@ -793,17 +794,13 @@ app.post("/api", (req, res) => {
 		}
 	} else if (req.body.r == "updateFTPconfig") {
 		// ? Change the FTP configuration on the system
-
 		if (!req.session.isAdmin) {
 			res.status(403).send("You have no permissions to access this resource");
 			return;
 		}
-
 		zlog("Change FTP Settings");
-		console.log(req.body.enableFTP);
-		// Control ftp server
 		if (req.body.enableFTP == false) {
-			req.session.ftpShell.kill();
+			chpr.execSync(`echo ${req.body.sudo} | sudo -S kill ${fs.readFileSync(path.join(zentroxInstPath, "ftpPid.txt")).toString("ascii")}`)
 			let [ftp_username, ftp_root, ftp_password, ftp_state] = fs
 				.readFileSync(path.join(zentroxInstPath, "ftp.txt"))
 				.toString("ascii")
@@ -814,17 +811,22 @@ app.post("/api", (req, res) => {
 			);
 		} else if (req.body.enableFTP == true) {
 			zlog("Starting FTP server");
-			let ftpProcess = new Shell("zentrox", "sh", req.session.zentroxPassword, (data) => {
-				fs.writeFileSync(
-					path.join(zentroxInstPath, "ftp.txt"),
-					`${ftp_username}\n${ftp_root}\n${ftp_password}\n0`,
-				);
-				console.log(`FTP server exited with return of: \n${data}`);
-			});
+			let ftpProcess = new Shell(
+				"zentrox",
+				"sh",
+				req.session.zentroxPassword,
+				(data) => {
+					fs.writeFileSync(
+						path.join(zentroxInstPath, "ftp.txt"),
+						`${ftp_username}\n${ftp_root}\n${ftp_password}\n0`,
+					);
+					console.log(`FTP server exited with return of: \n${data}`);
+				},
+			);
 			setTimeout(() => {
-			ftpProcess.write(`python3 ./libs/ftp.py constantin \n`);}, 500)
+				ftpProcess.write(`python3 ./libs/ftp.py constantin \n`);
+			}, 500);
 
-			req.session.ftpShell = ftpProcess;
 			let [ftp_username, ftp_root, ftp_password, ftp_state] = fs
 				.readFileSync(path.join(zentroxInstPath, "ftp.txt"))
 				.toString("ascii")

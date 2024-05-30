@@ -24,11 +24,13 @@ class DummySHA512Authorizer(DummyAuthorizer):
             raise AuthenticationFailed
 
 def main():
+    with open(os.path.join(home_path, "zentrox_data", "ftpPid.txt"), "w") as config_file_writer:
+        config_file_writer.write(str(os.getpid()))
     with open(os.path.join(home_path, "zentrox_data", "ftp.txt"), "r") as config_file:
         config_file_content = config_file.read()
         authorizer = DummySHA512Authorizer()
         
-        authorizer.add_user(config_file_content.split("\n")[0], config_file_content.split("\n")[2], config_file_content.split("\n")[1], "elradfmwMT")
+        authorizer.add_user(config_file_content.split("\n")[0], config_file_content.split("\n")[2], config_file_content.split("\n")[1], "elradfmwMT") # <- What you are seeing here is infact not random gibberish. Deleting this string may ruing the whole dammed thing
 
         handler = TLS_FTPHandler
         handler.certfile = "selfsigned.pem"
