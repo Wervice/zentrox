@@ -143,7 +143,6 @@ setInterval(function () {
 	setDiskBar();
 	getDriveList();
 	getDeviceInformation();
-
 }, 1000);
 
 // Functions
@@ -714,13 +713,13 @@ function fetchFTPconnectionInformation() {
 				data["ftpUserUsername"];
 			document.getElementById("ftpLocalRoot").value = data["ftpLocalRoot"];
 			if (data["enabled"] == true) {
-				document.getElementById("ftpUserUsername").disabled = true
-				document.getElementById("ftpUserPassword").disabled = true
-				document.getElementById("ftpLocalRoot").disabled = true
+				document.getElementById("ftpUserUsername").disabled = true;
+				document.getElementById("ftpUserPassword").disabled = true;
+				document.getElementById("ftpLocalRoot").disabled = true;
 			} else {
-				document.getElementById("ftpUserUsername").disabled = false
-				document.getElementById("ftpUserPassword").disabled = false
-				document.getElementById("ftpLocalRoot").disabled = false
+				document.getElementById("ftpUserUsername").disabled = false;
+				document.getElementById("ftpUserPassword").disabled = false;
+				document.getElementById("ftpLocalRoot").disabled = false;
 			}
 		});
 }
@@ -769,10 +768,8 @@ function getDeviceInformation() {
 			document.getElementById("zentrox_pid").innerText = data["zentrox_pid"];
 			document.getElementById("process_number").innerText =
 				data["process_number"];
-			document.getElementById("hostname").innerText =
-				data["hostname"];
-			document.getElementById("uptime").innerText =
-				data["uptime"];
+			document.getElementById("hostname").innerText = data["hostname"];
+			document.getElementById("uptime").innerText = data["uptime"];
 		});
 	fetch("/api", {
 		method: "POST",
