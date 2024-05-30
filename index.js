@@ -893,7 +893,7 @@ app.post("/api", (req, res) => {
 			return;
 		}
 
-		const dfOutput = chpr.execSync("df -P").toString("ascii"); // TODO Replace with execSync
+		const dfOutput = chpr.execSync("df -P").toString("ascii");
 		const dfLines = dfOutput.trim().split("\n").slice(1); // ? Split output by lines, removing header
 		const dfData = dfLines.map((line) => {
 			const [filesystem, size, used, available, capacity, mounted] =
@@ -905,6 +905,7 @@ app.post("/api", (req, res) => {
 			ussage: dfData,
 		});
 	} else if (req.body.r == "deviceInformation") {
+		if (!req.session.isAdmin) return;
 		let os_name = chpr
 			.execSync("lsb_release -d", { stdio: "pipe", timeout: 500 })
 			.toString("ascii")
@@ -935,11 +936,15 @@ app.post("/api", (req, res) => {
 		let process_number = chpr
 			.execSync(" ps -e | wc -l", { stdio: "pipe" })
 			.toString("ascii");
+		let uptime = chpr.execSync("uptime -p").toString("ascii").replace("up ", "")
+		let hostname = chpr.execSync("hostname").toString("ascii").replace("\n", "")
 		res.send({
 			os_name: os_name,
 			power_supply: battery_string,
 			zentrox_pid: zentrox_pid,
 			process_number: process_number,
+			hostname: hostname,
+			uptime: uptime
 		});
 	} else if (req.body.r == "permissions") {
 		res.send({ username: os.userInfo().username });
