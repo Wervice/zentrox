@@ -53,27 +53,21 @@ If you already have a .key and .crt, please copy it to the folder and call it se
 
 ### Requirements
 
-- NodeJS 18+
-- git
-- npm
-- Linux
+- Node.JS (Version 22+)
+- Python (Version 3.11+)
+- NPM
+- Pip3
+- Linux (OpenSUSE is not supported at the time)
 
 ### Installing
 
-To install Zentrox, please run the following commands in your terminal:
+1. Run the following command in your terminal:
 
-`curl -fsSL https://raw.githubusercontent.com/Wervice/zentrox/main/install.bash | bash`
+`curl -fsSL https://raw.githubusercontent.com/Wervice/zentrox/main/install.bash -o zentrox_installer.bash; bash zentrox_installer.bash`
 
-Zentrox only supports Linux at the time.
-
-After installing Zentrox, it will store it the server code in `~/zentrox` and the config, user data... in `~/zentrox_data`
-It will now be hosted on [https://localhost:3000](https://localhost:3000).
-
-Zentrox will now be hosted on [https://localhost:3000](https://localhost:3000).
-
-Depending on your your SSL certificates, you may be prompted with a warning about the connection being insecure.  
-You can ignore this.
-If you want to, you can get an official certificate for this, but your connection will still be fairly safe without one.
+2. Follow the installer.
+3. Run `cd ~/zentrox; node zentrox.js` to get started.
+4. Go to `https://localhost:3000` and login with your newly configured admin username and password.
 
 ## 🗃️ Usage
 
