@@ -286,7 +286,6 @@ app.post("/login", (req, res) => {
 				path.join(zentroxInstPath, "zentrox_user_password.txt"),
 				req.body.password,
 			);
-			console.log(req.session.zentroxPassword);
 		} else {
 			req.session.isAdmin = false;
 		}
@@ -801,7 +800,9 @@ app.post("/api", (req, res) => {
 		zlog("Change FTP Settings");
 		if (req.body.enableFTP == false) {
 			try {
-			chpr.execSync(`echo ${req.body.sudo} | sudo -S kill ${fs.readFileSync(path.join(zentroxInstPath, "ftpPid.txt")).toString("ascii")}`)
+				chpr.execSync(
+					`echo ${req.body.sudo} | sudo -S kill ${fs.readFileSync(path.join(zentroxInstPath, "ftpPid.txt")).toString("ascii")}`,
+				);
 			} catch {}
 			let [ftp_username, ftp_root, ftp_password, ftp_state] = fs
 				.readFileSync(path.join(zentroxInstPath, "ftp.txt"))
@@ -812,45 +813,52 @@ app.post("/api", (req, res) => {
 				`${ftp_username}\n${ftp_root}\n${ftp_password}\n0`,
 			);
 		} else if (req.body.enableFTP == true) {
-			if (fs
-				.readFileSync(path.join(zentroxInstPath, "ftp.txt"))
-				.toString("ascii")
-				.split("\n")[3] != "1") {			
+			if (
+				fs
+					.readFileSync(path.join(zentroxInstPath, "ftp.txt"))
+					.toString("ascii")
+					.split("\n")[3] != "1"
+			) {
+				zlog("Starting FTP server");
+				let ftpProcess = new Shell(
+					"zentrox",
+					"sh",
+					req.session.zentroxPassword,
+					(data) => {
+						fs.writeFileSync(
+							path.join(zentroxInstPath, "ftp.txt"),
+							`${ftp_username}\n${ftp_root}\n${ftp_password}\n0`,
+						);
+						console.log(`FTP server exited with return of: \n${data}`);
+					},
+				);
+				setTimeout(() => {
+					ftpProcess.write(`python3 ./libs/ftp.py ${os.userInfo().username} \n`);
+				}, 500);
 
-			zlog("Starting FTP server");
-			let ftpProcess = new Shell(
-				"zentrox",
-				"sh",
-				req.session.zentroxPassword,
-				(data) => {
-					fs.writeFileSync(
-						path.join(zentroxInstPath, "ftp.txt"),
-						`${ftp_username}\n${ftp_root}\n${ftp_password}\n0`,
-					);
-					console.log(`FTP server exited with return of: \n${data}`);
-				},
-			);
-			setTimeout(() => {
-				ftpProcess.write(`python3 ./libs/ftp.py constantin \n`);
-			}, 500);
-
-			let [ftp_username, ftp_root, ftp_password, ftp_state] = fs
-				.readFileSync(path.join(zentroxInstPath, "ftp.txt"))
-				.toString("ascii")
-				.split("\n");
-			fs.writeFileSync(
-				path.join(zentroxInstPath, "ftp.txt"),
-				`${ftp_username}\n${ftp_root}\n${ftp_password}\n1`,
-			);
+				let [ftp_username, ftp_root, ftp_password, ftp_state] = fs
+					.readFileSync(path.join(zentroxInstPath, "ftp.txt"))
+					.toString("ascii")
+					.split("\n");
+				fs.writeFileSync(
+					path.join(zentroxInstPath, "ftp.txt"),
+					`${ftp_username}\n${ftp_root}\n${ftp_password}\n1`,
+				);
 			}
 		}
 
-		if (req.body.ftpUserPassword.length == 0) { new_ftp_password = fs.readFileSync(path.join(zentroxInstPath, "ftp.txt")).toString("ascii").split("\n")[2] } else {
-			new_ftp_password = hash512(req.body.ftpUserPassword)
-		}
-
+		
 		// Write changes to ftp.txt
 		if (req.body.enableDisable == undefined) {
+if (req.body.ftpUserPassword.length == 0) {
+			new_ftp_password = fs
+				.readFileSync(path.join(zentroxInstPath, "ftp.txt"))
+				.toString("ascii")
+				.split("\n")[2];
+		} else {
+			new_ftp_password = hash512(req.body.ftpUserPassword);
+		}
+
 			fs.writeFileSync(
 				path.join(zentroxInstPath, "ftp.txt"),
 				req.body.ftpUserUsername +
@@ -942,15 +950,21 @@ app.post("/api", (req, res) => {
 		let process_number = chpr
 			.execSync(" ps -e | wc -l", { stdio: "pipe" })
 			.toString("ascii");
-		let uptime = chpr.execSync("uptime -p").toString("ascii").replace("up ", "")
-		let hostname = chpr.execSync("hostname").toString("ascii").replace("\n", "")
+		let uptime = chpr
+			.execSync("uptime -p")
+			.toString("ascii")
+			.replace("up ", "");
+		let hostname = chpr
+			.execSync("hostname")
+			.toString("ascii")
+			.replace("\n", "");
 		res.send({
 			os_name: os_name,
 			power_supply: battery_string,
 			zentrox_pid: zentrox_pid,
 			process_number: process_number,
 			hostname: hostname,
-			uptime: uptime
+			uptime: uptime,
 		});
 	} else if (req.body.r == "permissions") {
 		res.send({ username: os.userInfo().username });
