@@ -80,7 +80,11 @@ echo ""
 echo -n "🥏 Please enter a name for your zentrox server (e.g. glorious_server) "
 read ZENTROX_SERVER_NAME
 
-USERNAME_PATH="/home/$ACTUAL_USERNAME"
+if [[ $ACTUAL_USERNAME != "root" ]]; then
+	USERNAME_PATH="/home/$ACTUAL_USERNAME"
+else
+	USERNAME_PATH="/root"
+fi
 
 if [ -d $USERNAME_PATH ]; then
 	echo "✅ Using $USERNAME_PATH/zentrox and $USERNAME_PATH/zentrox_data to install and run zentrox"
@@ -101,12 +105,10 @@ echo -n "❓ Remove (rm -rf) $ZENTROX_PATH to make sure no old versions of Zentr
 
 read
 
-if [[ $REPLY != "Y" ]]; then
+if [[ $REPLY == "n" ]]; then
 	echo "Program stopped"
 	exit 0
 fi
-
-rm -rf $ZENTROX_PATH
 
 echo "🔽 Cloning Zentrox to $ZENTROX_PATH"
 
@@ -132,6 +134,11 @@ then
 	echo "❌ The command to do this may look like this:"
 	echo -E "❌ sudo apt install python3"
 	exit -1
+fi
+
+if ! command git -v &> /dev null
+then
+	echo "❌ Git is not installed"
 fi
 
 echo "⌛ Installing dependencies"
