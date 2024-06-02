@@ -314,28 +314,52 @@ label[for="showHiddenFiles"] {
 }
 
 .package {
-	height: 120px;
-	max-height: 120px;
-	width: 10%;
+	width: calc(25%);
+	max-height: 50px !important;
 	text-overflow: ellipsis;
+	text-align: left !important;
 	overflow: hidden;
 	padding: 10px;
 	vertical-align: middle;
 	border-radius: 2.5px;
 	border: 1px solid #333;
-	text-align: center;
-	align-content: center;
 	white-space: nowrap;
 	display: inline-block;
-	margin: 15px;
-
+	margin: 5px;
 	&:hover {
 		background-color: #222 !important;
 	}
 
+	button {
+		float: right;
+		vertical-align: middle;
+		width: 35px !important;
+		height: 35px !important;
+		border-radius: 50px !important;
+		transition: ease-in-out 0.25s;
+		img {
+			width: 20px;
+			height: 20px;
+			padding: 0px !important;
+			margin: 0px !important;
+			margin-top: -2px;
+		}
+
+		&:hover {
+			transform: scale(1.2);
+			filter: brightness(1.1);
+		}
+
+		&:focus{
+			transform: scale(1.1);
+		}
+	}
+
 	& img {
-		height: 50px;
-		width: 50px;
+		height: 40px;
+		width: 40px;
+		vertical-align: middle;
+		margin-right: 10px;
 	}
 }
 
@@ -381,11 +405,12 @@ label[for="showHiddenFiles"] {
 #installedPackages,
 #packageSearchResults {
 	overflow-y: scroll;
-	height: calc(100vh - 190px);
+	height: calc(100vh - 220px);
 	margin: 9px;
 	width: calc(100vw - 220px) !important;
 	padding: 10px;
 	cursor: default;
+	text-align: center;
 }
 
 #installedApps::-webkit-scrollbar,
@@ -550,4 +575,10 @@ small {
 	display: inline-block;
 	vertical-align: top;
 	cursor: default;
+}
+
+#hostname_subtitle,
+#temperature,
+#small_uptime {
+	padding-left: 15px;
 }

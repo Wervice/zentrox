@@ -289,22 +289,11 @@ app.post("/login", (req, res) => {
 		} else {
 			req.session.isAdmin = false;
 		}
-		res.send({
-			status: "s",
-		});
-		if (!fs.existsSync(path.join(zentroxInstPath, "allPackages.txt"))) {
-			var packagesString = String(new Date().getTime()) + "\n";
-			var allPackages = listPackages();
-			for (line of allPackages) {
-				packagesString = packagesString + "\n" + line;
-			}
-			fs.writeFileSync(
-				path.join(zentroxInstPath, "allPackages.txt"),
-				packagesString,
-			);
-		}
+		res.send({});
 	} else {
-		res.status("403").send({});
+		res.status(403).send({
+			message: "Wrong password or username",
+		});
 	}
 });
 
@@ -515,7 +504,7 @@ app.get("/api", (req, res) => {
 			);
 		}
 	} else {
-		res.status("403").send({
+		res.status(403).send({
 			status: "f",
 			text: "No supported command",
 		});
@@ -662,6 +651,17 @@ app.post("/api", (req, res) => {
 	} else if (req.body.r == "packageDatabase") {
 		// ? Send the entire package database to the front end
 		// * Early return if not admin
+		if (!fs.existsSync(path.join(zentroxInstPath, "allPackages.txt"))) {
+			var packagesString = String(new Date().getTime()) + "\n";
+			var allPackages = listPackages();
+			for (line of allPackages) {
+				packagesString = packagesString + "\n" + line;
+			}
+			fs.writeFileSync(
+				path.join(zentroxInstPath, "allPackages.txt"),
+				packagesString,
+			);
+		}
 		if (!req.session.isAdmin) {
 			res.status(403).send("You have no permissions to access this resource");
 			return;
@@ -724,8 +724,7 @@ app.post("/api", (req, res) => {
 						"data:image/svg+xml;base64," +
 						fs.readFileSync(getIconForPackage(appIconName)).toString("base64"); // ? Icon as Base64 for package
 				} else {
-					var iconForPackage =
-						"data:image/svg+xml;base64," + empty_image_encoded; // ? "Missing icon" SVG as Base64
+					var iconForPackage = "empty"
 				}
 
 				guiApplications[guiApplications.length] = [
@@ -800,9 +799,12 @@ app.post("/api", (req, res) => {
 		zlog("Change FTP Settings");
 		if (req.body.enableFTP == false) {
 			try {
-				chpr.execSync(
-					`echo ${req.body.sudo} | sudo -S kill ${fs.readFileSync(path.join(zentroxInstPath, "ftpPid.txt")).toString("ascii")}`,
-				);
+				let killShell = new Shell("zentrox", "sh", req.session.zentroxPassword);
+				setTimeout(() => {
+					killShell.write(
+						`echo ${req.body.sudo} | sudo -S kill ${fs.readFileSync(path.join(zentroxInstPath, "ftpPid.txt")).toString("ascii")}\n`,
+					);
+				}, 500);
 			} catch {}
 			let [ftp_username, ftp_root, ftp_password, ftp_state] = fs
 				.readFileSync(path.join(zentroxInstPath, "ftp.txt"))
@@ -833,7 +835,9 @@ app.post("/api", (req, res) => {
 					},
 				);
 				setTimeout(() => {
-					ftpProcess.write(`python3 ./libs/ftp.py ${os.userInfo().username} \n`);
+					ftpProcess.write(
+						`python3 ./libs/ftp.py ${os.userInfo().username} \n`,
+					);
 				}, 500);
 
 				let [ftp_username, ftp_root, ftp_password, ftp_state] = fs
@@ -847,17 +851,16 @@ app.post("/api", (req, res) => {
 			}
 		}
 
-		
 		// Write changes to ftp.txt
 		if (req.body.enableDisable == undefined) {
-if (req.body.ftpUserPassword.length == 0) {
-			new_ftp_password = fs
-				.readFileSync(path.join(zentroxInstPath, "ftp.txt"))
-				.toString("ascii")
-				.split("\n")[2];
-		} else {
-			new_ftp_password = hash512(req.body.ftpUserPassword);
-		}
+			if (req.body.ftpUserPassword.length == 0) {
+				new_ftp_password = fs
+					.readFileSync(path.join(zentroxInstPath, "ftp.txt"))
+					.toString("ascii")
+					.split("\n")[2];
+			} else {
+				new_ftp_password = hash512(req.body.ftpUserPassword);
+			}
 
 			fs.writeFileSync(
 				path.join(zentroxInstPath, "ftp.txt"),
@@ -958,6 +961,18 @@ if (req.body.ftpUserPassword.length == 0) {
 			.execSync("hostname")
 			.toString("ascii")
 			.replace("\n", "");
+		try {
+			var system_temperature =
+				Math.round(
+					Number(
+						fs
+							.readFileSync("/sys/class/thermal/thermal_zone0/temp")
+							.toString("ascii"),
+					) / 1000,
+				) + "°C";
+		} catch {
+			var system_temperature = "N/A";
+		}
 		res.send({
 			os_name: os_name,
 			power_supply: battery_string,
@@ -965,9 +980,20 @@ if (req.body.ftpUserPassword.length == 0) {
 			process_number: process_number,
 			hostname: hostname,
 			uptime: uptime,
+			temperature: system_temperature,
 		});
-	} else if (req.body.r == "permissions") {
-		res.send({ username: os.userInfo().username });
+	} else if (req.body.r == "power_off") {
+		if (!req.session.isAdmin) return;
+		let shutdown_handler = new Shell(
+			"zentrox",
+			"sh",
+			req.session.zentroxPassword,
+			() => {},
+		);
+		setTimeout(() => {
+			shutdown_handler.write("sudo poweroff\n");
+		}, 500);
+		res.send({});
 	}
 });
 

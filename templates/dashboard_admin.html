@@ -49,6 +49,9 @@
 		</div>
 		<div id="sideBar">
 			<h2>Zentrox</h2>
+			<span id="hostname_subtitle" title="Hostname"></span><br />
+			<span id="temperature" title="System temperature"></span><br />
+			<span id="small_uptime" title="Uptime hours only"></span><br>
 
 			<button onclick="changePage('overview')">
 				<img src="status.png" alt="status" />Overview</button
@@ -70,6 +73,9 @@
 				<img src="network.png" alt="users" />Connections</button
 			><br />
 			<button><img src="settings.png" alt="settings" />Settings</button><br />
+			<button onclick="poweroffSystem()">
+				<img src="poweroff.png" alt="poweroff" />Power Off</button
+			><br />
 			<button onclick="location.href='/logout'">
 				<img src="logout.png" alt="logout" />Logout
 			</button>

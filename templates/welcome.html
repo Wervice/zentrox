@@ -7,7 +7,7 @@
 		<link rel="stylesheet" href="welcome.css" />
 		<link rel="shortcut icon" href="Zentrox.ico" type="image/x-icon" />
 		<script>
-			function submitLogin() {
+			function submitLogin(event) {
 				(username = document.getElementById("usernameInput").value),
 					(password = document.getElementById("passwordInput").value);
 				fetch("/login", {
@@ -19,13 +19,13 @@
 						username: username,
 						password: password,
 					}),
-				})
-					.then((res) => res.json())
-					.then((data) => {
-						if (data["status"] == "s") {
-							location.href = "/dashboard";
-						}
-					});
+				}).then((res) => {
+					if (!res.ok) {
+						document.getElementById("note").innerHTML = "Login failed<br><br>";
+					} else {
+						location.href = "/dashboard";
+					}
+				});
 			}
 		</script>
 	</head>
@@ -34,17 +34,16 @@
 		<div id="topBar"><%=serverName %></div>
 		<div class="contentPage">
 			<br />
-			<form onsubmit="submitLogin()">
-				<h1>Welcome</h1>
-				<h3>Login to server</h3>
-				<label>Username</label><br />
-				<input type="text" placeholder="" id="usernameInput" />
-				<br />
-				<label>Password</label><br />
-				<input type="password" placeholder="" id="passwordInput" /><br />
-				<button type="submit">Login</button>
-				<br />
-			</form>
+			<h1>Welcome</h1>
+			<h3>Login to server</h3>
+			<small style="color: red" id="note"></small>
+			<label>Username</label><br />
+			<input type="text" placeholder="" id="usernameInput" />
+			<br />
+			<label>Password</label><br />
+			<input type="password" placeholder="" id="passwordInput" /><br />
+			<button onclick="submitLogin()">Login</button>
+			<br />
 		</div>
 
 		<img src="Zentrox.png" id="logo" />

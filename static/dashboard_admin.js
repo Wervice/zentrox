@@ -84,57 +84,49 @@ window.onload = function () {
 		var ftpUserUsername = null;
 		var ftpUserPassword = null;
 		updatingFTPstatus = true;
-		rootInputModal(
-			"Elevated privileges",
-			"Please enter your root password to change these settings",
-			"sudoPasswordFTP",
-			"password",
-			function () {
-				// TODO Not yet reading the sudo password
-				document.getElementById("ftpSettingsApply").innerText = "Updating";
-				fetch("/api", {
-					method: "POST",
-					headers: {
-						"Content-Type": "application/json",
-					},
-					body: JSON.stringify({
-						r: "updateFTPconfig",
-						enableFTP: document.getElementById("ftp_running").checked,
-						ftpLocalRoot: FTPlocalRoot,
-						ftpUserUsername: ftpUserUsername,
-						ftpUserPassword: ftpUserPassword,
-						sudo: document.getElementById("sudoPasswordFTP").value,
-						enableDisable: true,
-					}),
-				})
-					.then((res) => {
-						if (!res.ok) {
-							res.json().then(function (jsonResponse) {
-								document.getElementById("ftpSettingsApply").innerHTML =
-									"Failed (retry)";
-								document.getElementById("ftpError").innerHTML =
-									jsonResponse["details"];
-								failPopup("Failed to update FTP configuration");
-								document.getElementById("ftp_running").checked =
-									!document.getElementById("ftp_running").checked;
-								throw new Error("Failed to update FTP configuration");
-							});
-						} else {
-							document.getElementById("ftpError").innerHTML = "";
-						}
-						updatingFTPstatus = false;
-						return res.json(); // ! The JSON is empty => Fix on server side!!!!
-					})
-					.then(() => {
-						updatingFTPstatus = false;
-						fetchFTPconnectionInformation();
-						document.getElementById("ftpSettingsApply").innerText = "Apply";
-					});
+
+		// TODO Not yet reading the sudo password
+		document.getElementById("ftpSettingsApply").innerText = "Updating";
+		fetch("/api", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
 			},
-		);
+			body: JSON.stringify({
+				r: "updateFTPconfig",
+				enableFTP: document.getElementById("ftp_running").checked,
+				ftpLocalRoot: FTPlocalRoot,
+				ftpUserUsername: ftpUserUsername,
+				ftpUserPassword: ftpUserPassword,
+				sudo: document.getElementById("sudoPasswordFTP").value,
+				enableDisable: true,
+			}),
+		})
+			.then((res) => {
+				if (!res.ok) {
+					res.json().then(function (jsonResponse) {
+						document.getElementById("ftpSettingsApply").innerHTML =
+							"Failed (retry)";
+						document.getElementById("ftpError").innerHTML =
+							jsonResponse["details"];
+						failPopup("Failed to update FTP configuration");
+						document.getElementById("ftp_running").checked =
+							!document.getElementById("ftp_running").checked;
+						throw new Error("Failed to update FTP configuration");
+					});
+				} else {
+					document.getElementById("ftpError").innerHTML = "";
+				}
+				updatingFTPstatus = false;
+				return res.json(); // ! The JSON is empty => Fix on server side!!!!
+			})
+			.then(() => {
+				updatingFTPstatus = false;
+				fetchFTPconnectionInformation();
+				document.getElementById("ftpSettingsApply").innerText = "Apply";
+			});
 	});
 };
-
 // Intervals
 
 setInterval(function () {
@@ -497,13 +489,15 @@ function renderApplicationManagerList() {
 				if (e != undefined) {
 					var htmlCode =
 						htmlCode +
-						"<div class='package'><img src='" +
-						e[1] +
-						"'><br>" +
+						"<div class='package'>"+
+						function (e) {
+							if (e[1] === "empty") return "<img src='empty.svg'>"
+							return `<img src=${e[1]}>`
+						}(e)  +						
 						e[0].split(".")[0].replace("-", " ") +
-						"<br><button class='remove_package' onclick='removePackage(\"" +
+						"<button class='remove_package' onclick='removePackage(\"" +
 						e[2] +
-						"\", this)'>Remove</button></div>";
+						"\", this)'><img src='minus.png'></button></div>";
 					console.log(e[1]);
 				}
 			}
@@ -543,8 +537,10 @@ function lookForPackage() {
 						`<div class=package_small>${e.split(".")[0]} <button class=remove_package onclick=\"removePackage('${e}', this)\">Remove</button></div>`;
 				}
 			}
+		}
 
-			for (e of allApps) {
+		if (packageName.length > 1) {
+			for (e of [...new Set(Array.prototype.concat(allApps, anyApps))]) {
 				if (e.includes(packageName)) {
 					var htmlCode =
 						htmlCode +
@@ -552,7 +548,12 @@ function lookForPackage() {
 				}
 			}
 		}
+
 		document.getElementById("packageSearchResults").innerHTML = htmlCode;
+		if (htmlCode == "") {
+			document.getElementById("packageSearchResults").innerHTML =
+				`<div style="text-align:center">No results</div>`;
+		}
 	} else {
 		document.getElementById("packageSearchResults").hidden = true;
 		document.getElementById("installedPackagesDetails").hidden = false;
@@ -562,8 +563,8 @@ function lookForPackage() {
 
 function removePackage(packageName, button) {
 	confirmModal(
-		"Remove app",
-		"<input type='password' placeholder='SUDO Password' id='sudoPasswordInput'>",
+		"Remove package",
+		"<input type='password' placeholder='Root password' id='sudoPasswordInput'>",
 		function () {
 			button.innerHTML = "In work";
 			button.disabled = true;
@@ -589,11 +590,9 @@ function removePackage(packageName, button) {
 					return res.json();
 				})
 				.then((data) => {
-					if (document.getElementById("packageSearch").value.length > 0) {
-						lookForPackage();
-					} else {
-						renderApplicationManagerList();
-					}
+					button.innerHTML = "Install";
+					button.classList.remove("remove_package");
+					button.classList.add("install_package");
 				});
 		},
 	);
@@ -628,7 +627,9 @@ function installPackage(packageName, button) {
 					return res.json();
 				})
 				.then((data) => {
-					renderApplicationManagerList();
+					button.innerHTML = "Remove";
+					button.classList.remove("install_package");
+					button.classList.add("remove_package");
 				});
 		},
 	);
@@ -769,7 +770,11 @@ function getDeviceInformation() {
 			document.getElementById("process_number").innerText =
 				data["process_number"];
 			document.getElementById("hostname").innerText = data["hostname"];
+			document.getElementById("hostname_subtitle").innerText = data["hostname"];
 			document.getElementById("uptime").innerText = data["uptime"];
+			document.getElementById("small_uptime").innerText =
+				data["uptime"].split(", ")[0];
+			document.getElementById("temperature").innerText = data["temperature"];
 		});
 	fetch("/api", {
 		method: "POST",
@@ -792,6 +797,35 @@ function getDeviceInformation() {
 				document.getElementById("ftp_running").checked = data["enabled"];
 			}
 		});
+}
+
+function poweroffSystem() {
+	confirmModal(
+		"Power off system",
+		"Do you want to power off the system",
+		() => {
+			fetch("/api", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					r: "power_off",
+				}),
+			})
+				.then((res) => {
+					if (!res.ok) {
+						failPopup("Can not power off");
+						throw new Error("Failed to power off system");
+					}
+					return res.json();
+				})
+				.then((data) => {
+					document.documentElement.innerHTML = "System Power Off";
+				});
+		},
+		() => {},
+	);
 }
 
 // Modal.js
@@ -909,6 +943,19 @@ cssCode = `@keyframes fly-in {
     animation-duration: 1s;
 }
 
+#failPopup {
+    position: fixed;
+    left: 20px;
+    bottom: 20px;
+    padding: 10px;
+    border-radius: 5px;
+    background-color: #333;
+    color: white;
+    border: solid 1px #777;
+    animation-name: fade-in;
+    animation-duration: 1s;
+}
+
 `;
 code = `
         <div id='modalMain' hidden>
@@ -919,6 +966,7 @@ code = `
         </div>
         <div id='failPopup' hidden>
         </div>
+		<div id='statusPopup' hidden></div>
 `; // * The HTML Code for a popup
 
 popupDataIsThere = false;
@@ -1045,4 +1093,12 @@ function failPopup(message) {
 	setTimeout(function () {
 		fadeOut("failPopup", 3000);
 	}, 3000);
+}
+
+function statusPopup(message) {
+	document.getElementById("statusPopup").hidden = false;
+	document.getElementById("statusPopup").innerHTML = "✅ " + message;
+	setTimeout(function () {
+		fadeOut("failPopup", 5000);
+	}, 5000);
 }
