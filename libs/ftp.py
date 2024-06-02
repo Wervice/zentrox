@@ -8,6 +8,8 @@ import sys
 import os
 
 home_path = "/home/"+sys.argv[1]
+config_file_path = os.path.join(home_path, "zentrox_data", "ftp.txt")
+
 if sys.argv[1] == "root":
     home_path = "/root"
 
@@ -33,10 +35,18 @@ def main():
         authorizer.add_user(config_file_content.split("\n")[0], config_file_content.split("\n")[2], config_file_content.split("\n")[1], "elradfmwMT") # <- What you are seeing here is infact not random gibberish. Deleting this string may ruing the whole dammed thing
 
         handler = TLS_FTPHandler
-        handler.certfile = "selfsigned.pem"
+        handler.certfile = os.path.join(home_path, "zentrox", "selfsigned.pem")
         handler.authorizer = authorizer
 
         server = FTPServer(('', 21), handler)
         server.serve_forever()
 
+#try:
 main()
+#except Exception as error:
+ #   print(error)
+  #  config_file_r = open(config_file, "r").read()
+   # config_file_r.split("\n") 
+   # config_file_contents = config_file_r[0] + config_file_r[1] + config_file_r[2]+"0"
+   # open(config_file, "w").write(config_file_contents)
+   # exit()
