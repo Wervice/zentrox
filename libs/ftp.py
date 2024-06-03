@@ -41,12 +41,8 @@ def main():
         server = FTPServer(('', 21), handler)
         server.serve_forever()
 
-#try:
-main()
-#except Exception as error:
- #   print(error)
-  #  config_file_r = open(config_file, "r").read()
-   # config_file_r.split("\n") 
-   # config_file_contents = config_file_r[0] + config_file_r[1] + config_file_r[2]+"0"
-   # open(config_file, "w").write(config_file_contents)
-   # exit()
+try:
+    main()
+except Exception as error:
+    print(error)
+    exit()
