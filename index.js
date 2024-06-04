@@ -99,32 +99,34 @@ class Shell {
 		this.shell = shell;
 		this.password = password;
 		this.s_process = chpr.exec(`su ${username}\n`);
-		console.log("Shell summoned");
+		this.pid = this.s_process.pid;
+		this.authed = false
+		zlog("Shell summoned", "info");
 		this.authed = false;
 		this.s_process.stderr.on("data", (data) => {
-			console.log("Stderr: " + data);
-			if (data == "Password: ") {
+			zlog("Stderr: " + data.toString("ascii").endsWith('\n') ? data.toString("ascii").slice(0, -1) : data.toString("ascii"), "info");
+			if (data == "Password: " && !this.authed) {
 				this.s_process.stdin.write(this.password + "\n");
-				console.log("Shell In: Entered password to shell " + password);
+				zlog("Entered password to shell", "info");
+				this.authed = true
 			}
 		});
 		this.s_process.stdout.on("data", (data) => {
-			console.log("Shell Out: " + data);
+			zlog("Shell Out: " + data.toString("ascii").endsWith('\n') ? data.toString("ascii").slice(0, -1) : data.toString("ascii"), "info");
 		});
 		this.s_process.on("exit", (data) => {
-			console.log("Process Exit");
-			if (!this.authed) {
-				throw new Error(`Process failed before su could be finished`);
-			}
+			zlog("Shell exit ("+this.pid+")", "error");
 			exitcall(data);
-		});
-
-		this.authed = true;
-		this.pid = this.s_process.pid;
+		});		
 	}
 	write(command) {
-		this.s_process.stdin.write(command);
-		console.log("Shell In: " + command);
+		if (this.authed) {
+			this.s_process.stdin.write(command);
+			zlog("Shell In: " + command, "info");
+		}
+		else {
+			setTimeout(() => {this.write(command)}, 500)
+		}
 	}
 	kill() {
 		this.s_process.kill();
@@ -802,7 +804,7 @@ app.post("/api", (req, res) => {
 				let killShell = new Shell("zentrox", "sh", req.session.zentroxPassword);
 				setTimeout(() => {
 					killShell.write(
-						`echo ${req.body.sudo} | sudo -S kill ${fs.readFileSync(path.join(zentroxInstPath, "ftpPid.txt")).toString("ascii")}\n`,
+						`sudo kill ${fs.readFileSync(path.join(zentroxInstPath, "ftpPid.txt")).toString("ascii")}\n`,
 					);
 				}, 500);
 			} catch {}
@@ -873,7 +875,7 @@ app.post("/api", (req, res) => {
 					(req.body.enableFTP == true ? "1" : "0"),
 			);
 		} else {
-			console.log("Enable/Disable FTP");
+			zlog("Enable/Disable FTP was requested (dashboard toggle used)", "info");
 		}
 
 		res.send({});
@@ -971,7 +973,7 @@ app.post("/api", (req, res) => {
 					) / 1000,
 				) + "°C";
 		} catch {
-			var system_temperature = "N/A";
+			var system_temperature = null;
 		}
 		res.send({
 			os_name: os_name,

@@ -98,7 +98,6 @@ window.onload = function () {
 				ftpLocalRoot: FTPlocalRoot,
 				ftpUserUsername: ftpUserUsername,
 				ftpUserPassword: ftpUserPassword,
-				sudo: document.getElementById("sudoPasswordFTP").value,
 				enableDisable: true,
 			}),
 		})
@@ -774,7 +773,7 @@ function getDeviceInformation() {
 			document.getElementById("uptime").innerText = data["uptime"];
 			document.getElementById("small_uptime").innerText =
 				data["uptime"].split(", ")[0];
-			document.getElementById("temperature").innerText = data["temperature"];
+			document.getElementById("temperature").innerText = data["temperature"] != null ? data[temperature] : `No temerpature`;
 		});
 	fetch("/api", {
 		method: "POST",
