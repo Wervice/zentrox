@@ -16,6 +16,7 @@ const session = require("express-session");
 const https = require("https");
 const osu = require("node-os-utils");
 const chpr = require("child_process");
+const database = require("mime-db");
 const Worker = require("node:worker_threads").Worker;
 
 const port = 3000;
@@ -26,6 +27,9 @@ eval(fs.readFileSync(path.join(__dirname, "libs", "drives.js")) + "");
 eval(
 	fs.readFileSync(path.join(__dirname, "libs", "cryptography_scripts.js")) + "",
 );
+eval(
+	fs.readFileSync(path.join(__dirname, "libs", "mapbase.js")) + "",
+);
 
 var key = fs.readFileSync(__dirname + "/selfsigned.key");
 var cert = fs.readFileSync(__dirname + "/selfsigned.crt");
@@ -35,6 +39,9 @@ var options = {
 };
 
 const zentroxInstPath = path.join(os.homedir(), "zentrox_data/");
+
+writeDatabase(path.join(zentroxInstPath, "config.db"), "ftp_running", "0")
+writeDatabase(path.join(zentroxInstPath, "config.db"), "ftp_pid", "1")
 
 if (!fs.existsSync(path.join(zentroxInstPath, "sessionSecret.txt"))) {
 	if (!fs.existsSync(zentroxInstPath)) {
@@ -248,18 +255,10 @@ app.get("/", (req, res) => {
 	} else {
 		if (req.session.signedIn != true) {
 			res.render(path.join(__dirname, "templates/welcome.html"), {
-				serverName: fs
-					.readFileSync(path.join(zentroxInstPath, "custom.txt"))
-					.toString()
-					.split("\n")[0]
-					.replaceAll("<", "&lt")
-					.replaceAll(">", "&gt"),
+				serverName: readDatabase(path.join(zentroxInstPath, "config.db"), "server_name"),
 				registrationButton: (function () {
 					if (
-						fs
-							.readFileSync(path.join(zentroxInstPath, "regMode.txt"))
-							.toString()
-							.split("\n")[0] == "public"
+						readDatabase(path.join(zentroxInstPath, "config.db"), "reg_mode") == "public"
 					) {
 						return "<button class=outline onclick=location.href='signup'>Sign up</button>";
 					} else {
@@ -309,10 +308,7 @@ app.get("/signup", (req, res) => {
 			res.redirect("/dashboard");
 		} else {
 			res.render("signup.html", {
-				serverName: fs
-					.readFileSync(path.join(zentroxInstPath, "custom.txt"))
-					.toString()
-					.split("\n")[0],
+				serverName: readDatabase(path.join(zentroxInstPath, "config.db"), "server_name")
 			});
 		}
 	} else {
@@ -339,84 +335,6 @@ app.get("/setup", (req, res) => {
 		res.render(path.join(__dirname, "templates/setup.html"));
 	} else {
 		res.redirect("/");
-	}
-});
-
-app.post("/setup/registAdmin", (req, res) => {
-	// ? Create admin user in setup
-	if (fs.existsSync(path.join(zentroxInstPath, "admin.txt"))) {
-		res.status(403).send("This action is not allowed");
-	} else {
-		newUser(req.body.adminUsername, req.body.adminPassword, "admin");
-		fs.writeFileSync(
-			path.join(zentroxInstPath, "admin.txt"),
-			req.body.adminUsername,
-		);
-		req.session.isAdmin = true;
-		res.send({
-			status: "s",
-		});
-	}
-});
-
-app.post("/setup/regMode", (req, res) => {
-	// ? Change registration mode in setup
-	if (fs.existsSync(path.join(zentroxInstPath, "regMode.txt"))) {
-		res.status(403).send("This action is not allowed");
-	} else {
-		fs.writeFileSync(
-			path.join(zentroxInstPath, "regMode.txt"),
-			req.body.regMode,
-		);
-		res.send({
-			status: "s",
-		});
-	}
-});
-
-app.post("/setup/custom", (req, res) => {
-	// ? Final installation changes
-	if (fs.existsSync(path.join(zentroxInstPath, "custom.txt"))) {
-		res.status(403).send("This action is not allowed");
-	} else {
-		fs.writeFileSync(
-			path.join(zentroxInstPath, "custom.txt"),
-			req.body.serverName + "\n" + req.body.cltheme,
-		);
-
-		// ? Finish setup process
-		fs.writeFileSync(path.join(zentroxInstPath, "setupDone.txt"), "true");
-		req.session.signedIn = true;
-		req.session.isAdmin = true;
-
-		// ? Write package list to folder for the 1. time
-		var packagesString = String(new Date().getTime()) + "\n";
-		var allPackages = listPackages();
-		for (line of allPackages) {
-			packagesString = packagesString + "\n" + line;
-		}
-		fs.writeFileSync(
-			path.join(zentroxInstPath, "allPackages.txt"),
-			packagesString,
-		);
-
-		// ? Creating system user
-		// * FTP
-
-		fs.writeFileSync(
-			path.join(zentroxInstPath, "ftp.txt"),
-			"ftp_zentrox\n/\n" + hash512("change_me") + "\n0",
-		);
-		try {
-			chpr.exec(
-				`echo ${sudoSanitize(req.body.sudo)}
-          | sudo -S useradd ftp_zentrox`,
-				{ stdio: "pipe" },
-			);
-		} catch {}
-		res.send({
-			status: "s",
-		});
 	}
 });
 
@@ -804,24 +722,15 @@ app.post("/api", (req, res) => {
 				let killShell = new Shell("zentrox", "sh", req.session.zentroxPassword);
 				setTimeout(() => {
 					killShell.write(
-						`sudo kill ${fs.readFileSync(path.join(zentroxInstPath, "ftpPid.txt")).toString("ascii")}\n`,
+						`sudo kill ${readDatabase(path.join(zentroxInstPath, "config.db"), "ftp_pid")}\n`,
 					);
 				}, 500);
 			} catch {}
-			let [ftp_username, ftp_root, ftp_password, ftp_state] = fs
-				.readFileSync(path.join(zentroxInstPath, "ftp.txt"))
-				.toString("ascii")
-				.split("\n");
-			fs.writeFileSync(
-				path.join(zentroxInstPath, "ftp.txt"),
-				`${ftp_username}\n${ftp_root}\n${ftp_password}\n0`,
-			);
+		
+			writeDatabase(path.join(zentroxInstPath, "config.db"), "ftp_running", "0")	
 		} else if (req.body.enableFTP == true) {
 			if (
-				fs
-					.readFileSync(path.join(zentroxInstPath, "ftp.txt"))
-					.toString("ascii")
-					.split("\n")[3] != "1"
+				readDatabase(path.join(zentroxInstPath, "config.db"), "ftp_running") != "1"
 			) {
 				zlog("Starting FTP server");
 				let ftpProcess = new Shell(
@@ -829,10 +738,8 @@ app.post("/api", (req, res) => {
 					"sh",
 					req.session.zentroxPassword,
 					(data) => {
-						fs.writeFileSync(
-							path.join(zentroxInstPath, "ftp.txt"),
-							`${ftp_username}\n${ftp_root}\n${ftp_password}\n0`,
-						);
+						writeDatabase(path.join(zentroxInstPath, "config.db"), "ftp_running", "0")
+						writeDatabase(path.join(zentroxInstPath, "config.db"), "ftp_pid", "")
 						console.log(`FTP server exited with return of: \n${data}`);
 					},
 				);
@@ -842,38 +749,19 @@ app.post("/api", (req, res) => {
 					);
 				}, 500);
 
-				let [ftp_username, ftp_root, ftp_password, ftp_state] = fs
-					.readFileSync(path.join(zentroxInstPath, "ftp.txt"))
-					.toString("ascii")
-					.split("\n");
-				fs.writeFileSync(
-					path.join(zentroxInstPath, "ftp.txt"),
-					`${ftp_username}\n${ftp_root}\n${ftp_password}\n1`,
-				);
+				writeDatabase(path.join(zentroxInstPath, "config.db"), "ftp_running", "1")	
 			}
 		}
 
 		// Write changes to ftp.txt
 		if (req.body.enableDisable == undefined) {
-			if (req.body.ftpUserPassword.length == 0) {
-				new_ftp_password = fs
-					.readFileSync(path.join(zentroxInstPath, "ftp.txt"))
-					.toString("ascii")
-					.split("\n")[2];
-			} else {
+			if (req.body.ftpUserPassword.length != 0) {
 				new_ftp_password = hash512(req.body.ftpUserPassword);
+				writeDatabase(path.join(zentroxInstPath, "config.db"), "ftp_password", new_ftp_password)
 			}
-
-			fs.writeFileSync(
-				path.join(zentroxInstPath, "ftp.txt"),
-				req.body.ftpUserUsername +
-					"\n" +
-					req.body.ftpLocalRoot +
-					"\n" +
-					new_ftp_password +
-					"\n" +
-					(req.body.enableFTP == true ? "1" : "0"),
-			);
+			writeDatabase(path.join(zentroxInstPath, "config.db"), "ftp_username", req.body.ftpUserUsername)
+			writeDatabase(path.join(zentroxInstPath, "config.db"), "ftp_root", req.body.ftpLocalRoot)
+			writeDatabase(path.join(zentroxInstPath, "config.db"), "ftp_running", (req.body.enableFTP == true ? "1" : "0"))
 		} else {
 			zlog("Enable/Disable FTP was requested (dashboard toggle used)", "info");
 		}
@@ -881,16 +769,6 @@ app.post("/api", (req, res) => {
 		res.send({});
 	} else if (req.body.r == "fetchFTPconfig") {
 		// ? Send the current FTP information
-		const currentFtpUserUsername = fs
-			.readFileSync(path.join(zentroxInstPath, "ftp.txt"))
-			.toString("utf-8")
-			.split("\n")[0];
-
-		const localRoot = fs
-			.readFileSync(path.join(zentroxInstPath, "ftp.txt"))
-			.toString("utf-8")
-			.split("\n")[1];
-
 		if (!req.session.isAdmin) {
 			res.status(403).send("You have no permissions to access this resource");
 			return;
@@ -898,12 +776,9 @@ app.post("/api", (req, res) => {
 
 		res.send({
 			enabled:
-				fs
-					.readFileSync(path.join(zentroxInstPath, "ftp.txt"))
-					.toString("ascii")
-					.split("\n")[3] == "1",
-			ftpUserUsername: currentFtpUserUsername,
-			ftpLocalRoot: localRoot,
+				readDatabase(path.join(zentroxInstPath, "config.db"), "ftp_running") == "1",
+			ftpUserUsername: readDatabase(path.join(zentroxInstPath, "config.db"), "ftp_username"),
+			ftpLocalRoot: readDatabase(path.join(zentroxInstPath, "config.db"), "ftp_root"),
 		});
 	} else if (req.body.r == "driveInformation") {
 		// ? Send the current drive information to the frontent
