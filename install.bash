@@ -149,7 +149,7 @@ fi
 
 echo "✅ Installed NPM packages"
 										   
-if ! pip3 -q install pyftpdlib PyOpenSSL &> /dev/null; then
+if ! sudo pip3 -q install pyftpdlib PyOpenSSL &> /dev/null; then
 	echo "❌ Python3 package installation failed"
 	python_failed
 fi
@@ -191,8 +191,6 @@ $(echo $(echo $USER_PASSWORD | openssl aes-256-cbc -a -A -pbkdf2 -salt -pass pas
 
 echo "📁 Creating file structure"
 touch "$ZENTROX_DATA_PATH/admin.txt"
-touch "$ZENTROX_DATA_PATH/custom.txt"
-touch "$ZENTROX_DATA_PATH/regMode.txt"
 touch "$ZENTROX_DATA_PATH/setupDone.txt"
 touch "$ZENTROX_DATA_PATH/users.txt"
 mkdir "$ZENTROX_DATA_PATH/users" &> /dev/null
@@ -200,12 +198,21 @@ mkdir "$ZENTROX_DATA_PATH/users/$(echo $ADMIN_USERNAME | base64)" &> /dev/null
 touch "$ZENTROX_DATA_PATH/zentrox.txt" 
 openssl rand -base64 64 > "$ZENTROX_DATA_PATH/sessionSecret.txt"
 
+touch $ZENTROX_DATA_PATH/config.db
+
+$ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db server_name $ZENTROX_SERVER_NAME
+$ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db reg_mode linkInvite
+$ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db server_name $ZENTROX_SERVER_NAME
+$ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db ftp_pid 0000
+$ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db ftp_running 0
+$ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db ftp_username ftp_zentrox
+$ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db ftp_password $(echo -n "change_me" | sha512sum | cut -d ' ' -f 1)
+$ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db ftp_root /
+$ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db zentrox_user_password $(echo $USER_PASSWORD | openssl aes-256-cbc -a -A -pbkdf2 -salt -pass pass:$ADMIN_PASSWORD)
+
 echo -n "$ADMIN_USERNAME" > "$ZENTROX_DATA_PATH/admin.txt"
-echo -ne "$ZENTROX_SERVER_NAME\ndark" > "$ZENTROX_DATA_PATH/custom.txt"
-echo -n "linkInvite" > "$ZENTROX_DATA_PATH/regMode.txt"
 echo -n "true" > "$ZENTROX_DATA_PATH/setupDone.txt"
 echo -n "$(echo -n $ADMIN_USERNAME | base64): $(echo -n "$ADMIN_PASSWORD" | sha512sum | cut -d ' ' -f 1): admin" > "$ZENTROX_DATA_PATH/users.txt"
-echo -ne "ftp_zentrox\n/\n$(echo -n "change_me" | sha512sum | cut -d ' ' -f 1)" > "$ZENTROX_DATA_PATH/ftp.txt"
 
 echo "✅ Installation"
 echo "ℹ️  You can now start Zentrox using the command  [ cd $ZENTROX_PATH; node index.js ]"

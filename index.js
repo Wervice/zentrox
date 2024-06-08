@@ -171,16 +171,7 @@ function auth(username, password) {
 	}
 }
 
-try {
-	let [ftp_username, ftp_root, ftp_password, ftp_state] = fs
-		.readFileSync(path.join(zentroxInstPath, "ftp.txt"))
-		.toString("ascii")
-		.split("\n");
-	fs.writeFileSync(
-		path.join(zentroxInstPath, "ftp.txt"),
-		`${ftp_username}\n${ftp_root}\n${ftp_password}\n0`,
-	);
-} catch {}
+
 
 function newUser(username, password, role = "user") {
 	// ? Create new Zentrox user
@@ -284,7 +275,7 @@ app.post("/login", (req, res) => {
 			req.session.isAdmin = true;
 			req.session.adminPassword = req.body.password;
 			req.session.zentroxPassword = decryptAES(
-				path.join(zentroxInstPath, "zentrox_user_password.txt"),
+				readDatabase(path.join(zentroxInstPath, "config.db"), "zentrox_user_password"),
 				req.body.password,
 			);
 		} else {
