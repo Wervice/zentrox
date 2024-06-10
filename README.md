@@ -10,11 +10,9 @@
 
 <h3 align="center">Easy server admin and setup</h3>
 
-![GitHub License](https://img.shields.io/github/license/Wervice/zentrox?style=for-the-badge)
 ![GitHub Repo stars](https://img.shields.io/github/stars/Wervice/zentrox?style=for-the-badge)
 ![JavaScript](https://img.shields.io/badge/JavaScript-white.svg?style=for-the-badge&logo=javascript&logoColor=black&color=gold)
-![C](https://img.shields.io/badge/C%20Language-white.svg?style=for-the-badge&logo=c&logoColor=white&color=blue)
-![Linux](https://img.shields.io/badge/Linux-white.svg?style=for-the-badge&logo=linux&logoColor=white&color=grey)
+[![Post on X](https://img.shields.io/badge/Post%20on%20X-white.svg?style=for-the-badge&logo=x&logoColor=white&color=black)](https://x.com/intent/post?text=https%3A%2F%2Fgithub.com%2Fwervice%2Fzentrox)
 
 > [!IMPORTANT]
 > ⚠️ Zentrox is a work in progress
@@ -58,6 +56,7 @@ If you already have a .key and .crt, please copy it to the folder and call it se
 - NPM
 - Pip3
 - Linux (OpenSUSE is not supported at the time)
+- OpenSSL
 
 ### Installing
 
@@ -86,24 +85,6 @@ You can remove Zentrox by deleting the zentrox_server folder. If you also want t
 
 > [!IMPORTANT]
 > You can not restore your data using Zentrox after removing it once.
-
-### System changes
-
-Zentrox changes a few configurations on your system, so it will work properly. These are:
-
-#### FTP
-
-1. Installing vsftpd and ufw
-2. Enabling ufw
-3. Allowing port 20 and 21 using ufw for FTP
-4. Creating an FTP user called ftp_zentrox (This will change, if you change the user later using zentrox; The user has the default password `change_me` and not shell access)
-   The user will also get no home folder
-5. Changing /etc/vsftpd.conf (The last few lines after the last comment)
-   - Use vsftpd.userlist
-   - Set local root to / (you can change that later)
-   - Enable userlist
-   - Sub token user to $USER
-6. Stopping / Starting vsftpd
 
 # ❓ Why...
 

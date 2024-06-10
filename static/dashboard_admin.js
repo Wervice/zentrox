@@ -489,10 +489,6 @@ function renderApplicationManagerList() {
 					var htmlCode =
 						htmlCode +
 						"<div class='package'>"+
-						function (e) {
-							if (e[1] === "empty") return "<img src='empty.svg'>"
-							return `<img src=${e[1]}>`
-						}(e)  +						
 						e[0].split(".")[0].replace("-", " ") +
 						"<button class='remove_package' onclick='removePackage(\"" +
 						e[2] +
