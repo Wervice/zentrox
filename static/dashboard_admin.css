@@ -6,8 +6,8 @@
 :root {
 	--accent-color: #1f9af7;
 	--accent-color-dark: #1278c5;
-	--red: #ff4848;
-	--green: #65a017;
+	--red: #ff3a3a;
+	--green: #bcff58;
 }
 
 ::selection {
@@ -77,10 +77,10 @@ input[type="text"],
 input[type="password"],
 select {
 	margin: 8px;
-	margin-left: 0px;
+	margin-left: 5px;
 	padding: 8px;
 	font-size: large;
-	border-radius: 8px;
+	border-radius: 2.5px;
 	color: white;
 	background-color: #222;
 	border: 0px;
@@ -89,7 +89,7 @@ select {
 }
 
 input[type="checkbox"] {
-	margin-top: -1px;
+	margin-top: 2px;
 	appearance: none;
 	vertical-align: middle;
 	width: 15px;
@@ -121,6 +121,35 @@ small {
 
 h2 {
 	margin-bottom: 5px;
+	vertical-align: middle;
+
+	img {
+		height: 20px;
+		margin-bottom: -2px;
+		margin-right: 5px;
+	}
+}
+
+nav {
+	width: 100vw;
+	margin-top: -10px;
+	margin-left: -10px;
+	margin-right: -10px;
+	padding: 10px;
+	background: #111;
+	border-bottom: 1px solid #222;
+
+	h2 {
+		margin-top: 0px;
+	}
+
+	button {
+		background: transparent;
+
+		& :hover {
+			background: transparent;
+		}
+	}
 }
 
 span.caption {
@@ -158,6 +187,10 @@ button {
 
 	& :disabled {
 		filter: grayscale();
+	}
+
+	.loader {
+		margin-left: 5px;
 	}
 }
 
@@ -242,14 +275,11 @@ details {
 }
 
 .fileButtons {
-	height: 80px;
-	max-height: 80px;
-	width: 160px;
+	width: 125px;
 	text-overflow: ellipsis;
 	overflow: hidden;
 	padding: 5px;
 	border-radius: 2.5px;
-	border: 1px solid #333;
 	text-align: center;
 	align-content: center;
 	white-space: nowrap;
@@ -314,7 +344,7 @@ label[for="showHiddenFiles"] {
 }
 
 .package {
-	width: calc(25%);
+	width: calc(100% / 4 - 40px);
 	max-height: 50px !important;
 	text-overflow: ellipsis;
 	text-align: left !important;
@@ -326,32 +356,21 @@ label[for="showHiddenFiles"] {
 	white-space: nowrap;
 	display: inline-block;
 	margin: 5px;
+
 	&:hover {
 		background-color: #222 !important;
 	}
 
 	button {
 		float: right;
-		vertical-align: middle;
-		width: 35px !important;
-		height: 35px !important;
-		border-radius: 50px !important;
+		border-radius: 2.5px !important;
 		transition: ease-in-out 0.25s;
-		img {
-			width: 20px;
-			height: 20px;
-			padding: 0px !important;
-			margin: 0px !important;
-			margin-top: -2px;
-		}
+		margin: 0px;
+		margin-top: -2px;
+		padding: 0px;
 
 		&:hover {
-			transform: scale(1.2);
 			filter: brightness(1.1);
-		}
-
-		&:focus{
-			transform: scale(1.1);
 		}
 	}
 
@@ -410,7 +429,6 @@ label[for="showHiddenFiles"] {
 	width: calc(100vw - 220px) !important;
 	padding: 10px;
 	cursor: default;
-	text-align: center;
 }
 
 #installedApps::-webkit-scrollbar,
@@ -423,14 +441,14 @@ label[for="showHiddenFiles"] {
 .install_package {
 	padding: 5px;
 	border-radius: 2.5px;
-	background-color: var(--red);
-	color: white;
+	color: red;
 	border-width: 0px;
 	cursor: pointer;
+	background: transparent;
 }
 
 .install_package {
-	background-color: var(--green);
+	color: var(--green);
 }
 
 #loadingApplications {
@@ -442,7 +460,7 @@ label[for="showHiddenFiles"] {
 	& img {
 		width: 128px;
 		height: 128px;
-		animation: turning 0.5s linear infinite;
+		animation: turning 1s linear infinite;
 	}
 }
 
@@ -457,20 +475,6 @@ div.warning {
 		margin: 0px;
 		margin-left: 5px;
 		background: #ffffff3e;
-	}
-}
-
-#conectionsTabs {
-	padding: 5px;
-	margin-bottom: 5px;
-
-	& button {
-		padding: 5px;
-		background: transparent;
-	}
-
-	& button.active {
-		background: #222 !important;
 	}
 }
 
@@ -581,4 +585,8 @@ small {
 #temperature,
 #small_uptime {
 	padding-left: 15px;
+}
+
+#storage > div {
+	padding-left: 10px;
 }

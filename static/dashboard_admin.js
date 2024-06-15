@@ -85,7 +85,9 @@ window.onload = function () {
 		var ftpUserPassword = null;
 		updatingFTPstatus = true;
 
-		// TODO Not yet reading the sudo password
+		attachLoader("ftp_running");
+
+		// Not yet reading the sudo password
 		document.getElementById("ftpSettingsApply").innerText = "Updating";
 		fetch("/api", {
 			method: "POST",
@@ -123,8 +125,45 @@ window.onload = function () {
 				updatingFTPstatus = false;
 				fetchFTPconnectionInformation();
 				document.getElementById("ftpSettingsApply").innerText = "Apply";
+				removeLoader("ftp_running");
 			});
 	});
+	document
+		.getElementById("submit_vault_config")
+		.addEventListener("click", function () {
+			this.innerHTML = "Updating";
+			attachLoader("submit_vault_config", "white");
+			fetch("/api", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					r: "vault_configure",
+					key: document.getElementById("vault_key_config").value,
+				}),
+			})
+				.then((res) => {
+					return res.json();
+				})
+				.then((json) => {
+					console.log(json + " | " + json["code"]);
+					if (json["code"] == "no_decrypt_key") {
+						if (document.getElementById("vault_key_config").value.length != 0) {
+							confirmModal(
+								"Change vault key",
+								"Do you want to change the encryption key of Zentrox Vault?",
+								() => {
+									ask_for_vault_dec_key();
+								},
+								() => {},
+							);
+						}
+					}
+					this.innerHTML = "Apply";
+					removeLoader("submit_vault_config");
+				});
+		});
 };
 // Intervals
 
@@ -138,6 +177,35 @@ setInterval(function () {
 
 // Functions
 
+function ask_for_vault_dec_key() {
+	inputModal(
+		"Vault key",
+		"Please enter the current vault key.",
+		"vault_key_old",
+		"password",
+		() => {
+			document;
+
+			fetch("/api", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					r: "vault_configure",
+					old_key: document.getElementById("vault_key_old").value,
+					new_key: document.getElementById("vault_key_config").value,
+				}),
+			})
+				.then((res) => {
+					return res.json();
+				})
+				.then(() => {
+					removeLoader("submit_vault_config");
+				});
+		},
+	);
+}
 // Status bars (Dashboard)
 
 function setCPUBar() {
@@ -482,17 +550,18 @@ function renderApplicationManagerList() {
 			document.getElementById("packageSearchResults").hidden = true;
 			document.getElementById("installedPackagesDetails").hidden = false;
 			document.getElementById("installedAppsDetails").hidden = false;
+			document.getElementById("packageSearch").hidden = false;
 			console.log(guiApps);
 			var htmlCode = "";
 			for (e of Array.from(guiApps)) {
 				if (e != undefined) {
 					var htmlCode =
 						htmlCode +
-						"<div class='package'>"+
+						"<div class='package'>" +
 						e[0].split(".")[0].replace("-", " ") +
 						"<button class='remove_package' onclick='removePackage(\"" +
 						e[2] +
-						"\", this)'><img src='minus.png'></button></div>";
+						"\", this)'>Remove</button></div>";
 					console.log(e[1]);
 				}
 			}
@@ -518,7 +587,9 @@ function renderApplicationManagerList() {
 }
 
 function lookForPackage() {
-	var packageName = document.getElementById("packageSearch").value;
+	var packageName = document
+		.getElementById("packageSearch")
+		.value.toLowerCase();
 	if (packageName != "" && packageName != null) {
 		document.getElementById("packageSearchResults").hidden = false;
 		document.getElementById("installedPackagesDetails").hidden = true;
@@ -646,6 +717,7 @@ function updateFTPConnectionSettings() {
 		"sudoPasswordFTP",
 		"password",
 		function () {
+			attachLoader("ftpSettingsApply", "white");
 			// TODO Not yet reading the sudo password
 			document.getElementById("ftpSettingsApply").innerText = "Updating";
 			fetch("/api", {
@@ -680,6 +752,7 @@ function updateFTPConnectionSettings() {
 				.then(() => {
 					fetchFTPconnectionInformation();
 					document.getElementById("ftpSettingsApply").innerText = "Apply";
+					removeLoader("ftpSettingsApply");
 				});
 		},
 	);
@@ -767,9 +840,11 @@ function getDeviceInformation() {
 			document.getElementById("hostname").innerText = data["hostname"];
 			document.getElementById("hostname_subtitle").innerText = data["hostname"];
 			document.getElementById("uptime").innerText = data["uptime"];
-			document.getElementById("small_uptime").innerText =
-				data["uptime"].split(", ")[0];
-			document.getElementById("temperature").innerText = data["temperature"] != null ? data[temperature] : `No temerpature`;
+			document.getElementById("small_uptime").innerText = data["uptime"]
+				.split(", ")[0]
+				.replaceAll("\n", "");
+			document.getElementById("temperature").innerText =
+				data["temperature"] != null ? data[temperature] : `No temerpature`;
 		});
 	fetch("/api", {
 		method: "POST",
@@ -823,6 +898,51 @@ function poweroffSystem() {
 	);
 }
 
+function openDetails(id) {
+	for (detail_tag of document.querySelectorAll("div")) {
+		if (detail_tag.id.includes("storage_")) {
+			detail_tag.hidden = true;
+		}
+	}
+	document.getElementById(id).hidden = false;
+}
+
+function unlockVaultButton() {
+	fetch("/api", {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify({
+			r: "unlock_vault",
+		}),
+	})
+		.then((res) => res.json())
+		.then((data) => {
+			if (data["status"] == "s") {
+				renderFiles(currFPath);
+			} else {
+				alert("Can not delete this file");
+			}
+		});
+}
+
+function attachLoader(id, color = "black") {
+	var object = document.getElementById(id);
+	if (object.tagName.toLowerCase() == "button") {
+		object.innerHTML += `<img src="small_loading_${color}.svg" class="loader">`;
+	} else if (object.tagName.toLowerCase() == "input") {
+		object.style.backgroundImage = `url("small_loading_${color}.svg")`;
+	}
+}
+
+function removeLoader(id) {
+	var object = document.getElementById(id);
+	if (object.tagName.toLowerCase() == "input") {
+		object.style.backgroundImage = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1em' height='1em' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='m9.55 18l-5.7-5.7l1.425-1.425L9.55 15.15l9.175-9.175L20.15 7.4z'/%3E%3C/svg%3E")`;
+	}
+}
+
 // Modal.js
 
 cssCode = `@keyframes fly-in {
@@ -834,19 +954,28 @@ cssCode = `@keyframes fly-in {
 
 #modalMain {
     position: fixed;
-    top: 50px;
-    width: 50vw;
-    left: calc(25vw - 40px);
+	top: calc((100vh - 40vh) / 2 - 40px);
+	width: 40vh;
+    left: calc((100vw - 40vh) / 2 - 40px);
     border-radius: 5px;
     padding: 20px;
-    background-color: #232323;
-    box-shadow: 0px 5px 15px #00000057;
+	padding-bottom: 5vh;
+	padding-top: 5vh;
+	background-color: #232323;
     outline: rgb(64, 64, 64) solid 1px;
     color: white;
     font-family: "Work Sans", sans-serif;
-    animation-name: fly-in;
+    animation-name: pop_open;
     animation-duration: 0.25s;
     z-index: 300;
+
+	input {
+		padding: 8px;
+		font-size: 15px;
+		margin-left: 0px;
+		margin-top: 8px;
+		margin-bottom: 8px;
+	}
 }
 
 #modalMain.red {
@@ -893,9 +1022,21 @@ cssCode = `@keyframes fly-in {
 }
 
 #modalMain #modalTitle {
-    font-size: large;
-    margin-bottom: 5px;
+    font-size: 25px;
+    margin-bottom: 10px;
     font-weight: bold;
+}
+
+#modalMain #modalMessage {
+    font-size: 14px;
+
+	input {
+		padding: 8px;
+		font-size: 15px;
+		margin-left: 0px;
+		margin-top: 8px;
+		margin-bottom: 8px;
+	}
 }
 
 #modalMain input {
@@ -909,18 +1050,6 @@ cssCode = `@keyframes fly-in {
 @keyframes fly-out {
     100% {
         top: -100vh;
-        opacity: 0%;
-    }
-}
-
-@keyframes fade-in {
-    0% {
-        opacity: 0%;
-    }
-}
-
-@keyframes fade-out {
-    100% {
         opacity: 0%;
     }
 }
@@ -988,8 +1117,8 @@ function errorModal(title, message, command, cancled = () => {}) {
 	document.getElementById("modalTitle").innerHTML = title;
 	document.getElementById("modalMessage").innerHTML = message;
 	document.getElementById("buttonConfirm").onclick = function () {
-		command();
 		killModalPopup();
+		command();
 	};
 }
 
@@ -998,8 +1127,10 @@ function confirmModal(title, message, command, cancled = () => {}) {
 	document.getElementById("modalTitle").innerHTML = title;
 	document.getElementById("modalMessage").innerHTML = message;
 	document.getElementById("buttonConfirm").onclick = function () {
-		command();
 		killModalPopup();
+		setTimeout(() => {
+			command();
+		}, 600);
 	};
 }
 
@@ -1008,8 +1139,10 @@ function confirmModalWarning(title, message, command, cancled = () => {}) {
 	document.getElementById("modalTitle").innerHTML = title;
 	document.getElementById("modalMessage").innerHTML = message;
 	document.getElementById("buttonConfirm").onclick = function () {
-		command();
 		killModalPopup();
+		setTimeout(() => {
+			command();
+		}, 600);
 	};
 	document.getElementById("buttonConfirm").classList.add("red");
 }
@@ -1027,8 +1160,10 @@ function inputModal(
 	document.getElementById("modalMessage").innerHTML =
 		message + `<br><input type="${type}" id="${inputName}" class="inputModal">`;
 	document.getElementById("buttonConfirm").onclick = function () {
-		command();
 		killModalPopup();
+		setTimeout(() => {
+			command();
+		}, 600);
 	};
 }
 

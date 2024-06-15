@@ -51,7 +51,7 @@
 			<h2>Zentrox</h2>
 			<span id="hostname_subtitle" title="Hostname"></span><br />
 			<span id="temperature" title="System temperature"></span><br />
-			<span id="small_uptime" title="Uptime hours only"></span><br>
+			<span id="small_uptime" title="Uptime hours only"></span><br />
 
 			<button onclick="changePage('overview')">
 				<img src="status.png" alt="status" />Overview</button
@@ -65,7 +65,7 @@
 			<button onclick="changePage('shell')">
 				<img src="shell.png" alt="shell" />Shell</button
 			><br />
-			<button><img src="shield.png" alt="shield" />Securitry</button><br />
+			<button><img src="security.png" alt="lock" />Securitry</button><br />
 			<button onclick="changePage('users')">
 				<img src="users.png" alt="users" />Users</button
 			><br />
@@ -82,7 +82,9 @@
 		</div>
 		<div id="pages">
 			<div id="overview">
-				<h2>Overview</h2>
+				<nav>
+					<h2><img src="status.png" />Overview</h2>
+				</nav>
 				<div style="padding: 10px" class="dashboard_section">
 					<small>Resources</small>
 					<span class="information_chip">
@@ -146,12 +148,15 @@
 				</div>
 			</div>
 			<div id="applications" hidden>
-				<h2>Applications</h2>
+				<nav>
+					<h2><img src="applications.png" />Applications</h2>
+				</nav>
 				<input
 					type="text"
 					placeholder="Search all packages"
 					id="packageSearch"
 					onkeyup="lookForPackage()"
+					hidden
 				/>
 				<div id="loadingApplications">
 					<img src="Loading.svg" alt="Loading" />
@@ -172,16 +177,18 @@
 					<button id="renameButton">Rename</button>
 					<button id="deleteButton">Delete</button>
 				</div>
-				<h2>Storage</h2>
-				<details>
-					<summary>Disks</summary>
-					<br />
-					<button onclick="getDriveList()">Reload</button>
-					<br /><br />
+				<nav>
+					<h2><img src="storage.png" />Storage</h2>
+					<button onclick="openDetails('storage_disks')">Disks</button>
+					<button onclick="openDetails('storage_files')">Files</button>
+					<button onclick="openDetails('storage_vault')">Vault</button>
+				</nav>
+				<div id="storage_disks">
+					<h3>Disks</h3>
 					<div id="disks"></div>
-				</details>
-				<details>
-					<summary>Files</summary>
+				</div>
+				<div id="storage_files" hidden>
+					<h3>File system</h3>
 					<button onclick="goFUp()">Up</button
 					><input
 						type="checkbox"
@@ -190,10 +197,26 @@
 						onchange="renderFiles(currFPath)"
 					/><label for="showHiddenFiles">Show hidden files</label>
 					<div id="filesContainer"></div>
-				</details>
+				</div>
+				<div id="storage_vault" hidden>
+					<h3>Vault</h3>
+					<small>
+						Zentrox Vault lets you configure an encrypted file safe.
+					</small>
+					<input
+						type="password"
+						placeholder="Vault encryption key"
+						id="vault_key_config"
+					/><br />
+					<button id="submit_vault_config">Apply</button>
+					<br /><br />
+					<button>Open vault</button>
+				</div>
 			</div>
 			<div id="users" hidden>
-				<h2>Users</h2>
+				<nav>
+					<h2><img src="users.png" />Users</h2>
+				</nav>
 				<button onclick="addNewUser()">New user</button>
 				<div id="usersTable"></div>
 			</div>
@@ -201,7 +224,8 @@
 				<!--
                 FTP, SMB, WebDav, SSH, Git Server Setup, Samba, NFS
             -->
-				<div id="conectionsTabs">
+				<nav>
+					<h2><img src="network.png" />Connections</h2>
 					<button onclick="otherConnectionsTab('ftp')" id="ftpButton">
 						FTP
 					</button>
@@ -212,8 +236,9 @@
 						WebDav
 					</button>
 					<button onclick="otherConnectionsTab('ssh')" id="Button">SSH</button>
+
 					<button onclick="otherConnectionsTab('nfs')" id="Button">NFS</button>
-				</div>
+				</nav>
 				<div id="connectionTabsPages">
 					<div id="ftp">
 						<h3>FTP</h3>

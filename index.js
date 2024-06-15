@@ -1,62 +1,65 @@
 /*
 By: Wervice / Constantin Volke
 Email: wervice@proton.me
-Licence: Apache 2.0 (See GitHub repo (https://github.com/Wervice/Codelink))
+Licence: Apache 2.0 (See GitHub repo (https://github.com/Wervice/zentrox))
+
+This is open source software. It comes with no guarantee.
+
 */
 
-const express = require("express");
 const path = require("path");
+const bodyParser = require("body-parser");
+const osu = require("node-os-utils"); // For CPU, RAM... metrics
+const tar = require("tar"); // For tarballs in vault
 const os = require("os");
 const fs = require("fs");
-const compression = require("compression");
-const bodyParser = require("body-parser");
 const crypto = require("crypto");
+const https = require("https");
+const chpr = require("child_process");
+const compression = require("compression"); // Compressing conenction
 const cookieParser = require("cookie-parser");
 const session = require("express-session");
-const https = require("https");
-const osu = require("node-os-utils");
-const chpr = require("child_process");
-const database = require("mime-db");
-const Worker = require("node:worker_threads").Worker;
+const express = require("express"); // Using Express framework
 
-const port = 3000;
-const app = express();
+const Worker = require("node:worker_threads").Worker; // For package cache worker
 
-eval(fs.readFileSync(path.join(__dirname, "libs", "packages.js")) + "");
-eval(fs.readFileSync(path.join(__dirname, "libs", "drives.js")) + "");
-eval(
-	fs.readFileSync(path.join(__dirname, "libs", "cryptography_scripts.js")) + "",
-);
-eval(
-	fs.readFileSync(path.join(__dirname, "libs", "mapbase.js")) + "",
-);
+eval(fs.readFileSync("./libs/packages.js").toString("utf8"));
+eval(fs.readFileSync("./libs/drives.js").toString("utf8"));
+eval(fs.readFileSync("./libs/cryptography_scripts.js").toString("utf8"));
+eval(fs.readFileSync("./libs/mapbase.js").toString("utf8"));
 
-var key = fs.readFileSync(__dirname + "/selfsigned.key");
-var cert = fs.readFileSync(__dirname + "/selfsigned.crt");
+var key = fs.readFileSync("./selfsigned.key");
+var cert = fs.readFileSync("./selfsigned.crt");
 var options = {
 	key: key,
 	cert: cert,
 };
 
-const zentroxInstPath = path.join(os.homedir(), "zentrox_data/");
+const zentroxInstPath = path.join(os.homedir(), "zentrox_data/"); // e.g. /home/test/zentrox_data or /root/zentrox_data | Contains config, user files...
 
-writeDatabase(path.join(zentroxInstPath, "config.db"), "ftp_running", "0")
-writeDatabase(path.join(zentroxInstPath, "config.db"), "ftp_pid", "1")
+const port = 3000;
+const app = express();
 
+// Dazabase to default values
+writeDatabase(path.join(zentroxInstPath, "config.db"), "ftp_running", "0");
+writeDatabase(path.join(zentroxInstPath, "config.db"), "ftp_pid", "1");
+
+// Generate session secret
 if (!fs.existsSync(path.join(zentroxInstPath, "sessionSecret.txt"))) {
 	if (!fs.existsSync(zentroxInstPath)) {
 		fs.mkdirSync(zentroxInstPath);
+		fs.writeFileSync(
+			path.join(zentroxInstPath, "sessionSecret.txt"),
+			crypto.randomBytes(64).toString("ascii"),
+		);
 	}
-	fs.writeFileSync(
-		path.join(zentroxInstPath, "sessionSecret.txt"),
-		crypto.randomBytes(64).toString("ascii"),
-	);
 }
 
 if (!fs.existsSync(zentroxInstPath)) {
 	fs.mkdirSync(zentroxInstPath);
 }
 
+// Configure server
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 app.use(
@@ -94,9 +97,10 @@ app.use(
 	}),
 );
 
-new Worker("./libs/packageWorker.js");
+new Worker("./libs/packageWorker.js"); // Start package cache worker (1h interval)
 
 class Shell {
+	// Class that generates a shell to launch a new virtual shell with command "su ..."
 	constructor(username, shell, password, exitcall) {
 		// Username: Username to shell into
 		// Shell: Shell that will be used
@@ -107,32 +111,43 @@ class Shell {
 		this.password = password;
 		this.s_process = chpr.exec(`su ${username}\n`);
 		this.pid = this.s_process.pid;
-		this.authed = false
+		this.authed = false;
 		zlog("Shell summoned", "info");
 		this.authed = false;
 		this.s_process.stderr.on("data", (data) => {
-			zlog("Stderr: " + data.toString("ascii").endsWith('\n') ? data.toString("ascii").slice(0, -1) : data.toString("ascii"), "info");
+			zlog(
+				"Stderr: " + data.toString("ascii").endsWith("\n")
+					? data.toString("ascii").slice(0, -1)
+					: data.toString("ascii"),
+				"info",
+			);
 			if (data == "Password: " && !this.authed) {
 				this.s_process.stdin.write(this.password + "\n");
 				zlog("Entered password to shell", "info");
-				this.authed = true
+				this.authed = true;
 			}
 		});
 		this.s_process.stdout.on("data", (data) => {
-			zlog("Shell Out: " + data.toString("ascii").endsWith('\n') ? data.toString("ascii").slice(0, -1) : data.toString("ascii"), "info");
+			zlog(
+				"Shell Out: " + data.toString("ascii").endsWith("\n")
+					? data.toString("ascii").slice(0, -1)
+					: data.toString("ascii"),
+				"info",
+			);
 		});
 		this.s_process.on("exit", (data) => {
-			zlog("Shell exit ("+this.pid+")", "error");
+			zlog("Shell exit (" + this.pid + ")", "error");
 			exitcall(data);
-		});		
+		});
 	}
 	write(command) {
 		if (this.authed) {
 			this.s_process.stdin.write(command);
 			zlog("Shell In: " + command, "info");
-		}
-		else {
-			setTimeout(() => {this.write(command)}, 500)
+		} else {
+			setTimeout(() => {
+				this.write(command);
+			}, 500);
 		}
 	}
 	kill() {
@@ -141,7 +156,6 @@ class Shell {
 }
 
 function zlog(string, type) {
-	// ? Custom Zentrox login to replace console.log [Supprots info and error]
 	if (type == "info") {
 		console.log("[ Info " + new Date().toLocaleTimeString() + "] " + string);
 	} else if (type == "error") {
@@ -152,7 +166,7 @@ function zlog(string, type) {
 }
 
 function auth(username, password) {
-	// ? Check if user can be authenticated
+	// Check if user exists and password hash matches the database hash
 	users = fs
 		.readFileSync(path.join(zentroxInstPath, "users.txt"))
 		.toString()
@@ -170,8 +184,6 @@ function auth(username, password) {
 		}
 	}
 }
-
-
 
 function newUser(username, password, role = "user") {
 	// ? Create new Zentrox user
@@ -214,48 +226,25 @@ function deleteUser(username) {
 	fs.writeFileSync(path.join(zentroxInstPath, "users.txt"), ostring);
 }
 
-function startsetup() {
-	// ? Initliazie the Zentrox setup
-	if (!fs.existsSync(zentroxInstPath)) {
-		fs.mkdirSync(zentroxInstPath);
-	}
-	fs.mkdirSync(path.join(zentroxInstPath, "users"));
-	fs.writeFileSync(path.join(zentroxInstPath, "zentrox.txt"), "");
-	fs.writeFileSync(path.join(zentroxInstPath, "users.txt"), "");
-}
-
-function sudoSanitize(string) {
-	return string
-		.replaceAll('"', '\\"')
-		.replaceAll("'", "\\'")
-		.replaceAll("`", "\\`");
-}
-
 function hash512(str) {
-	// ? Calculate a SHA 512
+	// Calculate a SHA 512 hash
 	var hash = crypto.createHash("sha512");
 	var data = hash.update(str, "utf-8");
 	return data.digest("hex");
 }
 
 app.get("/", (req, res) => {
-	// ? Main page
+	// Login or auto redirect to dashboard
 	if (!fs.existsSync(path.join(zentroxInstPath, "setupDone.txt"))) {
 		console.log("Setup not done");
 		res.render(path.join(__dirname, "templates/index.html"));
 	} else {
 		if (req.session.signedIn != true) {
 			res.render(path.join(__dirname, "templates/welcome.html"), {
-				serverName: readDatabase(path.join(zentroxInstPath, "config.db"), "server_name"),
-				registrationButton: (function () {
-					if (
-						readDatabase(path.join(zentroxInstPath, "config.db"), "reg_mode") == "public"
-					) {
-						return "<button class=outline onclick=location.href='signup'>Sign up</button>";
-					} else {
-						return "";
-					}
-				})(),
+				serverName: readDatabase(
+					path.join(zentroxInstPath, "config.db"),
+					"server_name",
+				),
 			});
 		} else {
 			res.redirect("/dashboard");
@@ -275,7 +264,10 @@ app.post("/login", (req, res) => {
 			req.session.isAdmin = true;
 			req.session.adminPassword = req.body.password;
 			req.session.zentroxPassword = decryptAES(
-				readDatabase(path.join(zentroxInstPath, "config.db"), "zentrox_user_password"),
+				readDatabase(
+					path.join(zentroxInstPath, "config.db"),
+					"zentrox_user_password",
+				),
 				req.body.password,
 			);
 		} else {
@@ -286,46 +278,6 @@ app.post("/login", (req, res) => {
 		res.status(403).send({
 			message: "Wrong password or username",
 		});
-	}
-});
-
-app.get("/signup", (req, res) => {
-	// ? Signup screen
-	if (
-		fs.readFileSync(path.join(zentroxInstPath, "regMode.txt")).toString() ==
-		"public"
-	) {
-		if (req.session.signedIn == true) {
-			res.redirect("/dashboard");
-		} else {
-			res.render("signup.html", {
-				serverName: readDatabase(path.join(zentroxInstPath, "config.db"), "server_name")
-			});
-		}
-	} else {
-		res.status(403).send("Nice try ;)");
-	}
-});
-
-app.post("/signup", (req, res) => {
-	// ? Signup post request handling
-	if (req.session.signedIn == true) {
-		res.send({
-			status: "s",
-			text: "Already logged in",
-		});
-	} else {
-		newUser(req.body.username, req.body.password);
-		res.send({ status: "s" });
-	}
-});
-
-app.get("/setup", (req, res) => {
-	// ? Zentrox first setup
-	if (!fs.existsSync(path.join(zentroxInstPath, "setupDone.txt"))) {
-		res.render(path.join(__dirname, "templates/setup.html"));
-	} else {
-		res.redirect("/");
 	}
 });
 
@@ -343,28 +295,8 @@ app.get("/dashboard", (req, res) => {
 });
 
 app.get("/api", (req, res) => {
-	// ? Handle get API
-	if (req.query["r"] == "startsetup") {
-		if (!fs.existsSync(path.join(zentroxInstPath, "setupDone.txt"))) {
-			try {
-				startsetup();
-				res.send({
-					status: "s",
-				});
-				zlog("Started setup", "verb");
-			} catch (e) {
-				res.send({
-					status: "f",
-				});
-				zlog("Setup init failed\t" + e, "error");
-			}
-		} else {
-			res.status(403).send({
-				status: "f",
-				text: "Can't run this command twice",
-			});
-		}
-	} else if (req.query["r"] == "cpuPercent") {
+	// GET API (Not restful)
+	if (req.query["r"] == "cpuPercent") {
 		if (req.session.isAdmin == true) {
 			osu.cpu.usage().then((info) => {
 				res.send({
@@ -630,19 +562,7 @@ app.post("/api", (req, res) => {
 
 				line = null;
 
-				if (getIconForPackage(appIconName) != "") {
-					var iconForPackage =
-						"data:image/svg+xml;base64," +
-						fs.readFileSync(getIconForPackage(appIconName)).toString("base64"); // ? Icon as Base64 for package
-				} else {
-					var iconForPackage = "empty"
-				}
-
-				guiApplications[guiApplications.length] = [
-					appName,
-					iconForPackage,
-					appExecName,
-				]; // ? The GUI application as an array
+				guiApplications[guiApplications.length] = [appName, appExecName]; // ? The GUI application as an array
 			}
 		}
 
@@ -717,11 +637,16 @@ app.post("/api", (req, res) => {
 					);
 				}, 500);
 			} catch {}
-		
-			writeDatabase(path.join(zentroxInstPath, "config.db"), "ftp_running", "0")	
+
+			writeDatabase(
+				path.join(zentroxInstPath, "config.db"),
+				"ftp_running",
+				"0",
+			);
 		} else if (req.body.enableFTP == true) {
 			if (
-				readDatabase(path.join(zentroxInstPath, "config.db"), "ftp_running") != "1"
+				readDatabase(path.join(zentroxInstPath, "config.db"), "ftp_running") !=
+				"1"
 			) {
 				zlog("Starting FTP server");
 				let ftpProcess = new Shell(
@@ -729,8 +654,16 @@ app.post("/api", (req, res) => {
 					"sh",
 					req.session.zentroxPassword,
 					(data) => {
-						writeDatabase(path.join(zentroxInstPath, "config.db"), "ftp_running", "0")
-						writeDatabase(path.join(zentroxInstPath, "config.db"), "ftp_pid", "")
+						writeDatabase(
+							path.join(zentroxInstPath, "config.db"),
+							"ftp_running",
+							"0",
+						);
+						writeDatabase(
+							path.join(zentroxInstPath, "config.db"),
+							"ftp_pid",
+							"",
+						);
 						console.log(`FTP server exited with return of: \n${data}`);
 					},
 				);
@@ -740,7 +673,11 @@ app.post("/api", (req, res) => {
 					);
 				}, 500);
 
-				writeDatabase(path.join(zentroxInstPath, "config.db"), "ftp_running", "1")	
+				writeDatabase(
+					path.join(zentroxInstPath, "config.db"),
+					"ftp_running",
+					"1",
+				);
 			}
 		}
 
@@ -748,11 +685,27 @@ app.post("/api", (req, res) => {
 		if (req.body.enableDisable == undefined) {
 			if (req.body.ftpUserPassword.length != 0) {
 				new_ftp_password = hash512(req.body.ftpUserPassword);
-				writeDatabase(path.join(zentroxInstPath, "config.db"), "ftp_password", new_ftp_password)
+				writeDatabase(
+					path.join(zentroxInstPath, "config.db"),
+					"ftp_password",
+					new_ftp_password,
+				);
 			}
-			writeDatabase(path.join(zentroxInstPath, "config.db"), "ftp_username", req.body.ftpUserUsername)
-			writeDatabase(path.join(zentroxInstPath, "config.db"), "ftp_root", req.body.ftpLocalRoot)
-			writeDatabase(path.join(zentroxInstPath, "config.db"), "ftp_running", (req.body.enableFTP == true ? "1" : "0"))
+			writeDatabase(
+				path.join(zentroxInstPath, "config.db"),
+				"ftp_username",
+				req.body.ftpUserUsername,
+			);
+			writeDatabase(
+				path.join(zentroxInstPath, "config.db"),
+				"ftp_root",
+				req.body.ftpLocalRoot,
+			);
+			writeDatabase(
+				path.join(zentroxInstPath, "config.db"),
+				"ftp_running",
+				req.body.enableFTP == true ? "1" : "0",
+			);
 		} else {
 			zlog("Enable/Disable FTP was requested (dashboard toggle used)", "info");
 		}
@@ -767,9 +720,16 @@ app.post("/api", (req, res) => {
 
 		res.send({
 			enabled:
-				readDatabase(path.join(zentroxInstPath, "config.db"), "ftp_running") == "1",
-			ftpUserUsername: readDatabase(path.join(zentroxInstPath, "config.db"), "ftp_username"),
-			ftpLocalRoot: readDatabase(path.join(zentroxInstPath, "config.db"), "ftp_root"),
+				readDatabase(path.join(zentroxInstPath, "config.db"), "ftp_running") ==
+				"1",
+			ftpUserUsername: readDatabase(
+				path.join(zentroxInstPath, "config.db"),
+				"ftp_username",
+			),
+			ftpLocalRoot: readDatabase(
+				path.join(zentroxInstPath, "config.db"),
+				"ftp_root",
+			),
 		});
 	} else if (req.body.r == "driveInformation") {
 		// ? Send the current drive information to the frontent
@@ -862,6 +822,64 @@ app.post("/api", (req, res) => {
 			shutdown_handler.write("sudo poweroff\n");
 		}, 500);
 		res.send({});
+	} else if (req.body.r == "vault_configure") {
+		if (!req.session.isAdmin) return;
+		if (
+			readDatabase(path.join(zentroxInstPath, "config.db"), "vault_enabled") ==
+			"0"
+		) {
+			var key = req.body.key;
+			var i = 0;
+			while (i != 1000) {
+				key = crypto.createHash("sha512").update(key).digest("hex");
+				i++;
+			}
+			// ... create empty tarball
+			console.log(key);
+			fs.writeFileSync(path.join(zentroxInstPath, ".vault"), "Init");
+			tar
+				.c(
+					{
+						gzip: true,
+						file: path.join(zentroxInstPath, "vault.tar"),
+					},
+					[path.join(zentroxInstPath, ".vault")],
+				)
+				.then(() => {
+					encryptAESGCM256(
+						path.join(zentroxInstPath, "vault.tar"),
+						key,
+					);
+					fs.copyFileSync(
+						path.join(zentroxInstPath, "vault.tar"),
+						path.join(zentroxInstPath, "vault.vlt"),
+					);
+					fs.unlinkSync(path.join(zentroxInstPath, "vault.tar"));
+					fs.unlinkSync(path.join(zentroxInstPath, ".vault"));
+					writeDatabase(
+						path.join(zentroxInstPath, "config.db"),
+						"vault_enabled",
+						"1",
+					);
+					res.send({});
+				});
+		} else {
+			if (typeof req.body.new_key == "undefined") {
+				res.send({
+					code: "no_decrypt_key",
+				});
+			} else {
+				var old_key = req.body.old_key;
+				var new_key = req.body.new_key;
+				var i = 0;
+				while (i != 1000) {
+					old_key = crypto.createHash("sha512").update(old_key).digest("hex");
+					i++;
+				}
+				console.log(old_key + " | " + path.join(zentroxInstPath, "vault.vlt") + " | " + fs.readFileSync(path.join(zentroxInstPath, "vault.vlt")).toString("ascii"));
+				decryptAESGCM256(path.join(zentroxInstPath, "vault.vlt"), old_key);
+			}
+		}
 	}
 });
 
