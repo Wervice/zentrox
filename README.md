@@ -15,13 +15,13 @@
 [![Post on X](https://img.shields.io/badge/Post%20on%20X-white.svg?style=for-the-badge&logo=x&logoColor=white&color=black)](https://x.com/intent/post?text=https%3A%2F%2Fgithub.com%2Fwervice%2Fzentrox)
 
 > [!IMPORTANT]
-> ⚠️ Zentrox is a work in progress
+> ⚠️ Zentrox is a work in progress and not done. It may still change before the first release.
 
 ## 💡 Which problems does Zentrox solve?
 
 Zentrox helps you with the administration of your home server.
 It will provide you with the most important tools for managin your device.
-The installation very fast and doesn't require great background knowledge.
+The is installation very fast and doesn't require great background knowledge.
 
 ## 🎯 Features
 
