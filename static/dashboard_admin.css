@@ -73,6 +73,14 @@ body {
 	animation-duration: 0.25s;
 }
 
+.skeleton {
+	padding: 7px;
+	width: 150px !important;
+	border-radius: 1px;
+	background: #222;
+	display: inline-block;
+}
+
 input[type="text"],
 input[type="password"],
 select {
@@ -589,4 +597,18 @@ small {
 
 #storage > div {
 	padding-left: 10px;
+}
+
+#vault_view #unlock_vault {
+	padding: 10px;
+	border-radius: 2px;
+	max-width: fit-content;
+
+	label {
+		display: block;
+	}
+
+	input {
+		margin-left: 0px;
+	}
 }

@@ -21,6 +21,7 @@ window.onload = function () {
 	getUserList();
 	renderFiles(currFPath);
 	getDeviceInformation();
+	addSkeletons();
 	document
 		.querySelector("#contextmenu #deleteButton")
 		.addEventListener("click", function () {
@@ -147,7 +148,6 @@ window.onload = function () {
 					return res.json();
 				})
 				.then((json) => {
-					console.log(json + " | " + json["code"]);
 					if (json["code"] == "no_decrypt_key") {
 						if (document.getElementById("vault_key_config").value.length != 0) {
 							confirmModal(
@@ -200,12 +200,115 @@ function ask_for_vault_dec_key() {
 				.then((res) => {
 					return res.json();
 				})
-				.then(() => {
+				.then((json) => {
+					if (json["message"] == "auth_failed") {
+						failPopup("Failed to change Vault key");
+					}
 					removeLoader("submit_vault_config");
 				});
 		},
 	);
 }
+
+function addSkeletons() {
+	const skeleton = `
+		<span class="skeleton"></span>
+	`;
+	document.getElementById("operating_system_name").innerHTML = skeleton;
+	document.getElementById("power_supply").innerHTML = skeleton;
+	document.getElementById("zentrox_pid").innerHTML = skeleton;
+	document.getElementById("process_number").innerHTML = skeleton;
+	document.getElementById("hostname").innerHTML = skeleton;
+	document.getElementById("hostname_subtitle").innerHTML = skeleton;
+	document.getElementById("uptime").innerHTML = skeleton;
+	document.getElementById("small_uptime").innerHTML = skeleton;
+	document.getElementById("temperature").innerHTML = skeleton;
+}
+
+function open_vault() {
+	document.getElementById("vault_config").hidden = true;
+	document.getElementById("vault_view").hidden = false;
+	inputModal(
+		"Unlock Vault",
+		"Enter the vault key to unlock the vault",
+		"vault_key_unlock",
+		"password",
+		() => {
+			fetch("/api", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					r: "vault_tree",
+					key: document.getElementById("vault_key_unlock").value,
+				}),
+			})
+				.then((res) => {
+					if (!res.ok) {
+						failPopup("Vault connection failed");
+					}
+					return res.json();
+				})
+				.then((data) => {
+					if (data["message"] == "auth_failed") {
+						failPopup("Permission error");
+					} else if (data["message"] == "vault_not_configured") {
+						failPopup("Vault not configured");
+					} else {
+						console.log(data);
+						draw_vault_file_structure("/", data["fs"]);
+						sessionStorage.setItem(
+							"vault_key",
+							btoa(document.getElementById("vault_key_unlock").value),
+						);
+					}
+					document.getElementById("usersTable").innerHTML = data["text"];
+				});
+		},
+	);
+}
+
+function path_join(parts, sep) {
+	var separator = sep || "/";
+	var replace = new RegExp(separator + "{1,}", "g");
+	return parts.join(separator).replace(replace, separator);
+}
+
+function draw_vault_file_structure(path, data) {
+	var files = [];
+	var files_code = "";
+	if (path == "/") {
+		for (file of data) {
+			files.push(file);
+		}
+	}
+	for (file of files) {
+		files_code += `<button class="fileButtons" onclick="open_vault_file('${file}', '${path}')">${file}</button>`;
+	}
+	document.getElementById("vault_files").innerHTML = files_code;
+}
+
+function open_vault_file(filename, path) {
+	fetch(`/api`, {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify({
+			r: "vault_file_download",
+			path: path_join([path, filename]),
+			key: atob(sessionStorage.getItem("vault_key")),
+		}),
+	})
+		.then((data) => {
+			return data.json();
+		})
+		.then((data) => {
+			console.log(data);
+		});
+}
+
 // Status bars (Dashboard)
 
 function setCPUBar() {
@@ -905,26 +1008,6 @@ function openDetails(id) {
 		}
 	}
 	document.getElementById(id).hidden = false;
-}
-
-function unlockVaultButton() {
-	fetch("/api", {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-		},
-		body: JSON.stringify({
-			r: "unlock_vault",
-		}),
-	})
-		.then((res) => res.json())
-		.then((data) => {
-			if (data["status"] == "s") {
-				renderFiles(currFPath);
-			} else {
-				alert("Can not delete this file");
-			}
-		});
 }
 
 function attachLoader(id, color = "black") {
