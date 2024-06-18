@@ -612,3 +612,11 @@ small {
 		margin-left: 0px;
 	}
 }
+
+#vault_files, #filesContainer {
+	padding: 10px;
+	border-radius: 5px;
+	width: calc(100% - 245px);
+	margin-top: 10px;
+	border: 1px solid #333;
+}

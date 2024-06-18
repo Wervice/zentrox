@@ -180,7 +180,7 @@ setInterval(function () {
 function ask_for_vault_dec_key() {
 	inputModal(
 		"Vault key",
-		"Please enter the current vault key.",
+		"Please enter the <b>current vault key</b>.",
 		"vault_key_old",
 		"password",
 		() => {
@@ -203,6 +203,9 @@ function ask_for_vault_dec_key() {
 				.then((json) => {
 					if (json["message"] == "auth_failed") {
 						failPopup("Failed to change Vault key");
+					}
+					else {
+						confirmModal("Changed vault key", "The vault key was sucessfully changed", () => {}, () => {}, false)
 					}
 					removeLoader("submit_vault_config");
 				});
@@ -227,6 +230,7 @@ function addSkeletons() {
 
 function open_vault() {
 	document.getElementById("vault_config").hidden = true;
+	document.getElementById("vault_files").hidden = true;
 	document.getElementById("vault_view").hidden = false;
 	inputModal(
 		"Unlock Vault",
@@ -256,7 +260,7 @@ function open_vault() {
 					} else if (data["message"] == "vault_not_configured") {
 						failPopup("Vault not configured");
 					} else {
-						console.log(data);
+						document.getElementById("vault_files").hidden = false;
 						draw_vault_file_structure("/", data["fs"]);
 						sessionStorage.setItem(
 							"vault_key",
@@ -284,12 +288,15 @@ function draw_vault_file_structure(path, data) {
 		}
 	}
 	for (file of files) {
-		files_code += `<button class="fileButtons" onclick="open_vault_file('${file}', '${path}')">${file}</button>`;
+		files_code += `<button class="fileButtons" onclick="open_vault_file('${file}', '${path}', this)">${file}</button>`;
 	}
 	document.getElementById("vault_files").innerHTML = files_code;
 }
 
-function open_vault_file(filename, path) {
+function open_vault_file(filename, path, button = null) {
+	if (button != null) {
+		button.innerHTML += `<img src="small_loading_white.svg" class="loader">`
+	}
 	fetch(`/api`, {
 		method: "POST",
 		headers: {
@@ -301,12 +308,25 @@ function open_vault_file(filename, path) {
 			key: atob(sessionStorage.getItem("vault_key")),
 		}),
 	})
-		.then((data) => {
-			return data.json();
-		})
-		.then((data) => {
-			console.log(data);
+		.then((res) => {if (button != null) {
+			button.querySelector("img").remove()
+		}
+		return res.blob()})
+		.then((blob) => {
+			var url = window.URL.createObjectURL(blob);
+			var a = document.createElement("a");
+			a.href = url;
+			a.download = filename;
+			document.body.appendChild(a); // we need to append the element to the dom -> otherwise it will not work in firefox
+			a.click();
+			a.remove();
 		});
+}
+
+function close_vault_files() {
+	document.getElementById("vault_view").hidden = true
+	document.getElementById("vault_config").hidden = false
+	sessionStorage.removeItem("vault_key")
 }
 
 // Status bars (Dashboard)
@@ -544,7 +564,13 @@ function renderFiles(path) {
 			return res.json();
 		})
 		.then((data) => {
-			document.getElementById("filesContainer").innerHTML = data["content"];
+			if (data["message"] == "no_permissions") {
+				failPopup("Missing permission to open this file")
+				goFUp()
+			}
+			else {
+				document.getElementById("filesContainer").innerHTML = data["content"];
+			}
 		});
 }
 
@@ -1111,7 +1137,7 @@ cssCode = `@keyframes fly-in {
 }
 
 #modalMain #modalMessage {
-    font-size: 14px;
+    font-size: 16px;
 
 	input {
 		padding: 8px;
@@ -1169,7 +1195,7 @@ code = `
             <div id='modalTitle'></div>
             <div id='modalMessage'></div>
             <br>
-            <button id='buttonConfirm' class='cta'>Ok</button> <button id='buttonConfirm' class='grey' onclick=killModalPopup()>Cancel</button>
+            <button id='buttonConfirm' class='cta'>Ok</button> <button id='buttonCancle' class='grey' onclick=killModalPopup()>Cancel</button>
         </div>
         <div id='failPopup' hidden>
         </div>
@@ -1205,7 +1231,7 @@ function errorModal(title, message, command, cancled = () => {}) {
 	};
 }
 
-function confirmModal(title, message, command, cancled = () => {}) {
+function confirmModal(title, message, command, cancled = () => {}, show_cancle=true) {
 	document.getElementById("modalMain").hidden = false;
 	document.getElementById("modalTitle").innerHTML = title;
 	document.getElementById("modalMessage").innerHTML = message;
@@ -1215,6 +1241,7 @@ function confirmModal(title, message, command, cancled = () => {}) {
 			command();
 		}, 600);
 	};
+	document.getElementById("buttonCancle").hidden = !show_cancle
 }
 
 function confirmModalWarning(title, message, command, cancled = () => {}) {

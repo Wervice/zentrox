@@ -167,32 +167,33 @@ function zlog(string, type) {
 }
 
 function delete_files_recursively(directory) {
-    // Read the contents of the directory
-    const files = fs.readdirSync(directory);
+	// Read the contents of the directory
+	const files = fs.readdirSync(directory);
 
-    // Iterate over each file/folder in the directory
-    files.forEach((file) => {
-        const filePath = path.join(directory, file);
+	// Iterate over each file/folder in the directory
+	files.forEach((file) => {
+		const filePath = path.join(directory, file);
 
-        // Get the stats of the file/folder
-        const stats = fs.statSync(filePath);
+		// Get the stats of the file/folder
+		const stats = fs.statSync(filePath);
 
-        if (stats.isDirectory()) {
-            // If it's a directory, recursively delete files in the directory
-			delete_files_recursively(filePath)
+		if (stats.isDirectory()) {
+			// If it's a directory, recursively delete files in the directory
+			delete_files_recursively(filePath);
 		} else {
-            // If it's a file, delete it
+			// If it's a file, delete it
 			var j;
-			while (j<4) {
-				fs.writeFileSync(filePath, crypto.randomBytes(fs.statSync(filePath).size))
+			while (j < 4) {
+				fs.writeFileSync(
+					filePath,
+					crypto.randomBytes(fs.statSync(filePath).size),
+				);
 				j++;
 			}
 			fs.unlinkSync(filePath);
-        }
-    });
+		}
+	});
 }
-
-			
 
 function auth(username, password) {
 	// Check if user exists and password hash matches the database hash
@@ -385,7 +386,7 @@ app.post("/api", async (req, res) => {
 		}
 	} else if (req.body.r == "userList") {
 		// ? Lists Zentrox users
-		if (req.session.isAdmin == true) {
+		if (req.session.isAdmin) {
 			var userTable = "<table>";
 			var userList = fs
 				.readFileSync(path.join(zentroxInstPath, "users.txt"))
@@ -421,7 +422,7 @@ app.post("/api", async (req, res) => {
 		// ? List files as HTML and sends it to front end
 		if (req.session.isAdmin) {
 			var filesHTML = "";
-			for (fileN of fs.readdirSync(req.body.path)) {
+			try {for (fileN of fs.readdirSync(req.body.path)) {
 				if (fileN[0] == ".") {
 					if (
 						req.body.showHiddenFiles == true ||
@@ -464,6 +465,13 @@ app.post("/api", async (req, res) => {
 							.replaceAll("<", "&lt;")
 							.replaceAll(">", "&gt;")}</button>`;
 				}
+			}}
+			catch (e) {
+				console.error(e)
+				res.send({
+					message: "no_permissions"
+				})
+				return;
 			}
 			res.send({
 				content: filesHTML,
@@ -473,6 +481,7 @@ app.post("/api", async (req, res) => {
 		}
 	} else if (req.body.r == "deleteFile") {
 		// ? Deletes a file from the linux file system
+		if (!req.session.isAdmin) return;
 		try {
 			if (req.session.isAdmin) {
 				fs.rmSync(req.body.path, { recursive: true, force: true });
@@ -486,6 +495,7 @@ app.post("/api", async (req, res) => {
 		}
 	} else if (req.body.r == "renameFile") {
 		// ? Renamve a file from the linux file system
+		if (!req.session.isAdmin) return;
 		try {
 			if (req.session.isAdmin) {
 				fs.renameSync(req.body.path, req.body.newName);
@@ -500,9 +510,15 @@ app.post("/api", async (req, res) => {
 	} else if (req.body.r == "packageDatabase") {
 		// ? Send the entire package database to the front end
 		// * Early return if not admin
+		
+		if (!req.session.isAdmin) {
+			res.status(403).send("You have no permissions to access this resource");
+			return;
+		}
+		zlog("Request Package Database JSON", "info");
 		if (!fs.existsSync(path.join(zentroxInstPath, "allPackages.txt"))) {
 			var packagesString = String(new Date().getTime()) + "\n";
-			var allPackages = listPackages();
+			var allPackages = await listPackages();
 			for (line of allPackages) {
 				packagesString = packagesString + "\n" + line;
 			}
@@ -511,12 +527,6 @@ app.post("/api", async (req, res) => {
 				packagesString,
 			);
 		}
-		if (!req.session.isAdmin) {
-			res.status(403).send("You have no permissions to access this resource");
-			return;
-		}
-		zlog("Request Package Database JSON", "info");
-
 		// * Get applications, that feature a GUI
 		var desktopFile = "";
 		var guiApplications = [];
@@ -766,7 +776,7 @@ app.post("/api", async (req, res) => {
 	} else if (req.body.r == "deviceInformation") {
 		if (!req.session.isAdmin) return;
 		let os_name = chpr
-			.execSync("lsb_release -d", { stdio: "pipe", timeout: 500 })
+			.execSync("lsb_release -d", { stdio: "pipe" })
 			.toString("ascii")
 			.replace("Description:\t", "")
 			.replace("\n", "");
@@ -883,9 +893,14 @@ app.post("/api", async (req, res) => {
 				var old_key = req.body.old_key;
 				var new_key = req.body.new_key;
 				var i = 0;
+				var j = 0;
 				while (i != 1000) {
 					old_key = crypto.createHash("sha512").update(old_key).digest("hex");
 					i++;
+				}
+				while (j != 1000) {
+					new_key = crypto.createHash("sha512").update(new_key).digest("hex");
+					j++;
 				}
 				try {
 					decryptAESGCM256(path.join(zentroxInstPath, "vault.vlt"), old_key);
@@ -935,7 +950,6 @@ app.post("/api", async (req, res) => {
 			path.join(zentroxInstPath, "vault.vlt"),
 		);
 		encryptAESGCM256(path.join(zentroxInstPath, "vault.vlt"), key);
-		console.log(entries);
 		res.send({ message: "decrypted", fs: entries });
 	} else if (req.body.r == "vault_file_download") {
 		if (!req.session.isAdmin) return;
@@ -944,29 +958,38 @@ app.post("/api", async (req, res) => {
 			fpath = fpath.replace("/", "");
 		}
 		var i = 0;
-		console.log("Starting rep");
 		var key = req.body.key;
 		while (i != 1000) {
 			key = crypto.createHash("sha512").update(key).digest("hex");
 			i++;
-			console.log(i);
 		}
-		console.log("Key done");
 		decryptAESGCM256(path.join(zentroxInstPath, "vault.vlt"), key);
 		try {
-		fs.mkdirSync(path.join(zentroxInstPath, "vault_extract"))
-		} catch {
+			fs.mkdirSync(path.join(zentroxInstPath, "vault_extract"));
+		} catch {}
+		try {
+			tar.x(
+				{
+					file: path.join(zentroxInstPath, "vault.vlt"),
+					sync: true,
+					cwd: path.join(zentroxInstPath, "vault_extract"),
+				},
+				[fpath],
+			);
+		} catch (e) {
+			console.log(e);
 		}
-		try {	tar.x(
-			{ file: path.join(zentroxInstPath, "vault.vlt"), sync: true, cwd: path.join(zentroxInstPath, "vault_extract") },
-			[fpath],
-			) } catch (e) {
-				console.log(e)
-			}
 		encryptAESGCM256(path.join(zentroxInstPath, "vault.vlt"), key);
-		var data = fs.readFileSync(path.join(zentroxInstPath, "vault_extract", fpath))
-		delete_files_recursively(path.join(zentroxInstPath, "vault_extract"))
-		res.send({data: data})
+		var data = fs.readFileSync(
+			path.join(zentroxInstPath, "vault_extract", fpath),
+		);
+		delete_files_recursively(path.join(zentroxInstPath, "vault_extract"));
+		res.writeHead(200, {
+			"Content-Type": "application/binary",
+			"Content-disposition": "attachment;filename=" + path.basename(fpath),
+			"Content-Length": data.length,
+		});
+		res.end(Buffer.from(data, "binary"));
 	}
 });
 
