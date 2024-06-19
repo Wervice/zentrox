@@ -138,12 +138,6 @@ fi
 
 echo "✅ Python can be used"
 
-if ! command go -v &> /dev/null
-then
-	echo "❌ Go is not installed"
-	exit -1
-fi
-
 if ! command git -v &> /dev/null
 then
 	echo "❌ Git is not installed"
