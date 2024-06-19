@@ -613,7 +613,8 @@ small {
 	}
 }
 
-#vault_files, #filesContainer {
+#vault_files,
+#filesContainer {
 	padding: 10px;
 	border-radius: 5px;
 	width: calc(100% - 245px);

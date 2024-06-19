@@ -19,7 +19,7 @@ const compression = require("compression"); // Compressing conenction
 const cookieParser = require("cookie-parser");
 const session = require("express-session");
 const express = require("express"); // Using Express framework
-const { argv0 } = require("process");
+const multiparty = require("multiparty");
 
 const Worker = require("node:worker_threads").Worker; // For package cache worker
 
@@ -61,8 +61,8 @@ if (!fs.existsSync(zentroxInstPath)) {
 }
 
 // Configure server
-app.use(bodyParser.urlencoded({ extended: false }));
-app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: false, limit: "50mb" }));
+app.use(bodyParser.json({ limit: "4gb" }));
 app.use(
 	cookieParser(
 		fs
@@ -422,12 +422,32 @@ app.post("/api", async (req, res) => {
 		// ? List files as HTML and sends it to front end
 		if (req.session.isAdmin) {
 			var filesHTML = "";
-			try {for (fileN of fs.readdirSync(req.body.path)) {
-				if (fileN[0] == ".") {
-					if (
-						req.body.showHiddenFiles == true ||
-						req.body.showHiddenFiles == "on"
-					) {
+			try {
+				for (fileN of fs.readdirSync(req.body.path)) {
+					if (fileN[0] == ".") {
+						if (
+							req.body.showHiddenFiles == true ||
+							req.body.showHiddenFiles == "on"
+						) {
+							try {
+								if (fs.statSync(path.join(req.body.path, fileN)).isFile()) {
+									var fileIcon = "file.png";
+									var funcToUse = "downloadFile";
+								} else {
+									var fileIcon = "folder.png";
+									var funcToUse = "navigateFolder";
+								}
+							} catch {
+								var fileIcon = "adminfile.png";
+								var funcToUse = "alert";
+							}
+							var filesHTML =
+								filesHTML +
+								`<button class='fileButtons' onclick="${funcToUse}('${fileN}')" oncontextmenu="contextMenuF('${fileN}')"><img src="${fileIcon}"><br>${fileN
+									.replaceAll("<", "&lt;")
+									.replaceAll(">", "&gt;")}</button>`;
+						}
+					} else {
 						try {
 							if (fs.statSync(path.join(req.body.path, fileN)).isFile()) {
 								var fileIcon = "file.png";
@@ -446,31 +466,12 @@ app.post("/api", async (req, res) => {
 								.replaceAll("<", "&lt;")
 								.replaceAll(">", "&gt;")}</button>`;
 					}
-				} else {
-					try {
-						if (fs.statSync(path.join(req.body.path, fileN)).isFile()) {
-							var fileIcon = "file.png";
-							var funcToUse = "downloadFile";
-						} else {
-							var fileIcon = "folder.png";
-							var funcToUse = "navigateFolder";
-						}
-					} catch {
-						var fileIcon = "adminfile.png";
-						var funcToUse = "alert";
-					}
-					var filesHTML =
-						filesHTML +
-						`<button class='fileButtons' onclick="${funcToUse}('${fileN}')" oncontextmenu="contextMenuF('${fileN}')"><img src="${fileIcon}"><br>${fileN
-							.replaceAll("<", "&lt;")
-							.replaceAll(">", "&gt;")}</button>`;
 				}
-			}}
-			catch (e) {
-				console.error(e)
+			} catch (e) {
+				console.error(e);
 				res.send({
-					message: "no_permissions"
-				})
+					message: "no_permissions",
+				});
 				return;
 			}
 			res.send({
@@ -510,7 +511,7 @@ app.post("/api", async (req, res) => {
 	} else if (req.body.r == "packageDatabase") {
 		// ? Send the entire package database to the front end
 		// * Early return if not admin
-		
+
 		if (!req.session.isAdmin) {
 			res.status(403).send("You have no permissions to access this resource");
 			return;
@@ -850,7 +851,8 @@ app.post("/api", async (req, res) => {
 		if (!req.session.isAdmin) return;
 		if (
 			readDatabase(path.join(zentroxInstPath, "config.db"), "vault_enabled") ==
-			"0"
+				"0" ||
+			!fs.existsSync(path.join(zentroxInstPath, "vault.vlt"))
 		) {
 			var key = req.body.key;
 			var i = 0;
@@ -863,7 +865,6 @@ app.post("/api", async (req, res) => {
 			tar
 				.c(
 					{
-						gzip: true,
 						file: path.join(zentroxInstPath, "vault.tar"),
 						cwd: zentroxInstPath,
 					},
@@ -920,7 +921,7 @@ app.post("/api", async (req, res) => {
 		if (!req.session.isAdmin) return;
 		var key = req.body.key;
 		var i = 0;
-		if (fs.readFileSync(path.join(zentroxInstPath, "vault.vlt")).length === 0) {
+		if (!fs.existsSync(path.join(zentroxInstPath, "vault.vlt"))) {
 			res.send({ message: "vault_not_configured" });
 			return;
 		}
@@ -990,7 +991,76 @@ app.post("/api", async (req, res) => {
 			"Content-Length": data.length,
 		});
 		res.end(Buffer.from(data, "binary"));
+	} else if (req.body.r == "vault_file_upload") {
+		if (!req.session.isAdmin) return;
+		var file_binary = req.body.file;
+		fs.writeFileSync(path.join(zentroxInstPath, "out.png"), file_binary);
+	} else {
+		console.log(req.body);
 	}
+});
+
+app.post("/upload/vault", async (req, res) => {
+	var form = new multiparty.Form();
+	form.parse(req, (err, fields, files) => {
+		if (err) {
+			console.error(err);
+		}
+		var key = fields["key"][0];
+		var i = 0;
+		while (i != 1000) {
+			key = crypto.createHash("sha512").update(key).digest("hex");
+			i++;
+		}
+		try {
+			decryptAESGCM256(path.join(zentroxInstPath, "vault.vlt"), key);
+		} catch (err) {
+			res.send({ message: "auth_failed" });
+			return;
+		}
+		try {
+			var fpath = files["file"][0]["path"];
+			var contents = [];
+			tar.t({
+				file: path.join(zentroxInstPath, "vault.vlt"),
+				onentry: (entry) => contents.push(entry.path),
+				sync: true,
+			});
+
+			var ffilename = files["file"][0]["originalFilename"];
+			while (contents.includes(ffilename)) {
+				ffilename = ffilename.split(".")[0] + "_new." + ffilename.split(".")[1];
+			}
+
+			var new_path = path.join(zentroxInstPath, "vault_extract", ffilename);
+			fs.copyFileSync(fpath, new_path);
+
+			tar.update(
+				{
+					file: path.join(zentroxInstPath, "vault.vlt"),
+					sync: true,
+					cwd: path.join(zentroxInstPath, "vault_extract"),
+				},
+				[ffilename],
+			);
+		} catch (err) {
+			console.error(err);
+			res.send({ message: err });
+			encryptAESGCM256(path.join(zentroxInstPath, "vault.vlt"), key);
+			return;
+		}
+
+		encryptAESGCM256(path.join(zentroxInstPath, "vault.vlt"), key);
+		var j = 0;
+		while (j < 4) {
+			fs.writeFileSync(fpath, crypto.randomBytes(fs.statSync(fpath).size))
+			fs.writeFileSync(new_path, crypto.randomBytes(fs.statSync(new_path).size))
+			j++;
+		}
+		fs.unlinkSync(new_path)
+		fs.unlinkSync(fpath)
+		res.send({})
+	});
 });
 
 process.on("beforeExit", function () {

@@ -161,6 +161,12 @@ if ! gcc ./libs/crypt_c.c -o ./libs/crypt_c -lcrypt; then
 	echo "❌ Compiling using GCC failed"
 fi
 
+if ! openssl -v &> /dev/null; then
+	echo "❌ Please install OpenSSL on your system"
+fi
+
+echo "✅ OpenSSL is installed" 
+
 echo "🔑 Generating selfsigned keys"
 
 echo "ℹ️ In the following, you will be asked to enter some information to generate  SSL keys and certificates."
@@ -195,7 +201,10 @@ touch "$ZENTROX_DATA_PATH/setupDone.txt"
 touch "$ZENTROX_DATA_PATH/users.txt"
 mkdir "$ZENTROX_DATA_PATH/users" &> /dev/null
 mkdir "$ZENTROX_DATA_PATH/users/$(echo $ADMIN_USERNAME | base64)" &> /dev/null
-touch "$ZENTROX_DATA_PATH/zentrox.txt" 
+mkdir "$ZENTROX_DATA_PATH/upload_vault"
+mkdir "$ZENTROX_DATA_PATH/vault_extract"
+touch "$ZENTROX_DATA_PATH/zentrox.txt"
+touch "$ZENTROX_DATA_PATH/vault.vlt"
 openssl rand -base64 64 > "$ZENTROX_DATA_PATH/sessionSecret.txt"
 
 touch $ZENTROX_DATA_PATH/config.db
@@ -209,6 +218,7 @@ $ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db ftp_userna
 $ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db ftp_password $(echo -n "change_me" | sha512sum | cut -d ' ' -f 1)
 $ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db ftp_root /
 $ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db zentrox_user_password $(echo $USER_PASSWORD | openssl aes-256-cbc -a -A -pbkdf2 -salt -pass pass:$ADMIN_PASSWORD)
+$ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db vault_enabled "0"
 
 echo -n "$ADMIN_USERNAME" > "$ZENTROX_DATA_PATH/admin.txt"
 echo -n "true" > "$ZENTROX_DATA_PATH/setupDone.txt"

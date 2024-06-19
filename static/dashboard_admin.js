@@ -203,9 +203,14 @@ function ask_for_vault_dec_key() {
 				.then((json) => {
 					if (json["message"] == "auth_failed") {
 						failPopup("Failed to change Vault key");
-					}
-					else {
-						confirmModal("Changed vault key", "The vault key was sucessfully changed", () => {}, () => {}, false)
+					} else {
+						confirmModal(
+							"Changed vault key",
+							"The vault key was sucessfully changed",
+							() => {},
+							() => {},
+							false,
+						);
 					}
 					removeLoader("submit_vault_config");
 				});
@@ -231,7 +236,6 @@ function addSkeletons() {
 function open_vault() {
 	document.getElementById("vault_config").hidden = true;
 	document.getElementById("vault_files").hidden = true;
-	document.getElementById("vault_view").hidden = false;
 	inputModal(
 		"Unlock Vault",
 		"Enter the vault key to unlock the vault",
@@ -257,9 +261,14 @@ function open_vault() {
 				.then((data) => {
 					if (data["message"] == "auth_failed") {
 						failPopup("Permission error");
+						document.getElementById("vault_view").hidden = true;
+						document.getElementById("vault_config").hidden = false;
 					} else if (data["message"] == "vault_not_configured") {
 						failPopup("Vault not configured");
+						document.getElementById("vault_view").hidden = true;
+						document.getElementById("vault_config").hidden = false;
 					} else {
+						document.getElementById("vault_view").hidden = false;
 						document.getElementById("vault_files").hidden = false;
 						draw_vault_file_structure("/", data["fs"]);
 						sessionStorage.setItem(
@@ -267,8 +276,11 @@ function open_vault() {
 							btoa(document.getElementById("vault_key_unlock").value),
 						);
 					}
-					document.getElementById("usersTable").innerHTML = data["text"];
 				});
+		},
+		() => {
+			document.getElementById("vault_view").hidden = true;
+			document.getElementById("vault_configure").hidden = false;
 		},
 	);
 }
@@ -295,7 +307,7 @@ function draw_vault_file_structure(path, data) {
 
 function open_vault_file(filename, path, button = null) {
 	if (button != null) {
-		button.innerHTML += `<img src="small_loading_white.svg" class="loader">`
+		button.innerHTML += `<img src="small_loading_white.svg" class="loader">`;
 	}
 	fetch(`/api`, {
 		method: "POST",
@@ -308,10 +320,12 @@ function open_vault_file(filename, path, button = null) {
 			key: atob(sessionStorage.getItem("vault_key")),
 		}),
 	})
-		.then((res) => {if (button != null) {
-			button.querySelector("img").remove()
-		}
-		return res.blob()})
+		.then((res) => {
+			if (button != null) {
+				button.querySelector("img").remove();
+			}
+			return res.blob();
+		})
 		.then((blob) => {
 			var url = window.URL.createObjectURL(blob);
 			var a = document.createElement("a");
@@ -324,9 +338,74 @@ function open_vault_file(filename, path, button = null) {
 }
 
 function close_vault_files() {
-	document.getElementById("vault_view").hidden = true
-	document.getElementById("vault_config").hidden = false
-	sessionStorage.removeItem("vault_key")
+	document.getElementById("vault_view").hidden = true;
+	document.getElementById("vault_config").hidden = false;
+	sessionStorage.removeItem("vault_key");
+}
+
+function vault_file_upload() {
+	inputModal(
+		"Upload file",
+		"Pick a file to upload",
+		"vault_file_upload_input",
+		"file",
+		() => {
+			var file_for_upload = document.getElementById("vault_file_upload_input")
+				.files[0];
+			if (file_for_upload) {
+				var form_data = new FormData();
+				form_data.append("file", file_for_upload);
+				form_data.append("key", atob(sessionStorage.getItem("vault_key")));
+				fetch("/upload/vault", {
+					method: "POST",
+					headers: {},
+					body: form_data,
+				})
+					.then((res) => {
+						return res.json();
+					})
+					.then((json) => {
+						if (json["message"]) {
+							confirmModalWarning("Upload error", "Upload failed");
+						}
+						else {
+							confirmModal("Upload success", "The file was uploaded to vault", () => {}, () => {}, false)
+						fetch("/api", {
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+							},
+							body: JSON.stringify({
+								r: "vault_tree",
+								key: atob(sessionStorage.getItem("vault_key")),
+							}),
+						})
+							.then((res) => {
+								if (!res.ok) {
+									failPopup("Vault connection failed");
+									document.getElementById("vault_view").hidden = true;
+									document.getElementById("vault_config").hidden = false;
+								}
+								return res.json();
+							})
+							.then((data) => {
+								if (data["message"] == "auth_failed") {
+									failPopup("Permission error");
+									document.getElementById("vault_view").hidden = true;
+									document.getElementById("vault_config").hidden = false;
+								} else if (data["message"] == "vault_not_configured") {
+									failPopup("Vault not configured");
+									document.getElementById("vault_view").hidden = true;
+									document.getElementById("vault_config").hidden = false;
+								} else {
+									draw_vault_file_structure("/", data["fs"]);
+								}
+							});}
+					});
+			}
+		},
+		() => {},
+	);
 }
 
 // Status bars (Dashboard)
@@ -565,10 +644,9 @@ function renderFiles(path) {
 		})
 		.then((data) => {
 			if (data["message"] == "no_permissions") {
-				failPopup("Missing permission to open this file")
-				goFUp()
-			}
-			else {
+				failPopup("Missing permission to open this file");
+				goFUp();
+			} else {
 				document.getElementById("filesContainer").innerHTML = data["content"];
 			}
 		});
@@ -1231,7 +1309,13 @@ function errorModal(title, message, command, cancled = () => {}) {
 	};
 }
 
-function confirmModal(title, message, command, cancled = () => {}, show_cancle=true) {
+function confirmModal(
+	title,
+	message,
+	command,
+	cancled = () => {},
+	show_cancle = true,
+) {
 	document.getElementById("modalMain").hidden = false;
 	document.getElementById("modalTitle").innerHTML = title;
 	document.getElementById("modalMessage").innerHTML = message;
@@ -1241,7 +1325,7 @@ function confirmModal(title, message, command, cancled = () => {}, show_cancle=t
 			command();
 		}, 600);
 	};
-	document.getElementById("buttonCancle").hidden = !show_cancle
+	document.getElementById("buttonCancle").hidden = !show_cancle;
 }
 
 function confirmModalWarning(title, message, command, cancled = () => {}) {
@@ -1252,6 +1336,7 @@ function confirmModalWarning(title, message, command, cancled = () => {}) {
 		killModalPopup();
 		setTimeout(() => {
 			command();
+		document.getElementById("buttonConfirm").classList.remove("red");
 		}, 600);
 	};
 	document.getElementById("buttonConfirm").classList.add("red");
@@ -1274,6 +1359,10 @@ function inputModal(
 		setTimeout(() => {
 			command();
 		}, 600);
+	};
+	document.getElementById("buttonCancle").onclick = function () {
+		killModalPopup();
+		cancled();
 	};
 }
 

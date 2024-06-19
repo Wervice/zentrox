@@ -12,6 +12,9 @@
 	</head>
 
 	<body>
+		<img src="Loading.svg" hidden />
+		<img src="small_loading_white.svg" hidden />
+		<img src="small_loading_black.svg" hidden />
 		<div id="driveModal" hidden>
 			<h3 id="driveName"></h3>
 			<table>
@@ -200,17 +203,24 @@
 				</div>
 				<div id="storage_vault" hidden>
 					<h3>Vault</h3>
-					<small>
-						Zentrox Vault lets you configure an encrypted file safe.
-					</small>
-					<input
-						type="password"
-						placeholder="Vault encryption key"
-						id="vault_key_config"
-					/><br />
-					<button id="submit_vault_config">Apply</button>
-					<br /><br />
-					<button>Open vault</button>
+					<div id="vault_config">
+						<small>
+							Zentrox Vault lets you configure an encrypted file safe.
+						</small>
+						<input
+							type="password"
+							placeholder="Vault encryption key"
+							id="vault_key_config"
+						/><br />
+						<button id="submit_vault_config">Apply</button>
+						<br /><br />
+						<button onclick="open_vault()">Open vault</button>
+					</div>
+					<div id="vault_view" hidden>
+						<button onclick="vault_file_upload()">Upload</button>
+						<button onclick="close_vault_files()">Done</button>
+						<div id="vault_files"></div>
+					</div>
 				</div>
 			</div>
 			<div id="users" hidden>
