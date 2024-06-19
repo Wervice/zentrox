@@ -211,7 +211,11 @@ openssl rand -base64 64 > "$ZENTROX_DATA_PATH/sessionSecret.txt"
 
 touch $ZENTROX_DATA_PATH/config.db
 
-go build $ZENTROX_PATH/libs/mapbase/mapbase.go
+cd $ZENTROX_PATH/libs/mapbase/
+
+go build mapbase.go
+
+cd
 
 $ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db server_name $ZENTROX_SERVER_NAME
 $ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db reg_mode linkInvite
