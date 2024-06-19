@@ -136,6 +136,14 @@ then
 	exit -1
 fi
 
+echo "✅ Python can be used"
+
+if ! command go -v &> /dev/null
+then
+	echo "❌ Go is not installed"
+	exit -1
+fi
+
 if ! command git -v &> /dev/null
 then
 	echo "❌ Git is not installed"
@@ -208,6 +216,8 @@ touch "$ZENTROX_DATA_PATH/vault.vlt"
 openssl rand -base64 64 > "$ZENTROX_DATA_PATH/sessionSecret.txt"
 
 touch $ZENTROX_DATA_PATH/config.db
+
+go build $ZENTROX_PATH/libs/mapbase/mapbase.go
 
 $ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db server_name $ZENTROX_SERVER_NAME
 $ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db reg_mode linkInvite

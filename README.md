@@ -55,6 +55,7 @@ If you already have a .key and .crt, please copy it to the folder and call it se
 - Python (Version 3.11+)
 - NPM
 - Pip3
+- Go
 - Linux (OpenSUSE is not supported at the time)
 - OpenSSL
 
@@ -108,6 +109,10 @@ In addition to that, it also is very fast and lightweight on the system.
 You can contribute this project in many ways. I am happy about any feedback.  
 If you found a bug, please open an issue and I will try to fix it.  
 Also, you are very welcome to **star** this project.
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=wervice/zentrox&type=Date)](https://star-history.com/#wervice/zentrox&Date)
 
 ## 📖 Legal
 
