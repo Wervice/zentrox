@@ -144,7 +144,7 @@ then
 fi
 
 echo "⌛ Installing dependencies"
-if ! npm -q install express body-parser cookie-parser express-session node-os-utils ejs compression &> /dev/null; then
+if ! npm -q install express body-parser cookie-parser express-session node-os-utils ejs compression multiparty &> /dev/null; then
 	echo "❌ NPM package installation failed";
 	npm_failed;
 fi
