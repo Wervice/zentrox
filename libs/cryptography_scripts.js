@@ -17,7 +17,7 @@ function encryptAESGCM256(file, key) {
 	var salt = crypto.randomBytes(32);
 	var key = crypto.pbkdf2Sync(key, salt, 100000, 32, "sha256");
 	// Generate a random initialization vector
-	const iv = crypto.randomBytes(16);
+	const iv = crypto.randomBytes(96);
 	// Create a cipher instance
 	const cipher = crypto.createCipheriv("aes-256-gcm", Buffer.from(key), iv);
 
@@ -29,27 +29,19 @@ function encryptAESGCM256(file, key) {
 	const tag = cipher.getAuthTag();
 	// Write the IV, auth tag, and encrypted data to the output file
 
-	fs.writeFileSync(
-		file,
-		JSON.stringify({
-			c: encrypted.toString("hex"),
-			i: iv.toString("hex"),
-			t: tag.toString("hex"),
-			s: salt.toString("hex"),
-		}),
-	);
-
+	fs.writeFileSync(file, Buffer.concat([iv, salt, tag, encrypted]));
 }
 
 function decryptAESGCM256(file, key) {
 	// Read the encrypted file
-	const input = JSON.parse(fs.readFileSync(file));
+	const input = fs.readFileSync(file);
 
 	// Extract the IV, auth tag, and encrypted data
-	const iv = Buffer.from(input["i"], "hex");
-	const authTag = Buffer.from(input["t"], "hex");
-	const encrypted = Buffer.from(input["c"], "hex");
-	const salt = Buffer.from(input["s"], "hex");
+	const file_buffer = Buffer.from(input);
+	const iv = file_buffer.subarray(0, 96);
+	const authTag = file_buffer.subarray(96 + 32, 96 + 16 + 32);
+	const encrypted = file_buffer.subarray(96 + 16 + 32, undefined);
+	const salt = file_buffer.subarray(96, 96 + 32);
 	var key = crypto.pbkdf2Sync(key, salt, 100000, 32, "sha256");
 	// Create a decipher instance
 	const decipher = crypto.createDecipheriv("aes-256-gcm", Buffer.from(key), iv);
@@ -64,4 +56,3 @@ function decryptAESGCM256(file, key) {
 	// Write the decrypted data to the output file
 	fs.writeFileSync(file, decrypted);
 }
-

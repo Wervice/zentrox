@@ -1,3 +1,4 @@
+from typing import Any
 from pyftpdlib.authorizers import AuthenticationFailed, DummyAuthorizer
 from pyftpdlib.handlers import TLS_FTPHandler
 from pyftpdlib.servers import FTPServer
@@ -41,5 +42,9 @@ def main():
     handler.authorizer = authorizer
     server = FTPServer(('', 21), handler)
     server.serve_forever()
-
-main()
+    writeDatabase("ftp_may_be_killed", "1") 
+try:
+    main()
+except OSError as error:
+    print("OS Error: "+str(error))
+    exit() 

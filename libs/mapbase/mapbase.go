@@ -4,20 +4,14 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"encoding/base64"
 )
 
-func EncodeBase64(input string) string {
-	encoded := base64.StdEncoding.EncodeToString([]byte(input))
-	return encoded
+func sanitizeDatabaseInput(input string) string {
+	return strings.ReplaceAll(input, "|", "&pipe;")	
 }
 
-func DecodeBase64(encoded string) (string) {
-	decodedBytes, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil {
-		return ""
-	}
-	return string(decodedBytes)
+func unSanitizeDatabaseInput(encoded string) (string) {
+	return strings.ReplaceAll(encoded, "&pipe;", "|")	
 }
 
 const (
@@ -40,7 +34,7 @@ func main() {
 	if (command == "read") {
 		for _, line := range lines {
 			if (strings.Split(line, " | ")[0] == key) {
-				fmt.Printf("%s", DecodeBase64(strings.Split(line, " | ")[1]))
+				fmt.Printf("%s", unSanitizeDatabaseInput(strings.Split(line, " | ")[1]))
 				return
 			}
 		}
@@ -53,14 +47,14 @@ func main() {
 		var database_out string = ""
 		for _, line := range lines {
 			if (strings.Split(line, " | ")[0] == key) {
-				database_out += key + " | " + EncodeBase64(os.Args[4]) + "\n"
+				database_out += key + " | " + sanitizeDatabaseInput(os.Args[4]) + "\n"
 				write_done = true
 			} else {
 				database_out += line+"\n"
 			}
 		}
 		if (!write_done) {
-			database_out += key + " | " + EncodeBase64(os.Args[4]) + "\n"
+			database_out += key + " | " + sanitizeDatabaseInput(os.Args[4]) + "\n"
 		}
 		database_out = strings.ReplaceAll(database_out, "\n\n", "\n")
 		os.WriteFile(file, []byte(database_out), 0667)
