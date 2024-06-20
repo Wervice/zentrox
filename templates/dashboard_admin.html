@@ -205,7 +205,8 @@
 					<h3>Vault</h3>
 					<div id="vault_config">
 						<small>
-							Zentrox Vault lets you configure an encrypted file safe.
+							Zentrox lets you set up a private file cloud.<br />
+							It uses strong encryption to protect the data.<br />
 						</small>
 						<input
 							type="password"
@@ -214,10 +215,23 @@
 						/><br />
 						<button id="submit_vault_config">Apply</button>
 						<br /><br />
-						<button onclick="open_vault()">Open vault</button>
+						<button onclick="open_vault()">Open vault</button
+						><button
+							onclick="backup_vault()"
+							title="Backup vault"
+							id="vault_backup_button"
+						>
+							<img src="download.png" />
+						</button>
 					</div>
 					<div id="vault_view" hidden>
-						<button onclick="vault_file_upload()">Upload</button>
+						<div id="vault_context_menu" hidden>
+							<button onclick="delete_vault_file()">Delete</button>
+							<button onclick="rename_vault_file()">Rename</button>
+						</div>
+						<button onclick="vault_file_upload(this)" id="vault_upload_button">
+							Upload
+						</button>
 						<button onclick="close_vault_files()">Done</button>
 						<div id="vault_files"></div>
 					</div>

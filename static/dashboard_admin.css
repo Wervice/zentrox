@@ -186,7 +186,6 @@ button {
 	& img {
 		width: 18px;
 		margin-bottom: -3px;
-		padding-right: 5px;
 	}
 
 	& :hover {
@@ -212,6 +211,10 @@ button {
 	width: 175px;
 	text-align: left;
 	background: #242424;
+
+	img {
+		margin-right: 5px;
+	}
 }
 
 #sideBar {
@@ -283,7 +286,7 @@ details {
 }
 
 .fileButtons {
-	width: 125px;
+	width: 200px;
 	text-overflow: ellipsis;
 	overflow: hidden;
 	padding: 5px;
@@ -297,7 +300,8 @@ details {
 	}
 }
 
-#storage #contextmenu {
+#storage #contextmenu,
+#vault_view #vault_context_menu {
 	border-radius: 5px;
 	padding: 10px;
 	background-color: #222;

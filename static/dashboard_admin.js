@@ -5,6 +5,7 @@ updatingFTPstatus = false;
 
 window.onclick = function () {
 	document.getElementById("contextmenu").hidden = true;
+	document.getElementById("vault_context_menu").hidden = true;
 };
 
 window.addEventListener("mousemove", function (e) {
@@ -25,7 +26,7 @@ window.onload = function () {
 	document
 		.querySelector("#contextmenu #deleteButton")
 		.addEventListener("click", function () {
-			confirmModal("Delete", "Do you want to proceed", function () {
+			confirm_modal("Delete", "Do you want to proceed", function () {
 				fetch("/api", {
 					method: "POST",
 					headers: {
@@ -51,7 +52,7 @@ window.onload = function () {
 	document
 		.querySelector("#contextmenu #renameButton")
 		.addEventListener("click", function () {
-			confirmModal(
+			confirm_modal(
 				"Rename",
 				"Filename<br><br><input type='text' id='renameNameInput'>",
 				function () {
@@ -86,7 +87,7 @@ window.onload = function () {
 		var ftpUserPassword = null;
 		updatingFTPstatus = true;
 
-		attachLoader("ftp_running");
+		attach_loader("ftp_running");
 
 		// Not yet reading the sudo password
 		document.getElementById("ftpSettingsApply").innerText = "Updating";
@@ -111,7 +112,7 @@ window.onload = function () {
 							"Failed (retry)";
 						document.getElementById("ftpError").innerHTML =
 							jsonResponse["details"];
-						failPopup("Failed to update FTP configuration");
+						fail_popup("Failed to update FTP configuration");
 						document.getElementById("ftp_running").checked =
 							!document.getElementById("ftp_running").checked;
 						throw new Error("Failed to update FTP configuration");
@@ -126,14 +127,14 @@ window.onload = function () {
 				updatingFTPstatus = false;
 				fetchFTPconnectionInformation();
 				document.getElementById("ftpSettingsApply").innerText = "Apply";
-				removeLoader("ftp_running");
+				remove_loader("ftp_running");
 			});
 	});
 	document
 		.getElementById("submit_vault_config")
 		.addEventListener("click", function () {
 			this.innerHTML = "Updating";
-			attachLoader("submit_vault_config", "white");
+			attach_loader("submit_vault_config", "white");
 			fetch("/api", {
 				method: "POST",
 				headers: {
@@ -150,7 +151,7 @@ window.onload = function () {
 				.then((json) => {
 					if (json["code"] == "no_decrypt_key") {
 						if (document.getElementById("vault_key_config").value.length != 0) {
-							confirmModal(
+							confirm_modal(
 								"Change vault key",
 								"Do you want to change the encryption key of Zentrox Vault?",
 								() => {
@@ -161,7 +162,7 @@ window.onload = function () {
 						}
 					}
 					this.innerHTML = "Apply";
-					removeLoader("submit_vault_config");
+					remove_loader("submit_vault_config");
 				});
 		});
 };
@@ -178,7 +179,7 @@ setInterval(function () {
 // Functions
 
 function ask_for_vault_dec_key() {
-	inputModal(
+	input_modal(
 		"Vault key",
 		"Please enter the <b>current vault key</b>.",
 		"vault_key_old",
@@ -202,9 +203,9 @@ function ask_for_vault_dec_key() {
 				})
 				.then((json) => {
 					if (json["message"] == "auth_failed") {
-						failPopup("Failed to change Vault key");
+						fail_popup("Failed to change Vault key");
 					} else {
-						confirmModal(
+						confirm_modal(
 							"Changed vault key",
 							"The vault key was sucessfully changed",
 							() => {},
@@ -212,7 +213,7 @@ function ask_for_vault_dec_key() {
 							false,
 						);
 					}
-					removeLoader("submit_vault_config");
+					remove_loader("submit_vault_config");
 				});
 		},
 	);
@@ -233,10 +234,10 @@ function addSkeletons() {
 	document.getElementById("temperature").innerHTML = skeleton;
 }
 
-function open_vault() {
+function open_vault(button) {
 	document.getElementById("vault_config").hidden = true;
 	document.getElementById("vault_files").hidden = true;
-	inputModal(
+	input_modal(
 		"Unlock Vault",
 		"Enter the vault key to unlock the vault",
 		"vault_key_unlock",
@@ -254,23 +255,26 @@ function open_vault() {
 			})
 				.then((res) => {
 					if (!res.ok) {
-						failPopup("Vault connection failed");
+						fail_popup("Vault connection failed");
 					}
 					return res.json();
 				})
 				.then((data) => {
 					if (data["message"] == "auth_failed") {
-						failPopup("Permission error");
+						fail_popup(
+							"Permission error <button onclick='location.reload()'>Reload</button>",
+						);
 						document.getElementById("vault_view").hidden = true;
 						document.getElementById("vault_config").hidden = false;
 					} else if (data["message"] == "vault_not_configured") {
-						failPopup("Vault not configured");
+						fail_popup("Vault not configured");
 						document.getElementById("vault_view").hidden = true;
 						document.getElementById("vault_config").hidden = false;
 					} else {
 						document.getElementById("vault_view").hidden = false;
 						document.getElementById("vault_files").hidden = false;
-						draw_vault_file_structure("/", data["fs"]);
+						vault_path = "/";
+						draw_vault_file_structure(vault_path, data["fs"]);
 						sessionStorage.setItem(
 							"vault_key",
 							btoa(document.getElementById("vault_key_unlock").value),
@@ -280,7 +284,7 @@ function open_vault() {
 		},
 		() => {
 			document.getElementById("vault_view").hidden = true;
-			document.getElementById("vault_configure").hidden = false;
+			document.getElementById("vault_config").hidden = false;
 		},
 	);
 }
@@ -300,7 +304,7 @@ function draw_vault_file_structure(path, data) {
 		}
 	}
 	for (file of files) {
-		files_code += `<button class="fileButtons" onclick="open_vault_file('${file}', '${path}', this)">${file}</button>`;
+		files_code += `<button class="fileButtons" onclick="open_vault_file('${file}', '${path}', this)" oncontextmenu="open_vault_context('${file}', this)">${file}</button>`;
 	}
 	document.getElementById("vault_files").innerHTML = files_code;
 }
@@ -337,39 +341,52 @@ function open_vault_file(filename, path, button = null) {
 		});
 }
 
-function close_vault_files() {
-	document.getElementById("vault_view").hidden = true;
-	document.getElementById("vault_config").hidden = false;
-	sessionStorage.removeItem("vault_key");
+function open_vault_context(filename, button = null) {
+	document.getElementById("vault_context_menu").hidden = false;
+	document.getElementById("vault_context_menu").style.left = mouseX + 20 + "px";
+	document.getElementById("vault_context_menu").style.top = mouseY + 10 + "px";
+	vault_context_file = path_join([vault_path, filename]);
+	vault_context_button = button;
 }
 
-function vault_file_upload() {
-	inputModal(
-		"Upload file",
-		"Pick a file to upload",
-		"vault_file_upload_input",
-		"file",
+function delete_vault_file() {
+	const file_for_delete = vault_context_file;
+
+	confirm_modal_warning(
+		"Delete file",
+		"Do you want to delete the file:<br>" + vault_context_file,
 		() => {
-			var file_for_upload = document.getElementById("vault_file_upload_input")
-				.files[0];
-			if (file_for_upload) {
-				var form_data = new FormData();
-				form_data.append("file", file_for_upload);
-				form_data.append("key", atob(sessionStorage.getItem("vault_key")));
-				fetch("/upload/vault", {
-					method: "POST",
-					headers: {},
-					body: form_data,
+			vault_context_button.remove();
+			vault_context_button = null;
+			fetch("/api", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					r: "delete_vault_file",
+					key: atob(sessionStorage.getItem("vault_key")),
+					delete_path: file_for_delete,
+				}),
+			})
+				.then((res) => {
+					if (!res.ok) {
+						fail_popup("Vault connection failed");
+					}
+					return res.json();
 				})
-					.then((res) => {
-						return res.json();
-					})
-					.then((json) => {
-						if (json["message"]) {
-							confirmModalWarning("Upload error", "Upload failed");
-						}
-						else {
-							confirmModal("Upload success", "The file was uploaded to vault", () => {}, () => {}, false)
+				.then((data) => {
+					if (data["message"] == "auth_failed") {
+						fail_popup(
+							"Permission error <button onclick='location.reload()'>Reload</button>",
+						);
+						document.getElementById("vault_view").hidden = true;
+						document.getElementById("vault_config").hidden = false;
+					} else if (data["message"] == "vault_not_configured") {
+						fail_popup("Vault not configured");
+						document.getElementById("vault_view").hidden = true;
+						document.getElementById("vault_config").hidden = false;
+					} else {
 						fetch("/api", {
 							method: "POST",
 							headers: {
@@ -381,26 +398,97 @@ function vault_file_upload() {
 							}),
 						})
 							.then((res) => {
-								if (!res.ok) {
-									failPopup("Vault connection failed");
-									document.getElementById("vault_view").hidden = true;
-									document.getElementById("vault_config").hidden = false;
-								}
 								return res.json();
 							})
 							.then((data) => {
-								if (data["message"] == "auth_failed") {
-									failPopup("Permission error");
-									document.getElementById("vault_view").hidden = true;
-									document.getElementById("vault_config").hidden = false;
-								} else if (data["message"] == "vault_not_configured") {
-									failPopup("Vault not configured");
-									document.getElementById("vault_view").hidden = true;
-									document.getElementById("vault_config").hidden = false;
-								} else {
-									draw_vault_file_structure("/", data["fs"]);
-								}
-							});}
+								draw_vault_file_structure(vault_path, data["fs"]);
+							});
+					}
+				});
+		},
+		() => {},
+		true,
+	);
+}
+
+function rename_vault_file() {}
+
+function close_vault_files() {
+	document.getElementById("vault_view").hidden = true;
+	document.getElementById("vault_config").hidden = false;
+	sessionStorage.removeItem("vault_key");
+}
+
+function vault_file_upload(button) {
+	input_modal(
+		"Upload file",
+		"Pick a file to upload",
+		"vault_file_upload_input",
+		"file",
+		() => {
+			var file_for_upload = document.getElementById("vault_file_upload_input")
+				.files[0];
+			if (file_for_upload) {
+				var form_data = new FormData();
+				form_data.append("file", file_for_upload);
+				form_data.append("key", atob(sessionStorage.getItem("vault_key")));
+				console.log(button);
+				attach_loader(button.id, "white");
+				fetch("/upload/vault", {
+					method: "POST",
+					headers: {},
+					body: form_data,
+				})
+					.then((res) => {
+						return res.json();
+					})
+					.then((json) => {
+						if (json["message"]) {
+							confirm_modal_warning("Upload error", "Upload failed");
+						} else {
+							confirm_modal(
+								"Upload success",
+								"The file was uploaded to vault",
+								() => {},
+								() => {},
+								false,
+							);
+							fetch("/api", {
+								method: "POST",
+								headers: {
+									"Content-Type": "application/json",
+								},
+								body: JSON.stringify({
+									r: "vault_tree",
+									key: atob(sessionStorage.getItem("vault_key")),
+								}),
+							})
+								.then((res) => {
+									if (!res.ok) {
+										fail_popup("Vault connection failed");
+										document.getElementById("vault_view").hidden = true;
+										document.getElementById("vault_config").hidden = false;
+									}
+									return res.json();
+								})
+								.then((data) => {
+									remove_loader(button.id);
+
+									if (data["message"] == "auth_failed") {
+										fail_popup(
+											"Permission error <button onclick='location.reload()'>Reload</button>",
+										);
+										document.getElementById("vault_view").hidden = true;
+										document.getElementById("vault_config").hidden = false;
+									} else if (data["message"] == "vault_not_configured") {
+										fail_popup("Vault not configured");
+										document.getElementById("vault_view").hidden = true;
+										document.getElementById("vault_config").hidden = false;
+									} else {
+										draw_vault_file_structure("/", data["fs"]);
+									}
+								});
+						}
 					});
 			}
 		},
@@ -419,7 +507,7 @@ function setCPUBar() {
 	})
 		.then((res) => {
 			if (!res.ok) {
-				failPopup("Failed to fetch CPU status");
+				fail_popup("Failed to fetch CPU status");
 				throw new Error("Failed to fetch CPU status");
 			}
 			return res.json();
@@ -441,7 +529,7 @@ function setRAMBar() {
 	})
 		.then((res) => {
 			if (!res.ok) {
-				failPopup("Failed to fetch RAM status");
+				fail_popup("Failed to fetch RAM status");
 				throw new Error("Failed to fetch RAM status");
 			}
 			return res.json();
@@ -463,7 +551,7 @@ function setDiskBar() {
 	})
 		.then((res) => {
 			if (!res.ok) {
-				failPopup("Failed to fetch Disk status");
+				fail_popup("Failed to fetch Disk status");
 				throw new Error("Failed to fetch Disk status");
 			}
 			return res.json();
@@ -485,7 +573,7 @@ function getDriveList() {
 	})
 		.then((res) => {
 			if (!res.ok) {
-				failPopup("Failed to fetch disk list");
+				fail_popup("Failed to fetch disk list");
 				throw new Error("Failed to fetch disk list");
 			}
 			return res.json();
@@ -525,7 +613,7 @@ function getUserList() {
 	})
 		.then((res) => {
 			if (!res.ok) {
-				failPopup("Failed to fetch list of users");
+				fail_popup("Failed to fetch list of users");
 				throw new Error("Failed to fetch list of users");
 			}
 			return res.json();
@@ -551,7 +639,7 @@ function deleteUser(username) {
 		})
 			.then((res) => {
 				if (!res.ok) {
-					failPopup("Failed to delete user");
+					fail_popup("Failed to delete user");
 					throw new Error("Failed to delete user");
 				}
 				return res.json();
@@ -581,7 +669,7 @@ function submitNewUser() {
 	})
 		.then((res) => {
 			if (!res.ok) {
-				failPopup("Failed to submit new user");
+				fail_popup("Failed to submit new user");
 				throw new Error("Failed to submit new user");
 			}
 			return res.json();
@@ -637,14 +725,14 @@ function renderFiles(path) {
 	})
 		.then((res) => {
 			if (!res.ok) {
-				failPopup("Failed to fetch list of files");
+				fail_popup("Failed to fetch list of files");
 				throw new Error("Failed to fetch list of files");
 			}
 			return res.json();
 		})
 		.then((data) => {
 			if (data["message"] == "no_permissions") {
-				failPopup("Missing permission to open this file");
+				fail_popup("Missing permission to open this file");
 				goFUp();
 			} else {
 				document.getElementById("filesContainer").innerHTML = data["content"];
@@ -689,7 +777,7 @@ function driveInformationModal(driveName) {
 	})
 		.then((res) => {
 			if (!res.ok) {
-				failPopup("Failed to fetch drive information");
+				fail_popup("Failed to fetch drive information");
 				throw new Error("Failed to fetch drive information");
 			}
 			return res.json();
@@ -743,7 +831,7 @@ function renderApplicationManagerList() {
 	})
 		.then((res) => {
 			if (!res.ok) {
-				failPopup("Failed to fetch package list");
+				fail_popup("Failed to fetch package list");
 				throw new Error("Failed to fetch package list");
 			}
 			return res.json();
@@ -835,7 +923,7 @@ function lookForPackage() {
 }
 
 function removePackage(packageName, button) {
-	confirmModal(
+	confirm_modal(
 		"Remove package",
 		"<input type='password' placeholder='Root password' id='sudoPasswordInput'>",
 		function () {
@@ -854,7 +942,7 @@ function removePackage(packageName, button) {
 			})
 				.then((res) => {
 					if (!res.ok) {
-						failPopup("Failed to remove package");
+						fail_popup("Failed to remove package");
 						button.innerHTML = "Failed";
 						button.disabled = false;
 						button.style.color = "rgb(255, 75, 75);";
@@ -872,7 +960,7 @@ function removePackage(packageName, button) {
 }
 
 function installPackage(packageName, button) {
-	confirmModal(
+	confirm_modal(
 		"Install package",
 		"<input type='password' placeholder='SUDO Password' id='sudoPasswordInput'>",
 		function () {
@@ -891,7 +979,7 @@ function installPackage(packageName, button) {
 			})
 				.then((res) => {
 					if (!res.ok) {
-						failPopup("Failed to install package");
+						fail_popup("Failed to install package");
 						button.innerHTML = "Failed";
 						button.disabled = false;
 						button.style.color = "rgb(255, 75, 75);";
@@ -918,13 +1006,13 @@ function updateFTPConnectionSettings() {
 	var ftpUserUsername = document.getElementById("ftpUserUsername").value;
 	var ftpUserPassword = document.getElementById("ftpUserPassword").value;
 
-	rootInputModal(
+	root_input_modal(
 		"Elevated privileges",
 		"Please enter your root password to change these settings",
 		"sudoPasswordFTP",
 		"password",
 		function () {
-			attachLoader("ftpSettingsApply", "white");
+			attach_loader("ftpSettingsApply", "white");
 			// TODO Not yet reading the sudo password
 			document.getElementById("ftpSettingsApply").innerText = "Updating";
 			fetch("/api", {
@@ -948,7 +1036,7 @@ function updateFTPConnectionSettings() {
 								"Failed (retry)";
 							document.getElementById("ftpError").innerHTML =
 								jsonResponse["details"];
-							failPopup("Failed to update FTP configuration");
+							fail_popup("Failed to update FTP configuration");
 							throw new Error("Failed to update FTP configuration");
 						});
 					} else {
@@ -959,7 +1047,7 @@ function updateFTPConnectionSettings() {
 				.then(() => {
 					fetchFTPconnectionInformation();
 					document.getElementById("ftpSettingsApply").innerText = "Apply";
-					removeLoader("ftpSettingsApply");
+					remove_loader("ftpSettingsApply");
 				});
 		},
 	);
@@ -977,7 +1065,7 @@ function fetchFTPconnectionInformation() {
 	})
 		.then((res) => {
 			if (!res.ok) {
-				failPopup("Can not fetch FTP configuration information");
+				fail_popup("Can not fetch FTP configuration information");
 				throw new Error("Failed to fetch FTP configuration information");
 			}
 			return res.json();
@@ -1032,7 +1120,7 @@ function getDeviceInformation() {
 	})
 		.then((res) => {
 			if (!res.ok) {
-				failPopup("Can not fetch device information");
+				fail_popup("Can not fetch device information");
 				throw new Error("Failed to fetch device information");
 			}
 			return res.json();
@@ -1051,7 +1139,7 @@ function getDeviceInformation() {
 				.split(", ")[0]
 				.replaceAll("\n", "");
 			document.getElementById("temperature").innerText =
-				data["temperature"] != null ? data[temperature] : `No temerpature`;
+				data["temperature"] != null ? data["temperature"] : `No temperature`;
 		});
 	fetch("/api", {
 		method: "POST",
@@ -1064,7 +1152,7 @@ function getDeviceInformation() {
 	})
 		.then((res) => {
 			if (!res.ok) {
-				failPopup("Can not fetch device information");
+				fail_popup("Can not fetch device information");
 				throw new Error("Failed to fetch device information");
 			}
 			return res.json();
@@ -1077,7 +1165,7 @@ function getDeviceInformation() {
 }
 
 function poweroffSystem() {
-	confirmModal(
+	confirm_modal(
 		"Power off system",
 		"Do you want to power off the system",
 		() => {
@@ -1092,7 +1180,7 @@ function poweroffSystem() {
 			})
 				.then((res) => {
 					if (!res.ok) {
-						failPopup("Can not power off");
+						fail_popup("Can not power off");
 						throw new Error("Failed to power off system");
 					}
 					return res.json();
@@ -1114,7 +1202,7 @@ function openDetails(id) {
 	document.getElementById(id).hidden = false;
 }
 
-function attachLoader(id, color = "black") {
+function attach_loader(id, color = "black") {
 	var object = document.getElementById(id);
 	if (object.tagName.toLowerCase() == "button") {
 		object.innerHTML += `<img src="small_loading_${color}.svg" class="loader">`;
@@ -1123,10 +1211,12 @@ function attachLoader(id, color = "black") {
 	}
 }
 
-function removeLoader(id) {
+function remove_loader(id) {
 	var object = document.getElementById(id);
 	if (object.tagName.toLowerCase() == "input") {
 		object.style.backgroundImage = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1em' height='1em' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='m9.55 18l-5.7-5.7l1.425-1.425L9.55 15.15l9.175-9.175L20.15 7.4z'/%3E%3C/svg%3E")`;
+	} else if (object.tagName.toLowerCase() == "button") {
+		object.querySelector("img").remove();
 	}
 }
 
@@ -1241,7 +1331,7 @@ cssCode = `@keyframes fly-in {
     }
 }
 
-#failPopup {
+#fail_popup {
     position: fixed;
     left: 20px;
     bottom: 20px;
@@ -1254,7 +1344,7 @@ cssCode = `@keyframes fly-in {
     animation-duration: 1s;
 }
 
-#failPopup {
+#fail_popup {
     position: fixed;
     left: 20px;
     bottom: 20px;
@@ -1275,9 +1365,9 @@ code = `
             <br>
             <button id='buttonConfirm' class='cta'>Ok</button> <button id='buttonCancle' class='grey' onclick=killModalPopup()>Cancel</button>
         </div>
-        <div id='failPopup' hidden>
+        <div id='fail_popup' hidden>
         </div>
-		<div id='statusPopup' hidden></div>
+		<div id='status_popup' hidden></div>
 `; // * The HTML Code for a popup
 
 popupDataIsThere = false;
@@ -1298,21 +1388,21 @@ function killModalPopup() {
 	flyOut("modalMain", 500);
 }
 
-function errorModal(title, message, command, cancled = () => {}) {
+function error_modal(title, message, callback, cancled = () => {}) {
 	document.getElementById("modalMain").hidden = false;
 	document.getElementById("modalMain").classList.add("red");
 	document.getElementById("modalTitle").innerHTML = title;
 	document.getElementById("modalMessage").innerHTML = message;
 	document.getElementById("buttonConfirm").onclick = function () {
 		killModalPopup();
-		command();
+		callback();
 	};
 }
 
-function confirmModal(
+function confirm_modal(
 	title,
 	message,
-	command,
+	callback,
 	cancled = () => {},
 	show_cancle = true,
 ) {
@@ -1322,64 +1412,74 @@ function confirmModal(
 	document.getElementById("buttonConfirm").onclick = function () {
 		killModalPopup();
 		setTimeout(() => {
-			command();
+			callback();
 		}, 600);
 	};
 	document.getElementById("buttonCancle").hidden = !show_cancle;
 }
 
-function confirmModalWarning(title, message, command, cancled = () => {}) {
+function confirm_modal_warning(
+	title,
+	message,
+	callback,
+	cancled = () => {},
+	show_cancle = false,
+) {
 	document.getElementById("modalMain").hidden = false;
 	document.getElementById("modalTitle").innerHTML = title;
 	document.getElementById("modalMessage").innerHTML = message;
 	document.getElementById("buttonConfirm").onclick = function () {
 		killModalPopup();
 		setTimeout(() => {
-			command();
-		document.getElementById("buttonConfirm").classList.remove("red");
+			callback();
+			document.getElementById("buttonConfirm").classList.remove("red");
 		}, 600);
 	};
 	document.getElementById("buttonConfirm").classList.add("red");
+	document.getElementById("buttonCancle").hidden = !show_cancle;
 }
 
-function inputModal(
+function input_modal(
 	title,
 	message,
 	inputName,
 	type,
-	command,
+	callback,
 	cancled = () => {},
 ) {
 	document.getElementById("modalMain").hidden = false;
 	document.getElementById("modalTitle").innerHTML = title;
 	document.getElementById("modalMessage").innerHTML =
-		message + `<br><input type="${type}" id="${inputName}" class="inputModal">`;
+		message +
+		`<br><input type="${type}" id="${inputName}" class="input_modal">`;
 	document.getElementById("buttonConfirm").onclick = function () {
 		killModalPopup();
 		setTimeout(() => {
-			command();
+			callback();
 		}, 600);
 	};
 	document.getElementById("buttonCancle").onclick = function () {
 		killModalPopup();
 		cancled();
 	};
+	document.getElementById("buttonCancle").hidden = false;
 }
 
-function rootInputModal(
+function root_input_modal(
 	title,
 	message,
 	inputName,
 	type,
-	command,
+	callback,
 	cancled = () => {},
 ) {
 	document.getElementById("modalMain").hidden = false;
 	document.getElementById("modalTitle").innerHTML = title;
 	document.getElementById("modalMessage").innerHTML =
-		message + `<br><input type="${type}" id="${inputName}" class="inputModal">`;
+		message +
+		`<br><input type="${type}" id="${inputName}" class="input_modal">`;
 	document.getElementById("buttonConfirm").onclick = function () {
-		command();
+		callback();
 		killModalPopup();
 	};
 }
@@ -1416,18 +1516,18 @@ function fadeOut(id, duration) {
 	}, duration - 10);
 }
 
-function failPopup(message) {
-	document.getElementById("failPopup").hidden = false;
-	document.getElementById("failPopup").innerHTML = message;
+function fail_popup(message) {
+	document.getElementById("fail_popup").hidden = false;
+	document.getElementById("fail_popup").innerHTML = message;
 	setTimeout(function () {
-		fadeOut("failPopup", 3000);
+		fadeOut("fail_popup", 3000);
 	}, 3000);
 }
 
-function statusPopup(message) {
-	document.getElementById("statusPopup").hidden = false;
-	document.getElementById("statusPopup").innerHTML = "✅ " + message;
+function status_popup(message) {
+	document.getElementById("status_popup").hidden = false;
+	document.getElementById("status_popup").innerHTML = "✅ " + message;
 	setTimeout(function () {
-		fadeOut("failPopup", 5000);
+		fadeOut("fail_popup", 5000);
 	}, 5000);
 }
