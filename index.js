@@ -11,6 +11,7 @@ const bodyParser = require("body-parser");
 const osu = require("node-os-utils"); // For CPU, RAM... metrics
 const tar = require("tar"); // For tarballs in vault
 const multiparty = require("multiparty");
+const zlib = require("zlib")
 const os = require("os");
 const fs = require("fs");
 const crypto = require("crypto");
@@ -20,6 +21,7 @@ const compression = require("compression"); // Compressing conenction
 const cookieParser = require("cookie-parser");
 const session = require("express-session");
 const express = require("express"); // Using Express framework
+const MemoryStore = require('memorystore')(session)
 
 const Worker = require("node:worker_threads").Worker; // For package cache worker
 
@@ -91,6 +93,9 @@ app.use(
 		name: "currentSessionCookies",
 		saveUninitialized: true,
 		resave: false,
+		store: new MemoryStore({
+			checkPeriod: 86400000
+		}),
 		cookie: {
 			sameSite: true,
 			secure: true,
@@ -373,7 +378,7 @@ app.get("/api", async (req, res) => {
 				p: Number((os.totalmem() - os.freemem()) / os.totalmem()) * 100,
 			});
 		}
-	} else if (req.query["r"] == "diskPercent") {
+	}	else if (req.query["r"] == "diskPercent") {
 		if (req.session.isAdmin == true) {
 			var stats = fs.statfsSync("/");
 			var percent =
@@ -1048,6 +1053,7 @@ app.post("/api", async (req, res) => {
 				},
 				[fpath],
 			);
+			fs.writeFileSync(path.join(zentrox_installation_path, "vault_extract", fpath), zlib.unzipSync(fs.readFileSync(path.join(zentrox_installation_path, "vault_extract", fpath))))
 		} catch (e) {
 			console.log(e);
 		}
@@ -1083,19 +1089,32 @@ app.post("/api", async (req, res) => {
 		}
 		encryptAESGCM256(path.join(zentrox_installation_path, "vault.vlt"), key);
 		res.send({});
+	}
+	else if (req.body.r == "vault_backup") {
+		if (!req.session.isAdmin) return;
+		data = fs.readFileSync(path.join(zentrox_installation_path, "vault.vlt"))
+		res.writeHead(200, {
+			"Content-Type": "application/binary",
+			"Content-disposition": "attachment;filename=" + "vault.tar",
+			"Content-Length": data.length,
+		});
+		res.end(Buffer.from(data, "binary"));	
 	} else {
 		console.log("Got unknow request");
 		res.send(400).send({});
 	}
 });
 
-app.post("/upload/vault", async (req, res) => {
+app.post("/upload/vault", async (req, res, next) => {
 	var form = new multiparty.Form();
 	form.parse(req, (err, fields, files) => {
 		if (err) {
 			console.error(err);
 		}
-		var key = fields["key"][0];
+		try {var key = fields["key"][0];}
+		catch (err) {
+			next(err)	
+		}
 		var i = 0;
 		while (i != 1000) {
 			key = crypto.createHash("sha512").update(key).digest("hex");
@@ -1115,7 +1134,6 @@ app.post("/upload/vault", async (req, res) => {
 				onentry: (entry) => contents.push(entry.path),
 				sync: true,
 			});
-
 			var ffilename = files["file"][0]["originalFilename"];
 			while (contents.includes(ffilename)) {
 				ffilename = ffilename.split(".")[0] + "_new." + ffilename.split(".")[1];
@@ -1127,7 +1145,9 @@ app.post("/upload/vault", async (req, res) => {
 				ffilename,
 			);
 			fs.copyFileSync(fpath, new_path);
-
+			fs.writeFileSync(new_path, zlib.gzipSync(fs.readFileSync(new_path), {
+				level: 9
+			}))
 			tar.update(
 				{
 					file: path.join(zentrox_installation_path, "vault.vlt"),
@@ -1167,5 +1187,5 @@ process.on("beforeExit", function () {
 server = https.createServer(options, app);
 
 server.listen(port, () => {
-	zlog(`Zentrox running on port ${port}`, "info");
+	zlog(`🚀 Zentrox running on port ${port}`, "info");
 });

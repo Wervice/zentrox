@@ -90,7 +90,7 @@ select {
 	font-size: large;
 	border-radius: 2.5px;
 	color: white;
-	background-color: #222;
+	background-color: #333;
 	border: 0px;
 	transition: ease-in-out 0.25s;
 	width: 200px;

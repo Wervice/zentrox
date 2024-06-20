@@ -13,20 +13,31 @@ window.addEventListener("mousemove", function (e) {
 	mouseY = e.pageY;
 });
 
+window.onkeyup = (event) => {
+	if (!document.getElementById("modalMain").hidden) {
+		if (event.key == "Enter") {
+			document.getElementById("buttonConfirm").click()
+		}
+	}
+}
+
 window.onload = function () {
 	dataInit();
+	setTimeout(() => {
+		location.href = "/logout"
+	}, 24 * 60 * 60 * 1000)
 	setCPUBar();
 	setRAMBar();
-	setDiskBar();
 	getDriveList();
 	getUserList();
+	setDiskBar()
 	renderFiles(currFPath);
 	getDeviceInformation();
 	addSkeletons();
 	document
 		.querySelector("#contextmenu #deleteButton")
 		.addEventListener("click", function () {
-			confirm_modal("Delete", "Do you want to proceed", function () {
+			confirm_modal_warning("Delete", "Do you want to proceed", function () {
 				fetch("/api", {
 					method: "POST",
 					headers: {
@@ -46,7 +57,7 @@ window.onload = function () {
 						}
 					});
 				renderFiles(currFPath);
-			});
+			}, () => {}, true);
 		});
 
 	document
@@ -171,7 +182,6 @@ window.onload = function () {
 setInterval(function () {
 	setCPUBar();
 	setRAMBar();
-	setDiskBar();
 	getDriveList();
 	getDeviceInformation();
 }, 1000);
@@ -232,6 +242,40 @@ function addSkeletons() {
 	document.getElementById("uptime").innerHTML = skeleton;
 	document.getElementById("small_uptime").innerHTML = skeleton;
 	document.getElementById("temperature").innerHTML = skeleton;
+}
+
+function backup_vault() {
+	confirm_modal("Backup", `Please select a backup location<br><select id="vault_backup_location"><option value="download">Download</option></select>`, () => {
+		const backup_location = document.getElementById("vault_backup_location").value
+		fetch("/api", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					r: "vault_backup",
+					key: atob(sessionStorage.getItem("vault_key")),
+				}),
+			})
+				.then((res) => {
+					if (!res.ok) {
+						fail_popup("Vault download failed");
+					}
+					return res.blob();
+				})
+				.then((blob) => {
+					if (backup_location == "download") {
+						var url = window.URL.createObjectURL(blob);
+						var a = document.createElement("a");
+						a.href = url;
+						a.download = "vault.tar";
+						document.body.appendChild(a); // we need to append the element to the dom -> otherwise it will not work in firefox
+						a.click();
+						a.remove();
+					}
+				});
+
+	}, () => {}, true)
 }
 
 function open_vault(button) {
@@ -352,9 +396,10 @@ function open_vault_context(filename, button = null) {
 function delete_vault_file() {
 	const file_for_delete = vault_context_file;
 
+	vault_context_button.style.border = "2px solid red"
 	confirm_modal_warning(
-		"Delete file",
-		"Do you want to delete the file:<br>" + vault_context_file,
+		"Delete",
+		"Do you want to proceed?",
 		() => {
 			vault_context_button.remove();
 			vault_context_button = null;
@@ -406,7 +451,9 @@ function delete_vault_file() {
 					}
 				});
 		},
-		() => {},
+		() => {
+			vault_context_button.style.border = ""
+		},
 		true,
 	);
 }
@@ -428,6 +475,7 @@ function vault_file_upload(button) {
 		() => {
 			var file_for_upload = document.getElementById("vault_file_upload_input")
 				.files[0];
+			var file_name = document.getElementById("vault_file_upload_input").value
 			if (file_for_upload) {
 				var form_data = new FormData();
 				form_data.append("file", file_for_upload);
@@ -453,6 +501,7 @@ function vault_file_upload(button) {
 								() => {},
 								false,
 							);
+							document.getElementById("vault_files").innerHTML += "<button class='fileButtons' style='opacity: 0.5;'>"+file_name+"</button>"
 							fetch("/api", {
 								method: "POST",
 								headers: {
@@ -1140,6 +1189,7 @@ function getDeviceInformation() {
 				.replaceAll("\n", "");
 			document.getElementById("temperature").innerText =
 				data["temperature"] != null ? data["temperature"] : `No temperature`;
+			document.title = "Zentrox ("+data["hostname"].split(".")[0]+")"
 		});
 	fetch("/api", {
 		method: "POST",
@@ -1382,6 +1432,8 @@ function dataInit() {
 
 function killModalPopup() {
 	document.getElementById("modalMain").classList.remove("red");
+	document.getElementById("buttonConfirm").classList.remove("red")
+	document.getElementById("buttonCancle").onclick = killModalPopup 
 	setTimeout(function () {
 		document.getElementById("modalMain").hidden = true;
 	}, 510);
@@ -1394,8 +1446,8 @@ function error_modal(title, message, callback, cancled = () => {}) {
 	document.getElementById("modalTitle").innerHTML = title;
 	document.getElementById("modalMessage").innerHTML = message;
 	document.getElementById("buttonConfirm").onclick = function () {
-		killModalPopup();
 		callback();
+		killModalPopup();
 	};
 }
 
@@ -1410,12 +1462,11 @@ function confirm_modal(
 	document.getElementById("modalTitle").innerHTML = title;
 	document.getElementById("modalMessage").innerHTML = message;
 	document.getElementById("buttonConfirm").onclick = function () {
+		callback();
 		killModalPopup();
-		setTimeout(() => {
-			callback();
-		}, 600);
 	};
 	document.getElementById("buttonCancle").hidden = !show_cancle;
+	document.getElementById("buttonCancle").onclick = () => {cancled(); killModalPopup()};
 }
 
 function confirm_modal_warning(
@@ -1429,14 +1480,12 @@ function confirm_modal_warning(
 	document.getElementById("modalTitle").innerHTML = title;
 	document.getElementById("modalMessage").innerHTML = message;
 	document.getElementById("buttonConfirm").onclick = function () {
+		callback();
 		killModalPopup();
-		setTimeout(() => {
-			callback();
-			document.getElementById("buttonConfirm").classList.remove("red");
-		}, 600);
 	};
 	document.getElementById("buttonConfirm").classList.add("red");
 	document.getElementById("buttonCancle").hidden = !show_cancle;
+	document.getElementById("buttonCancle").onclick = () => {cancled(); killModalPopup()};
 }
 
 function input_modal(
@@ -1452,11 +1501,10 @@ function input_modal(
 	document.getElementById("modalMessage").innerHTML =
 		message +
 		`<br><input type="${type}" id="${inputName}" class="input_modal">`;
+	document.getElementById(inputName).focus()
 	document.getElementById("buttonConfirm").onclick = function () {
 		killModalPopup();
-		setTimeout(() => {
-			callback();
-		}, 600);
+		callback();
 	};
 	document.getElementById("buttonCancle").onclick = function () {
 		killModalPopup();
