@@ -45,7 +45,7 @@
 		"content-type": "^1.0.5",
 		"cookie": "^0.6.0",
 		"cookie-parser": "^1.4.6",
-		"cookie-signature": "^1.0.6",
+		"cookie-signature": "^1.2.1",
 		"core-util-is": "^1.0.3",
 		"crc": "^3.8.0",
 		"crc32-stream": "^3.0.1",
