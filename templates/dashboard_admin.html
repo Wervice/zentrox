@@ -9,12 +9,29 @@
 		<link rel="stylesheet" href="dashboard_admin.css" />
 		<script src="dashboard_admin.js"></script>
 		<link rel="shortcut icon" href="Zentrox.ico" type="image/x-icon" />
+		<link
+			rel="preload"
+			as="image"
+			href="small_loading_white.svg"
+			crossorigin="anonymous"
+		/>
+		<link
+			rel="preload"
+			as="image"
+			href="small_loading_black.svg"
+			crossorigin="anonymous"
+		/>
+		<link rel="preload" as="image" href="Loading.svg" crossorigin="anonymous" />
+		<link
+			rel="preload"
+			as="font"
+			href="WorkSansVar.ttf"
+			type="font/ttf"
+			crossorigin="anonymous"
+		/>
 	</head>
 
 	<body>
-		<img src="Loading.svg" hidden />
-		<img src="small_loading_white.svg" hidden />
-		<img src="small_loading_black.svg" hidden />
 		<div id="driveModal" hidden>
 			<h3 id="driveName"></h3>
 			<table>
@@ -231,6 +248,13 @@
 						</div>
 						<button onclick="vault_file_upload(this)" id="vault_upload_button">
 							Upload
+						</button>
+						<button onclick="vault_new_folder(this)" id="vault_upload_button">
+							New Folder
+							<!-- Add icon here -->
+						</button>
+						<button onclick="vault_walk_up()">
+							Up
 						</button>
 						<button onclick="close_vault_files()">Done</button>
 						<div id="vault_files"></div>

@@ -11,7 +11,7 @@ const bodyParser = require("body-parser");
 const osu = require("node-os-utils"); // For CPU, RAM... metrics
 const tar = require("tar"); // For tarballs in vault
 const multiparty = require("multiparty");
-const zlib = require("zlib")
+const zlib = require("zlib");
 const os = require("os");
 const fs = require("fs");
 const crypto = require("crypto");
@@ -21,7 +21,7 @@ const compression = require("compression"); // Compressing conenction
 const cookieParser = require("cookie-parser");
 const session = require("express-session");
 const express = require("express"); // Using Express framework
-const MemoryStore = require('memorystore')(session)
+const MemoryStore = require("memorystore")(session);
 
 const Worker = require("node:worker_threads").Worker; // For package cache worker
 
@@ -37,41 +37,37 @@ var options = {
 	cert: cert,
 };
 
-const zentrox_installation_path = path.join(os.homedir(), "zentrox_data/"); // e.g. /home/test/zentrox_data or /root/zentrox_data | Contains config, user files...
+const zentroxInstallationPath = path.join(os.homedir(), "zentrox_data/"); // e.g. /home/test/zentrox_data or /root/zentrox_data | Contains config, user files...
 
 const port = 3000;
 const app = express();
 
 // Database to default values
 writeDatabase(
-	path.join(zentrox_installation_path, "config.db"),
+	path.join(zentroxInstallationPath, "config.db"),
 	"ftp_running",
 	"0",
 );
+writeDatabase(path.join(zentroxInstallationPath, "config.db"), "ftp_pid", "1");
 writeDatabase(
-	path.join(zentrox_installation_path, "config.db"),
-	"ftp_pid",
-	"1",
-);
-writeDatabase(
-	path.join(zentrox_installation_path, "config.db"),
+	path.join(zentroxInstallationPath, "config.db"),
 	"ftp_may_be_killed",
 	0,
 );
 
 // Generate session secret
-if (!fs.existsSync(path.join(zentrox_installation_path, "sessionSecret.txt"))) {
-	if (!fs.existsSync(zentrox_installation_path)) {
-		fs.mkdirSync(zentrox_installation_path);
+if (!fs.existsSync(path.join(zentroxInstallationPath, "sessionSecret.txt"))) {
+	if (!fs.existsSync(zentroxInstallationPath)) {
+		fs.mkdirSync(zentroxInstallationPath);
 		fs.writeFileSync(
-			path.join(zentrox_installation_path, "sessionSecret.txt"),
+			path.join(zentroxInstallationPath, "sessionSecret.txt"),
 			crypto.randomBytes(64).toString("ascii"),
 		);
 	}
 }
 
-if (!fs.existsSync(zentrox_installation_path)) {
-	fs.mkdirSync(zentrox_installation_path);
+if (!fs.existsSync(zentroxInstallationPath)) {
+	fs.mkdirSync(zentroxInstallationPath);
 }
 
 // Configure server
@@ -80,7 +76,7 @@ app.use(bodyParser.json({ limit: "4gb" }));
 app.use(
 	cookieParser(
 		fs
-			.readFileSync(path.join(zentrox_installation_path, "sessionSecret.txt"))
+			.readFileSync(path.join(zentroxInstallationPath, "sessionSecret.txt"))
 			.toString("utf8"),
 	),
 );
@@ -88,13 +84,13 @@ app.use(
 app.use(
 	session({
 		secret: fs
-			.readFileSync(path.join(zentrox_installation_path, "sessionSecret.txt"))
+			.readFileSync(path.join(zentroxInstallationPath, "sessionSecret.txt"))
 			.toString("utf8"),
 		name: "currentSessionCookies",
 		saveUninitialized: true,
 		resave: false,
 		store: new MemoryStore({
-			checkPeriod: 86400000
+			checkPeriod: 86400000,
 		}),
 		cookie: {
 			sameSite: true,
@@ -183,7 +179,9 @@ function zlog(string, type) {
 	}
 }
 
-function delete_files_recursively(directory) {
+// Working with archives
+
+function deleteFilesRecursively(directory) {
 	// Read the contents of the directory
 	const files = fs.readdirSync(directory);
 
@@ -196,7 +194,7 @@ function delete_files_recursively(directory) {
 
 		if (stats.isDirectory()) {
 			// If it's a directory, recursively delete files in the directory
-			delete_files_recursively(filePath);
+			deleteFilesRecursively(filePath);
 		} else {
 			// If it's a file, delete it
 			var j;
@@ -212,48 +210,103 @@ function delete_files_recursively(directory) {
 	});
 }
 
-function remove_file_from_archive(archive_path, file_to_remove) {
-	const temp_extract_dir = path.join(os.tmpdir(), "zentrox_temp_extract_dir");
+function removeFileFromArchive(archivePath, fileToRemove) {
+	const tempExtractDir = path.join(os.tmpdir(), "zentrox_temp_extract_dir");
+	var tempArchivePath = path.join(os.tmpdir(), "temp_archive.tar");
 
-	if (!fs.existsSync(temp_extract_dir)) {
-		fs.mkdirSync(temp_extract_dir);
+	if (!fs.existsSync(tempExtractDir)) {
+		fs.mkdirSync(tempExtractDir);
 	}
 
 	try {
 		tar.extract({
-			file: archive_path,
-			cwd: temp_extract_dir,
+			file: archivePath,
+			cwd: tempExtractDir,
 			sync: true,
 		});
 
-		const file_path_to_remove = path.join(temp_extract_dir, file_to_remove);
+		const filePathToRemove = path.join(tempExtractDir, fileToRemove);
 
-		if (fs.existsSync(file_path_to_remove)) {
-			fs.unlinkSync(file_path_to_remove);
+		if (fs.existsSync(filePathToRemove)) {
+			var i = 0;
+			while (i != 3 && fs.statSync(filePathToRemove).isFile()) {
+				fs.writeFileSync(
+					filePathToRemove,
+					crypto.randomBytes(fs.statSync(filePathToRemove).size),
+				);
+				i++;
+			}
+			fs.rmSync(filePathToRemove, {
+				recursive: true,
+			});
 		}
-
-		const temp_archive_path = path.join(os.tmpdir(), "temp_archive.tar");
 
 		tar.create(
 			{
-				file: temp_archive_path,
-				cwd: temp_extract_dir,
+				file: tempArchivePath,
+				cwd: tempExtractDir,
 				sync: true,
 			},
-			fs.readdirSync(temp_extract_dir),
+			fs.readdirSync(tempExtractDir),
 		);
 
-		fs.copyFileSync(temp_archive_path, archive_path);
+		fs.copyFileSync(tempArchivePath, archivePath);
 	} finally {
-		delete_files_recursively(temp_extract_dir);
-		fs.rmSync(temp_extract_dir, { recursive: true });
+		deleteFilesRecursively(tempExtractDir);
+		var i = 0;
+		while (i != 3 && fs.statSync(tempArchivePath).isFile()) {
+			fs.writeFileSync(
+				tempArchivePath,
+				crypto.randomBytes(fs.statSync(tempArchivePath).size),
+			);
+			i++;
+		}
+		fs.rmSync(tempExtractDir, { recursive: true });
 	}
 }
+
+function createFolderInTarSync(tarFilePath, newFolderPath) {
+	const tempDir = "/tmp/zentrox_temp_extract_dir";
+
+	if (!fs.existsSync(tempDir)) {
+		fs.mkdirSync(tempDir);
+	}
+
+	// Extract the tar archive into the temporary directory
+	tar.extract({
+		file: tarFilePath,
+		cwd: tempDir,
+		sync: true,
+	});
+
+	// Create the new folder inside the temporary directory
+	const fullPath = path.join(tempDir, newFolderPath);
+	fs.mkdirSync(fullPath, { recursive: true });
+
+	// Create a new tar archive including the new folder
+	const newTarFilePath = `${tarFilePath}.new.tar`;
+	tar.create(
+		{
+			file: newTarFilePath,
+			cwd: tempDir,
+			sync: true,
+		},
+		fs.readdirSync(tempDir),
+	);
+
+	// Replace the original tar file with the new one
+	fs.renameSync(newTarFilePath, tarFilePath);
+
+	// Clean up the temporary directory
+	deleteFilesRecursively(tempDir);
+}
+
+// General auth
 
 function auth(username, password) {
 	// Check if user exists and password hash matches the database hash
 	users = fs
-		.readFileSync(path.join(zentrox_installation_path, "users.txt"))
+		.readFileSync(path.join(zentroxInstallationPath, "users.txt"))
 		.toString()
 		.split("\n");
 	zlog('Auth "' + username + '"', "info");
@@ -274,22 +327,18 @@ function deleteUser(username) {
 	// ? Delete Zentrox user
 	var ostring = "";
 	for (line of fs
-		.readFileSync(path.join(zentrox_installation_path, "users.txt"))
+		.readFileSync(path.join(zentroxInstallationPath, "users.txt"))
 		.toString()
 		.split("\n")) {
 		if (line.split(": ")[0] != btoa(username)) {
 			var ostring = ostring + line + "\n";
 		}
 	}
-	var userfolder = path.join(
-		zentrox_installation_path,
-		"users",
-		btoa(username),
-	);
+	var userfolder = path.join(zentroxInstallationPath, "users", btoa(username));
 	if (fs.existsSync(userfolder)) {
 		chpr.exec("rm -rf " + userfolder);
 	}
-	fs.writeFileSync(path.join(zentrox_installation_path, "users.txt"), ostring);
+	fs.writeFileSync(path.join(zentroxInstallationPath, "users.txt"), ostring);
 }
 
 function hash512(str) {
@@ -301,14 +350,14 @@ function hash512(str) {
 
 app.get("/", async (req, res) => {
 	// Login or auto redirect to dashboard
-	if (!fs.existsSync(path.join(zentrox_installation_path, "setupDone.txt"))) {
+	if (!fs.existsSync(path.join(zentroxInstallationPath, "setupDone.txt"))) {
 		console.log("Setup not done");
 		res.render(path.join(__dirname, "templates/index.html"));
 	} else {
 		if (req.session.signedIn != true) {
 			res.render(path.join(__dirname, "templates/welcome.html"), {
 				serverName: readDatabase(
-					path.join(zentrox_installation_path, "config.db"),
+					path.join(zentroxInstallationPath, "config.db"),
 					"server_name",
 				),
 			});
@@ -325,13 +374,13 @@ app.post("/login", async (req, res) => {
 		req.session.username = req.body.username;
 		if (
 			req.body.username ==
-			fs.readFileSync(path.join(zentrox_installation_path, "admin.txt"))
+			fs.readFileSync(path.join(zentroxInstallationPath, "admin.txt"))
 		) {
 			req.session.isAdmin = true;
 			req.session.adminPassword = req.body.password;
 			req.session.zentroxPassword = decryptAES(
 				readDatabase(
-					path.join(zentrox_installation_path, "config.db"),
+					path.join(zentroxInstallationPath, "config.db"),
 					"zentrox_user_password",
 				),
 				req.body.password,
@@ -378,7 +427,7 @@ app.get("/api", async (req, res) => {
 				p: Number((os.totalmem() - os.freemem()) / os.totalmem()) * 100,
 			});
 		}
-	}	else if (req.query["r"] == "diskPercent") {
+	} else if (req.query["r"] == "diskPercent") {
 		if (req.session.isAdmin == true) {
 			var stats = fs.statfsSync("/");
 			var percent =
@@ -448,7 +497,7 @@ app.post("/api", async (req, res) => {
 		if (req.session.isAdmin) {
 			var userTable = "<table>";
 			var userList = fs
-				.readFileSync(path.join(zentrox_installation_path, "users.txt"))
+				.readFileSync(path.join(zentroxInstallationPath, "users.txt"))
 				.toString()
 				.split("\n");
 			i = 0;
@@ -576,16 +625,14 @@ app.post("/api", async (req, res) => {
 			return;
 		}
 		zlog("Request Package Database JSON", "info");
-		if (
-			!fs.existsSync(path.join(zentrox_installation_path, "allPackages.txt"))
-		) {
+		if (!fs.existsSync(path.join(zentroxInstallationPath, "allPackages.txt"))) {
 			var packagesString = String(new Date().getTime()) + "\n";
 			var allPackages = await listPackages();
 			for (line of allPackages) {
 				packagesString = packagesString + "\n" + line;
 			}
 			fs.writeFileSync(
-				path.join(zentrox_installation_path, "allPackages.txt"),
+				path.join(zentroxInstallationPath, "allPackages.txt"),
 				packagesString,
 			);
 		}
@@ -594,7 +641,7 @@ app.post("/api", async (req, res) => {
 		var guiApplications = [];
 		var allInstalledPackages = listInstalledPackages(); // ? All installed packages on the system
 		allPackages = fs
-			.readFileSync(path.join(zentrox_installation_path, "allPackages.txt"))
+			.readFileSync(path.join(zentroxInstallationPath, "allPackages.txt"))
 			.toString("ascii")
 			.split("\n");
 		allPackages.splice(0, 1);
@@ -707,7 +754,7 @@ app.post("/api", async (req, res) => {
 				let killShell = new Shell("zentrox", "sh", req.session.zentroxPassword);
 				if (
 					readDatabase(
-						path.join(zentrox_installation_path, "config.db"),
+						path.join(zentroxInstallationPath, "config.db"),
 						"ftp_may_be_killed",
 					) == "1"
 				) {
@@ -717,7 +764,7 @@ app.post("/api", async (req, res) => {
 				}
 				setTimeout(() => {
 					killShell.write(
-						`sudo kill ${readDatabase(path.join(zentrox_installation_path, "config.db"), "ftp_pid")}\n`,
+						`sudo kill ${readDatabase(path.join(zentroxInstallationPath, "config.db"), "ftp_pid")}\n`,
 					);
 				}, 500 + killDelay);
 			} catch (e) {
@@ -725,14 +772,14 @@ app.post("/api", async (req, res) => {
 			}
 
 			writeDatabase(
-				path.join(zentrox_installation_path, "config.db"),
+				path.join(zentroxInstallationPath, "config.db"),
 				"ftp_running",
 				"0",
 			);
 		} else if (req.body.enableFTP == true) {
 			if (
 				readDatabase(
-					path.join(zentrox_installation_path, "config.db"),
+					path.join(zentroxInstallationPath, "config.db"),
 					"ftp_running",
 				) != "1"
 			) {
@@ -743,12 +790,12 @@ app.post("/api", async (req, res) => {
 					req.session.zentroxPassword,
 					(data) => {
 						writeDatabase(
-							path.join(zentrox_installation_path, "config.db"),
+							path.join(zentroxInstallationPath, "config.db"),
 							"ftp_running",
 							"0",
 						);
 						writeDatabase(
-							path.join(zentrox_installation_path, "config.db"),
+							path.join(zentroxInstallationPath, "config.db"),
 							"ftp_pid",
 							"",
 						);
@@ -762,7 +809,7 @@ app.post("/api", async (req, res) => {
 				}, 500);
 
 				writeDatabase(
-					path.join(zentrox_installation_path, "config.db"),
+					path.join(zentroxInstallationPath, "config.db"),
 					"ftp_running",
 					"1",
 				);
@@ -774,23 +821,23 @@ app.post("/api", async (req, res) => {
 			if (req.body.ftpUserPassword.length != 0) {
 				new_ftp_password = hash512(req.body.ftpUserPassword);
 				writeDatabase(
-					path.join(zentrox_installation_path, "config.db"),
+					path.join(zentroxInstallationPath, "config.db"),
 					"ftp_password",
 					new_ftp_password,
 				);
 			}
 			writeDatabase(
-				path.join(zentrox_installation_path, "config.db"),
+				path.join(zentroxInstallationPath, "config.db"),
 				"ftp_username",
 				req.body.ftpUserUsername,
 			);
 			writeDatabase(
-				path.join(zentrox_installation_path, "config.db"),
+				path.join(zentroxInstallationPath, "config.db"),
 				"ftp_root",
 				req.body.ftpLocalRoot,
 			);
 			writeDatabase(
-				path.join(zentrox_installation_path, "config.db"),
+				path.join(zentroxInstallationPath, "config.db"),
 				"ftp_running",
 				req.body.enableFTP == true ? "1" : "0",
 			);
@@ -809,15 +856,15 @@ app.post("/api", async (req, res) => {
 		res.send({
 			enabled:
 				readDatabase(
-					path.join(zentrox_installation_path, "config.db"),
+					path.join(zentroxInstallationPath, "config.db"),
 					"ftp_running",
 				) == "1",
 			ftpUserUsername: readDatabase(
-				path.join(zentrox_installation_path, "config.db"),
+				path.join(zentroxInstallationPath, "config.db"),
 				"ftp_username",
 			),
 			ftpLocalRoot: readDatabase(
-				path.join(zentrox_installation_path, "config.db"),
+				path.join(zentroxInstallationPath, "config.db"),
 				"ftp_root",
 			),
 		});
@@ -916,10 +963,10 @@ app.post("/api", async (req, res) => {
 		if (!req.session.isAdmin) return;
 		if (
 			readDatabase(
-				path.join(zentrox_installation_path, "config.db"),
+				path.join(zentroxInstallationPath, "config.db"),
 				"vault_enabled",
 			) == "0" ||
-			!fs.existsSync(path.join(zentrox_installation_path, "vault.vlt"))
+			!fs.existsSync(path.join(zentroxInstallationPath, "vault.vlt"))
 		) {
 			var key = req.body.key;
 			var i = 0;
@@ -928,28 +975,28 @@ app.post("/api", async (req, res) => {
 				i++;
 			}
 			// ... create empty tarball
-			fs.writeFileSync(path.join(zentrox_installation_path, ".vault"), "Init");
+			fs.writeFileSync(path.join(zentroxInstallationPath, ".vault"), "Init");
 			tar
 				.c(
 					{
-						file: path.join(zentrox_installation_path, "vault.tar"),
-						cwd: zentrox_installation_path,
+						file: path.join(zentroxInstallationPath, "vault.tar"),
+						cwd: zentroxInstallationPath,
 					},
 					[".vault"],
 				)
 				.then(() => {
 					encryptAESGCM256(
-						path.join(zentrox_installation_path, "vault.tar"),
+						path.join(zentroxInstallationPath, "vault.tar"),
 						key,
 					);
 					fs.copyFileSync(
-						path.join(zentrox_installation_path, "vault.tar"),
-						path.join(zentrox_installation_path, "vault.vlt"),
+						path.join(zentroxInstallationPath, "vault.tar"),
+						path.join(zentroxInstallationPath, "vault.vlt"),
 					);
-					fs.unlinkSync(path.join(zentrox_installation_path, "vault.tar"));
-					fs.unlinkSync(path.join(zentrox_installation_path, ".vault"));
+					fs.unlinkSync(path.join(zentroxInstallationPath, "vault.tar"));
+					fs.unlinkSync(path.join(zentroxInstallationPath, ".vault"));
 					writeDatabase(
-						path.join(zentrox_installation_path, "config.db"),
+						path.join(zentroxInstallationPath, "config.db"),
 						"vault_enabled",
 						"1",
 					);
@@ -961,26 +1008,29 @@ app.post("/api", async (req, res) => {
 					code: "no_decrypt_key",
 				});
 			} else {
-				var old_key = req.body.old_key;
-				var new_key = req.body.new_key;
+				var oldKey = req.body.oldKey;
+				var newKey = req.body.newKey;
+				if (oldKey.length === 0 || newKey.length === 0) {
+					res.status(400).send("Bad request");
+				}
 				var i = 0;
 				var j = 0;
 				while (i != 1000) {
-					old_key = crypto.createHash("sha512").update(old_key).digest("hex");
+					oldKey = crypto.createHash("sha512").update(oldKey).digest("hex");
 					i++;
 				}
 				while (j != 1000) {
-					new_key = crypto.createHash("sha512").update(new_key).digest("hex");
+					newKey = crypto.createHash("sha512").update(newKey).digest("hex");
 					j++;
 				}
 				try {
 					decryptAESGCM256(
-						path.join(zentrox_installation_path, "vault.vlt"),
-						old_key,
+						path.join(zentroxInstallationPath, "vault.vlt"),
+						oldKey,
 					);
 					encryptAESGCM256(
-						path.join(zentrox_installation_path, "vault.vlt"),
-						new_key,
+						path.join(zentroxInstallationPath, "vault.vlt"),
+						newKey,
 					);
 					res.send({
 						message: "success",
@@ -996,8 +1046,11 @@ app.post("/api", async (req, res) => {
 	} else if (req.body.r == "vault_tree") {
 		if (!req.session.isAdmin) return;
 		var key = req.body.key;
+		if (key.length === 0) {
+			res.status(400).send("Bad request");
+		}
 		var i = 0;
-		if (!fs.existsSync(path.join(zentrox_installation_path, "vault.vlt"))) {
+		if (!fs.existsSync(path.join(zentroxInstallationPath, "vault.vlt"))) {
 			res.send({ message: "vault_not_configured" });
 			return;
 		}
@@ -1006,7 +1059,7 @@ app.post("/api", async (req, res) => {
 			i++;
 		}
 		try {
-			decryptAESGCM256(path.join(zentrox_installation_path, "vault.vlt"), key);
+			decryptAESGCM256(path.join(zentroxInstallationPath, "vault.vlt"), key);
 		} catch (e) {
 			console.error(e);
 			res.send({ message: "auth_failed" });
@@ -1024,9 +1077,9 @@ app.post("/api", async (req, res) => {
 		}
 
 		var entries = getEntryFilenamesSync(
-			path.join(zentrox_installation_path, "vault.vlt"),
+			path.join(zentroxInstallationPath, "vault.vlt"),
 		);
-		encryptAESGCM256(path.join(zentrox_installation_path, "vault.vlt"), key);
+		encryptAESGCM256(path.join(zentroxInstallationPath, "vault.vlt"), key);
 		res.send({ message: "decrypted", fs: entries });
 	} else if (req.body.r == "vault_file_download") {
 		if (!req.session.isAdmin) return;
@@ -1036,34 +1089,42 @@ app.post("/api", async (req, res) => {
 		}
 		var i = 0;
 		var key = req.body.key;
+		if (key.length === 0) {
+			res.status(400).send("Bad request");
+		}
 		while (i != 1000) {
 			key = crypto.createHash("sha512").update(key).digest("hex");
 			i++;
 		}
-		decryptAESGCM256(path.join(zentrox_installation_path, "vault.vlt"), key);
+		decryptAESGCM256(path.join(zentroxInstallationPath, "vault.vlt"), key);
 		try {
-			fs.mkdirSync(path.join(zentrox_installation_path, "vault_extract"));
+			fs.mkdirSync(path.join(zentroxInstallationPath, "vault_extract"));
 		} catch {}
 		try {
 			tar.x(
 				{
-					file: path.join(zentrox_installation_path, "vault.vlt"),
+					file: path.join(zentroxInstallationPath, "vault.vlt"),
 					sync: true,
-					cwd: path.join(zentrox_installation_path, "vault_extract"),
+					cwd: path.join(zentroxInstallationPath, "vault_extract"),
 				},
 				[fpath],
 			);
-			fs.writeFileSync(path.join(zentrox_installation_path, "vault_extract", fpath), zlib.unzipSync(fs.readFileSync(path.join(zentrox_installation_path, "vault_extract", fpath))))
+			fs.writeFileSync(
+				path.join(zentroxInstallationPath, "vault_extract", fpath),
+				zlib.unzipSync(
+					fs.readFileSync(
+						path.join(zentroxInstallationPath, "vault_extract", fpath),
+					),
+				),
+			);
 		} catch (e) {
 			console.log(e);
 		}
-		encryptAESGCM256(path.join(zentrox_installation_path, "vault.vlt"), key);
+		encryptAESGCM256(path.join(zentroxInstallationPath, "vault.vlt"), key);
 		var data = fs.readFileSync(
-			path.join(zentrox_installation_path, "vault_extract", fpath),
+			path.join(zentroxInstallationPath, "vault_extract", fpath),
 		);
-		delete_files_recursively(
-			path.join(zentrox_installation_path, "vault_extract"),
-		);
+		deleteFilesRecursively(path.join(zentroxInstallationPath, "vault_extract"));
 		res.writeHead(200, {
 			"Content-Type": "application/binary",
 			"Content-disposition": "attachment;filename=" + path.basename(fpath),
@@ -1073,32 +1134,66 @@ app.post("/api", async (req, res) => {
 	} else if (req.body.r == "delete_vault_file") {
 		if (!req.session.isAdmin) return;
 		var key = req.body.key;
+		if (key.length === 0) {
+			res.status(400).send("Bad request");
+			return;
+		}
 		var i = 0;
 		while (i != 1000) {
 			key = crypto.createHash("sha512").update(key).digest("hex");
 			i++;
 		}
-		decryptAESGCM256(path.join(zentrox_installation_path, "vault.vlt"), key);
+		decryptAESGCM256(path.join(zentroxInstallationPath, "vault.vlt"), key);
 		try {
-			remove_file_from_archive(
-				path.join(zentrox_installation_path, "vault.vlt"),
-				req.body.delete_path,
+			removeFileFromArchive(
+				path.join(zentroxInstallationPath, "vault.vlt"),
+				req.body.deletePath,
 			);
 		} catch (err) {
 			console.error(err);
 		}
-		encryptAESGCM256(path.join(zentrox_installation_path, "vault.vlt"), key);
+		encryptAESGCM256(path.join(zentroxInstallationPath, "vault.vlt"), key);
 		res.send({});
-	}
-	else if (req.body.r == "vault_backup") {
+	} else if (req.body.r == "vault_backup") {
 		if (!req.session.isAdmin) return;
-		data = fs.readFileSync(path.join(zentrox_installation_path, "vault.vlt"))
+		data = fs.readFileSync(path.join(zentroxInstallationPath, "vault.vlt"));
 		res.writeHead(200, {
 			"Content-Type": "application/binary",
 			"Content-disposition": "attachment;filename=" + "vault.tar",
 			"Content-Length": data.length,
 		});
-		res.end(Buffer.from(data, "binary"));	
+		res.end(Buffer.from(data, "binary"));
+	} else if (req.body.r == "vault_new_folder") {
+		var key = req.body.key;
+		var folder_name = req.body.folder_name;
+		if (key.length === 0 || folder_name.length === 0) {
+			res.status(400).send("Bad request");
+			return;
+		}
+
+		var i = 0;
+		while (i != 1000) {
+			key = crypto.createHash("sha512").update(key).digest("hex");
+			i++;
+		}
+
+		try {
+			decryptAESGCM256(path.join(zentroxInstallationPath, "vault.vlt"), key);
+		} catch (err) {
+			res.status(500).send({ message: "auth_failed" });
+		}
+
+		try {
+			createFolderInTarSync(
+				path.join(zentroxInstallationPath, "vault.vlt"),
+				folder_name,
+			);
+		} catch (err) {
+			console.log(err);
+		} finally {
+			encryptAESGCM256(path.join(zentroxInstallationPath, "vault.vlt"), key);
+		}
+		res.send({});
 	} else {
 		console.log("Got unknow request");
 		res.send(400).send({});
@@ -1110,10 +1205,13 @@ app.post("/upload/vault", async (req, res, next) => {
 	form.parse(req, (err, fields, files) => {
 		if (err) {
 			console.error(err);
+			res.status(400).send({ message: "Failed to parse request" });
 		}
-		try {var key = fields["key"][0];}
-		catch (err) {
-			next(err)	
+		try {
+			var key = fields["key"][0];
+			var in_vault_path = fields["path"][0];
+		} catch (err) {
+			next(err);
 		}
 		var i = 0;
 		while (i != 1000) {
@@ -1121,8 +1219,9 @@ app.post("/upload/vault", async (req, res, next) => {
 			i++;
 		}
 		try {
-			decryptAESGCM256(path.join(zentrox_installation_path, "vault.vlt"), key);
+			decryptAESGCM256(path.join(zentroxInstallationPath, "vault.vlt"), key);
 		} catch (err) {
+			console.log(err);
 			res.send({ message: "auth_failed" });
 			return;
 		}
@@ -1130,40 +1229,51 @@ app.post("/upload/vault", async (req, res, next) => {
 			var fpath = files["file"][0]["path"];
 			var contents = [];
 			tar.t({
-				file: path.join(zentrox_installation_path, "vault.vlt"),
+				file: path.join(zentroxInstallationPath, "vault.vlt"),
 				onentry: (entry) => contents.push(entry.path),
 				sync: true,
 			});
 			var ffilename = files["file"][0]["originalFilename"];
-			while (contents.includes(ffilename)) {
-				ffilename = ffilename.split(".")[0] + "_new." + ffilename.split(".")[1];
+			while (contents.includes(path.join(in_vault_path, ffilename).replace("/", ""))) {
+				var filenameSplit = ffilename.split(".")
+				ffilename = filenameSplit[filenameSplit.length - 2] + "_new." + filenameSplit[filenameSplit.length - 1];
 			}
 
 			var new_path = path.join(
-				zentrox_installation_path,
+				zentroxInstallationPath,
 				"vault_extract",
+				in_vault_path,
 				ffilename,
 			);
+			fs.mkdirSync(
+				path.join(zentroxInstallationPath, "vault_extract", in_vault_path),
+				{
+					recursive: true,
+				},
+			);
 			fs.copyFileSync(fpath, new_path);
-			fs.writeFileSync(new_path, zlib.gzipSync(fs.readFileSync(new_path), {
-				level: 9
-			}))
+			fs.writeFileSync(
+				new_path,
+				zlib.gzipSync(fs.readFileSync(new_path), {
+					level: 9,
+				}),
+			);
 			tar.update(
 				{
-					file: path.join(zentrox_installation_path, "vault.vlt"),
+					file: path.join(zentroxInstallationPath, "vault.vlt"),
 					sync: true,
-					cwd: path.join(zentrox_installation_path, "vault_extract"),
+					cwd: path.join(zentroxInstallationPath, "vault_extract"),
 				},
-				[ffilename],
+				[path.join(in_vault_path.replace("/", ""), ffilename)],
 			);
 		} catch (err) {
 			console.error(err);
 			res.send({ message: err });
-			encryptAESGCM256(path.join(zentrox_installation_path, "vault.vlt"), key);
+			encryptAESGCM256(path.join(zentroxInstallationPath, "vault.vlt"), key);
 			return;
 		}
 
-		encryptAESGCM256(path.join(zentrox_installation_path, "vault.vlt"), key);
+		encryptAESGCM256(path.join(zentroxInstallationPath, "vault.vlt"), key);
 		var j = 0;
 		while (j < 4) {
 			fs.writeFileSync(fpath, crypto.randomBytes(fs.statSync(fpath).size));
@@ -1181,7 +1291,7 @@ app.post("/upload/vault", async (req, res, next) => {
 
 process.on("beforeExit", function () {
 	zlog("Process exiting...");
-	fs.writeFileSync(path.join(zentrox_installation_path, "ftp_ppid.txt"), "---");
+	fs.writeFileSync(path.join(zentroxInstallationPath, "ftp_ppid.txt"), "---");
 });
 
 server = https.createServer(options, app);
