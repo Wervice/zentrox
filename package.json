@@ -45,7 +45,7 @@
 		"content-type": "^1.0.5",
 		"cookie": "^0.6.0",
 		"cookie-parser": "^1.4.6",
-		"cookie-signature": "^1.0.6",
+		"cookie-signature": "^1.2.1",
 		"core-util-is": "^1.0.3",
 		"crc": "^3.8.0",
 		"crc32-stream": "^3.0.1",
@@ -107,6 +107,7 @@
 		"lodash.union": "^4.6.0",
 		"maximatch": "^0.1.0",
 		"media-typer": "^0.3.0",
+		"memorystore": "^1.6.7",
 		"merge-descriptors": "^1.0.1",
 		"methods": "^1.1.2",
 		"mime": "^1.6.0",
@@ -118,6 +119,7 @@
 		"minizlib": "^2.1.2",
 		"mkdirp": "^1.0.4",
 		"ms": "^2.1.2",
+		"multiparty": "^4.2.3",
 		"negotiator": "^0.6.3",
 		"node-os-utils": "^1.3.7",
 		"normalize-path": "^3.0.0",
@@ -138,7 +140,7 @@
 		"proxy-addr": "^2.0.7",
 		"prr": "^1.0.1",
 		"pump": "^3.0.0",
-		"qs": "^6.11.0",
+		"qs": "^6.12.1",
 		"random-bytes": "^1.0.0",
 		"range-parser": "^1.2.1",
 		"raw-body": "^2.5.2",
@@ -160,12 +162,12 @@
 		"stream-buffers": "^2.2.0",
 		"string_decoder": "^1.3.0",
 		"supports-color": "^7.2.0",
-		"tar": "^6.2.0",
+		"tar": "^6.2.1",
 		"tar-stream": "^2.2.0",
 		"toidentifier": "^1.0.1",
 		"type-is": "^1.6.18",
 		"uid-safe": "^2.1.5",
-		"undici-types": "^5.26.5",
+		"undici-types": "^5.28.4",
 		"universalify": "^2.0.1",
 		"unpipe": "^1.0.0",
 		"util-deprecate": "^1.0.2",
@@ -179,7 +181,7 @@
 		"zip-stream": "^2.1.3"
 	},
 	"scripts": {
-		"test": "echo \"Error: no test specified\" && exit 1"
+		"run": "node index.js"
 	},
 	"repository": {
 		"type": "git",
@@ -196,5 +198,10 @@
 	"bugs": {
 		"url": "https://github.com/Wervice/zentrox/issues"
 	},
-	"homepage": "https://github.com/Wervice/zentrox#readme"
+	"homepage": "https://github.com/Wervice/zentrox#readme",
+	"devDependencies": {
+		"@eslint/js": "^9.4.0",
+		"eslint": "^9.4.0",
+		"globals": "^15.4.0"
+	}
 }
