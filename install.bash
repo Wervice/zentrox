@@ -105,9 +105,8 @@ echo -n "❓ Remove (rm -rf) $ZENTROX_PATH to make sure no old versions of Zentr
 
 read
 
-if [[ $REPLY == "n" ]]; then
-	echo "Program stopped"
-	exit 0
+if [[ $REPLY == "Y" || $REPLY == "" ]]; then
+	rm -rf $ZENTROX_PATH
 fi
 
 echo "🔽 Cloning Zentrox to $ZENTROX_PATH"

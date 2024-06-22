@@ -3,61 +3,69 @@ currFPath = "/";
 updatingFTPstatus = false;
 // Windows events
 
-window.onclick = function () {
-	document.getElementById("contextmenu").hidden = true;
-	document.getElementById("vault_context_menu").hidden = true;
-};
-
-window.addEventListener("mousemove", function (e) {
-	mouseX = e.pageX;
-	mouseY = e.pageY;
-});
-
-window.onkeyup = (event) => {
-	if (!document.getElementById("modalMain").hidden) {
-		if (event.key == "Enter") {
-			document.getElementById("buttonConfirm").click()
-		}
-	}
-}
-
 window.onload = function () {
 	dataInit();
-	setTimeout(() => {
-		location.href = "/logout"
-	}, 24 * 60 * 60 * 1000)
+	setTimeout(
+		() => {
+			location.href = "/logout";
+		},
+		12 * 60 * 60 * 1000,
+	);
 	setCPUBar();
 	setRAMBar();
 	getDriveList();
 	getUserList();
-	setDiskBar()
+	setDiskBar();
 	renderFiles(currFPath);
 	getDeviceInformation();
 	addSkeletons();
+	window.onclick = function () {
+		document.getElementById("contextmenu").hidden = true;
+		document.getElementById("vault_context_menu").hidden = true;
+	};
+
+	window.addEventListener("mousemove", function (e) {
+		mouseX = e.pageX;
+		mouseY = e.pageY;
+	});
+
+	window.onkeyup = (event) => {
+		if (!document.getElementById("modalMain").hidden) {
+			if (event.key == "Enter") {
+				document.getElementById("buttonConfirm").click();
+			}
+		}
+	};
 	document
 		.querySelector("#contextmenu #deleteButton")
 		.addEventListener("click", function () {
-			confirm_modal_warning("Delete", "Do you want to proceed", function () {
-				fetch("/api", {
-					method: "POST",
-					headers: {
-						"Content-Type": "application/json",
-					},
-					body: JSON.stringify({
-						path: contextFMenuFile,
-						r: "deleteFile",
-					}),
-				})
-					.then((res) => res.json())
-					.then((data) => {
-						if (data["status"] == "s") {
-							renderFiles(currFPath);
-						} else {
-							alert("Can not delete this file");
-						}
-					});
-				renderFiles(currFPath);
-			}, () => {}, true);
+			confirm_modal_warning(
+				"Delete",
+				"Do you want to proceed",
+				function () {
+					fetch("/api", {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+						},
+						body: JSON.stringify({
+							path: contextFMenuFile,
+							r: "deleteFile",
+						}),
+					})
+						.then((res) => res.json())
+						.then((data) => {
+							if (data["status"] == "s") {
+								renderFiles(currFPath);
+							} else {
+								alert("Can not delete this file");
+							}
+						});
+					renderFiles(currFPath);
+				},
+				() => {},
+				true,
+			);
 		});
 
 	document
@@ -145,7 +153,6 @@ window.onload = function () {
 		.getElementById("submit_vault_config")
 		.addEventListener("click", function () {
 			this.innerHTML = "Updating";
-			attach_loader("submit_vault_config", "white");
 			fetch("/api", {
 				method: "POST",
 				headers: {
@@ -173,7 +180,6 @@ window.onload = function () {
 						}
 					}
 					this.innerHTML = "Apply";
-					remove_loader("submit_vault_config");
 				});
 		});
 };
@@ -184,7 +190,7 @@ setInterval(function () {
 	setRAMBar();
 	getDriveList();
 	getDeviceInformation();
-}, 1000);
+}, 4000);
 
 // Functions
 
@@ -204,8 +210,8 @@ function ask_for_vault_dec_key() {
 				},
 				body: JSON.stringify({
 					r: "vault_configure",
-					old_key: document.getElementById("vault_key_old").value,
-					new_key: document.getElementById("vault_key_config").value,
+					oldKey: document.getElementById("vault_key_old").value,
+					newKey: document.getElementById("vault_key_config").value,
 				}),
 			})
 				.then((res) => {
@@ -223,7 +229,6 @@ function ask_for_vault_dec_key() {
 							false,
 						);
 					}
-					remove_loader("submit_vault_config");
 				});
 		},
 	);
@@ -245,9 +250,14 @@ function addSkeletons() {
 }
 
 function backup_vault() {
-	confirm_modal("Backup", `Please select a backup location<br><select id="vault_backup_location"><option value="download">Download</option></select>`, () => {
-		const backup_location = document.getElementById("vault_backup_location").value
-		fetch("/api", {
+	confirm_modal(
+		"Backup",
+		`Please select a backup location<br><select id="vault_backup_location"><option value="download">Download</option></select>`,
+		() => {
+			const backup_location = document.getElementById(
+				"vault_backup_location",
+			).value;
+			fetch("/api", {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
@@ -274,8 +284,10 @@ function backup_vault() {
 						a.remove();
 					}
 				});
-
-	}, () => {}, true)
+		},
+		() => {},
+		true,
+	);
 }
 
 function open_vault(button) {
@@ -319,6 +331,7 @@ function open_vault(button) {
 						document.getElementById("vault_files").hidden = false;
 						vault_path = "/";
 						draw_vault_file_structure(vault_path, data["fs"]);
+						vault_file_system = data["fs"];
 						sessionStorage.setItem(
 							"vault_key",
 							btoa(document.getElementById("vault_key_unlock").value),
@@ -339,50 +352,120 @@ function path_join(parts, sep) {
 	return parts.join(separator).replace(replace, separator);
 }
 
-function draw_vault_file_structure(path, data) {
-	var files = [];
-	var files_code = "";
-	if (path == "/") {
-		for (file of data) {
-			files.push(file);
+function get_current_folder_paths(paths, location) {
+	// If starts with path
+	// and has nothing after the last /
+	var paths = paths.map((path) => {
+		return "/" + path;
+	});
+	var paths = paths.filter((path) => {
+		if (!path.startsWith(location)) return false;
+		if (path == location) return false;
+		if (path.replace(location, "").split("/").length < 3) {
+			try {
+				if (path.replace(location, "").split("/")[1].length === 0) return true;
+			} catch {
+				return true;
+			}
+			return false;
 		}
-	}
+	});
+	return paths;
+}
+
+function draw_vault_file_structure(path, data) {
+	console.log(data);
+	console.log(path);
+	var files = get_current_folder_paths(data, path);
+	var files_code = "";
+
 	for (file of files) {
+		file = "/" + file;
+		if (file.endsWith("/")) {
+			file = file.split("/")[file.split("/").length - 2] + "/";
+		} else {
+			file = file.split("/")[file.split("/").length - 1];
+		}
 		files_code += `<button class="fileButtons" onclick="open_vault_file('${file}', '${path}', this)" oncontextmenu="open_vault_context('${file}', this)">${file}</button>`;
 	}
 	document.getElementById("vault_files").innerHTML = files_code;
+}
+
+function reload_file_structure(loader, button = null) {
+	fetch("/api", {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify({
+			r: "vault_tree",
+			key: atob(sessionStorage.getItem("vault_key")),
+		}),
+	})
+		.then((res) => {
+			if (!res.ok) {
+				fail_popup("Vault connection failed");
+				document.getElementById("vault_view").hidden = true;
+				document.getElementById("vault_config").hidden = false;
+			}
+			return res.json();
+		})
+		.then((data) => {
+			if (loader) {
+				remove_loader(button.id);
+			}
+			if (data["message"] == "auth_failed") {
+				fail_popup(
+					"Permission error <button onclick='location.reload()'>Reload</button>",
+				);
+				document.getElementById("vault_view").hidden = true;
+				document.getElementById("vault_config").hidden = false;
+			} else if (data["message"] == "vault_not_configured") {
+				fail_popup("Vault not configured");
+				document.getElementById("vault_view").hidden = true;
+				document.getElementById("vault_config").hidden = false;
+			} else {
+				draw_vault_file_structure(vault_path, data["fs"]);
+				vault_file_system = data["fs"];
+			}
+		});
 }
 
 function open_vault_file(filename, path, button = null) {
 	if (button != null) {
 		button.innerHTML += `<img src="small_loading_white.svg" class="loader">`;
 	}
-	fetch(`/api`, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-		},
-		body: JSON.stringify({
-			r: "vault_file_download",
-			path: path_join([path, filename]),
-			key: atob(sessionStorage.getItem("vault_key")),
-		}),
-	})
-		.then((res) => {
-			if (button != null) {
-				button.querySelector("img").remove();
-			}
-			return res.blob();
+	if (filename.slice(-1) === "/") {
+		draw_vault_file_structure(path_join([path, filename]), vault_file_system);
+		vault_path = path_join([path, filename]);
+	} else {
+		fetch(`/api`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				r: "vault_file_download",
+				path: path_join([path, filename]),
+				key: atob(sessionStorage.getItem("vault_key")),
+			}),
 		})
-		.then((blob) => {
-			var url = window.URL.createObjectURL(blob);
-			var a = document.createElement("a");
-			a.href = url;
-			a.download = filename;
-			document.body.appendChild(a); // we need to append the element to the dom -> otherwise it will not work in firefox
-			a.click();
-			a.remove();
-		});
+			.then((res) => {
+				if (button != null) {
+					button.querySelector("img").remove();
+				}
+				return res.blob();
+			})
+			.then((blob) => {
+				var url = window.URL.createObjectURL(blob);
+				var a = document.createElement("a");
+				a.href = url;
+				a.download = filename;
+				document.body.appendChild(a); // we need to append the element to the dom -> otherwise it will not work in firefox
+				a.click();
+				a.remove();
+			});
+	}
 }
 
 function open_vault_context(filename, button = null) {
@@ -395,8 +478,7 @@ function open_vault_context(filename, button = null) {
 
 function delete_vault_file() {
 	const file_for_delete = vault_context_file;
-
-	vault_context_button.style.border = "2px solid red"
+	vault_context_button.style.border = "2px solid red";
 	confirm_modal_warning(
 		"Delete",
 		"Do you want to proceed?",
@@ -411,7 +493,7 @@ function delete_vault_file() {
 				body: JSON.stringify({
 					r: "delete_vault_file",
 					key: atob(sessionStorage.getItem("vault_key")),
-					delete_path: file_for_delete,
+					deletePath: file_for_delete,
 				}),
 			})
 				.then((res) => {
@@ -452,7 +534,7 @@ function delete_vault_file() {
 				});
 		},
 		() => {
-			vault_context_button.style.border = ""
+			vault_context_button.style.border = "";
 		},
 		true,
 	);
@@ -464,6 +546,7 @@ function close_vault_files() {
 	document.getElementById("vault_view").hidden = true;
 	document.getElementById("vault_config").hidden = false;
 	sessionStorage.removeItem("vault_key");
+	vault_path = "/";
 }
 
 function vault_file_upload(button) {
@@ -475,10 +558,11 @@ function vault_file_upload(button) {
 		() => {
 			var file_for_upload = document.getElementById("vault_file_upload_input")
 				.files[0];
-			var file_name = document.getElementById("vault_file_upload_input").value
+			var file_name = document.getElementById("vault_file_upload_input").value;
 			if (file_for_upload) {
 				var form_data = new FormData();
 				form_data.append("file", file_for_upload);
+				form_data.append("path", vault_path);
 				form_data.append("key", atob(sessionStorage.getItem("vault_key")));
 				console.log(button);
 				attach_loader(button.id, "white");
@@ -501,48 +585,62 @@ function vault_file_upload(button) {
 								() => {},
 								false,
 							);
-							document.getElementById("vault_files").innerHTML += "<button class='fileButtons' style='opacity: 0.5;'>"+file_name+"</button>"
-							fetch("/api", {
-								method: "POST",
-								headers: {
-									"Content-Type": "application/json",
-								},
-								body: JSON.stringify({
-									r: "vault_tree",
-									key: atob(sessionStorage.getItem("vault_key")),
-								}),
-							})
-								.then((res) => {
-									if (!res.ok) {
-										fail_popup("Vault connection failed");
-										document.getElementById("vault_view").hidden = true;
-										document.getElementById("vault_config").hidden = false;
-									}
-									return res.json();
-								})
-								.then((data) => {
-									remove_loader(button.id);
-
-									if (data["message"] == "auth_failed") {
-										fail_popup(
-											"Permission error <button onclick='location.reload()'>Reload</button>",
-										);
-										document.getElementById("vault_view").hidden = true;
-										document.getElementById("vault_config").hidden = false;
-									} else if (data["message"] == "vault_not_configured") {
-										fail_popup("Vault not configured");
-										document.getElementById("vault_view").hidden = true;
-										document.getElementById("vault_config").hidden = false;
-									} else {
-										draw_vault_file_structure("/", data["fs"]);
-									}
-								});
+							document.getElementById("vault_files").innerHTML +=
+								"<button class='fileButtons' style='opacity: 0.5;'>" +
+								file_name.split("\\")[file_name.split("\\").length - 1] +
+								"</button>";
+							reload_file_structure(true, button);
 						}
 					});
 			}
 		},
 		() => {},
 	);
+}
+
+function vault_new_folder() {
+	input_modal(
+		"New folder",
+		"Name the folder",
+		"folder_name",
+		"text",
+		() => {
+			fetch("/api", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					r: "vault_new_folder",
+					key: atob(sessionStorage.getItem("vault_key")),
+					folder_name: path_join([
+						vault_path,
+						document.getElementById("folder_name").value,
+					]),
+				}),
+			})
+				.then((res) => {
+					return res.json();
+				})
+				.then((json) => {
+					reload_file_structure(false);
+				});
+		},
+		() => {},
+		true,
+	);
+}
+
+function vault_walk_up() {
+	vault_path = vault_path.replace(/\/$/, ''); // Remove trailing slash if present
+    var lastIndex = vault_path.lastIndexOf('/');
+    if (lastIndex === -1) {
+        // Handle case when there's no parent (e.g., root path)
+        vault_path = '/';
+    } else {
+        vault_path = vault_path.substring(0, lastIndex + 1); // Include the trailing slash
+    }
+	draw_vault_file_structure(vault_path, vault_file_system)
 }
 
 // Status bars (Dashboard)
@@ -1189,7 +1287,7 @@ function getDeviceInformation() {
 				.replaceAll("\n", "");
 			document.getElementById("temperature").innerText =
 				data["temperature"] != null ? data["temperature"] : `No temperature`;
-			document.title = "Zentrox ("+data["hostname"].split(".")[0]+")"
+			document.title = "Zentrox (" + data["hostname"].split(".")[0] + ")";
 		});
 	fetch("/api", {
 		method: "POST",
@@ -1432,103 +1530,73 @@ function dataInit() {
 
 function killModalPopup() {
 	document.getElementById("modalMain").classList.remove("red");
-	document.getElementById("buttonConfirm").classList.remove("red")
-	document.getElementById("buttonCancle").onclick = killModalPopup 
+	document.getElementById("buttonConfirm").classList.remove("red");
 	setTimeout(function () {
 		document.getElementById("modalMain").hidden = true;
 	}, 510);
 	flyOut("modalMain", 500);
 }
 
-function error_modal(title, message, callback, cancled = () => {}) {
+function confirm_modal(title, message, cb, cancle, show_cancle) {
 	document.getElementById("modalMain").hidden = false;
-	document.getElementById("modalMain").classList.add("red");
 	document.getElementById("modalTitle").innerHTML = title;
 	document.getElementById("modalMessage").innerHTML = message;
-	document.getElementById("buttonConfirm").onclick = function () {
-		callback();
+	document.getElementById("buttonConfirm").onclick = () => {
 		killModalPopup();
+		setTimeout(cb, 600);
+		document.getElementById("buttonCancle").hidden = false;
+	};
+	document.getElementById("buttonCancle").hidden != show_cancle;
+	document.getElementById("buttonCancle").onclick = () => {
+		killModalPopup();
+		cancle();
+		document.getElementById("buttonCancle").hidden = false;
 	};
 }
 
-function confirm_modal(
-	title,
-	message,
-	callback,
-	cancled = () => {},
-	show_cancle = true,
-) {
+function confirm_modal_warning(title, message, cb, cancle, show_cancle) {
 	document.getElementById("modalMain").hidden = false;
 	document.getElementById("modalTitle").innerHTML = title;
 	document.getElementById("modalMessage").innerHTML = message;
-	document.getElementById("buttonConfirm").onclick = function () {
-		callback();
-		killModalPopup();
-	};
-	document.getElementById("buttonCancle").hidden = !show_cancle;
-	document.getElementById("buttonCancle").onclick = () => {cancled(); killModalPopup()};
-}
-
-function confirm_modal_warning(
-	title,
-	message,
-	callback,
-	cancled = () => {},
-	show_cancle = false,
-) {
-	document.getElementById("modalMain").hidden = false;
-	document.getElementById("modalTitle").innerHTML = title;
-	document.getElementById("modalMessage").innerHTML = message;
-	document.getElementById("buttonConfirm").onclick = function () {
-		callback();
-		killModalPopup();
-	};
 	document.getElementById("buttonConfirm").classList.add("red");
-	document.getElementById("buttonCancle").hidden = !show_cancle;
-	document.getElementById("buttonCancle").onclick = () => {cancled(); killModalPopup()};
+	document.getElementById("buttonConfirm").onclick = () => {
+		killModalPopup();
+		setTimeout(cb, 600);
+		document.getElementById("buttonCancle").hidden = false;
+		document.getElementById("buttonConfirm").classList.remove("red");
+	};
+	document.getElementById("buttonCancle").hidden != show_cancle;
+	document.getElementById("buttonCancle").onclick = () => {
+		killModalPopup();
+		cancle();
+		document.getElementById("buttonCancle").hidden = false;
+		document.getElementById("buttonConfirm").classList.remove("red");
+	};
 }
 
 function input_modal(
 	title,
 	message,
-	inputName,
-	type,
-	callback,
-	cancled = () => {},
+	input_id,
+	input_type,
+	cb,
+	cancle,
+	show_cancle,
 ) {
 	document.getElementById("modalMain").hidden = false;
 	document.getElementById("modalTitle").innerHTML = title;
 	document.getElementById("modalMessage").innerHTML =
-		message +
-		`<br><input type="${type}" id="${inputName}" class="input_modal">`;
-	document.getElementById(inputName).focus()
-	document.getElementById("buttonConfirm").onclick = function () {
+		message + `<br><input type=${input_type} id="${input_id}">`;
+	document.getElementById("buttonConfirm").onclick = () => {
 		killModalPopup();
-		callback();
+		setTimeout(cb, 600);
+		document.getElementById("buttonCancle").hidden = false;
 	};
-	document.getElementById("buttonCancle").onclick = function () {
+	document.getElementById("buttonCancle").hidden != show_cancle;
+	document.getElementById("buttonCancle").onclick = () => {
 		killModalPopup();
-		cancled();
-	};
-	document.getElementById("buttonCancle").hidden = false;
-}
-
-function root_input_modal(
-	title,
-	message,
-	inputName,
-	type,
-	callback,
-	cancled = () => {},
-) {
-	document.getElementById("modalMain").hidden = false;
-	document.getElementById("modalTitle").innerHTML = title;
-	document.getElementById("modalMessage").innerHTML =
-		message +
-		`<br><input type="${type}" id="${inputName}" class="input_modal">`;
-	document.getElementById("buttonConfirm").onclick = function () {
-		callback();
-		killModalPopup();
+		cancle();
+		document.getElementById("buttonCancle").hidden = false;
 	};
 }
 
