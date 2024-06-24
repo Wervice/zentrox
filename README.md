@@ -27,11 +27,13 @@ The is installation very fast and doesn't require great background knowledge.
 
 Zentrox will offer many features for different purposes:
 
-- _File sharing protocols_
-- Package manager
-- _Storage_ & Files overview
-- System resource measurement
-- _Web shell_
+- _File Sharing Protocols_ (Supports FTP)
+- Package manager (Install and remove packages)
+- _Vault_ (Host your own encrypted file store)
+- System overview (See system statistics)
+- _Web Shell_ (Remote control the system using a shell)
+- File Manager (Remove, rename and download files)
+- TLS encrypted (Uses HTTP**S** with self signed certificates)
 
 ###### _Italic_ means, that the feature is not fully implemented yet.
 
@@ -62,9 +64,7 @@ If you already have a .key and .crt, please copy it to the folder and call it se
 ### Installing
 
 1. Run the following command in your terminal:
-
 `curl -fsSL https://raw.githubusercontent.com/Wervice/zentrox/main/install.bash -o zentrox_installer.bash; bash zentrox_installer.bash`
-
 2. Follow the installer.
 3. Run `cd ~/zentrox; node zentrox.js` to get started.
 4. Go to `https://localhost:3000` and login with your newly configured admin username and password.
@@ -82,27 +82,12 @@ You can now login to Zentrox using your admin credentials.
 
 ## 🗑️ Removing
 
-You can remove Zentrox by deleting the zentrox_server folder. If you also want to erase all user & admin data, you can remove zentrox_data.
+You can remove Zentrox by deleting the `zentrox` folder located in your home folder.   
+If you also want to erase all user & admin data, you can remove zentrox_data.
+__zentrox_data__ also contains Zentrox Vault.
 
 > [!IMPORTANT]
-> You can not restore your data using Zentrox after removing it once.
-
-# ❓ Why...
-
-## ... JavaScript?
-
-JavaScript is a very fast and extensible language.  
-It features most of the things I was looking for and doesn't stress the hardware it runs on to much.
-
-## ... C?
-
-Zentrox also uses C to speed up certain tasks.  
-C had the libraries and features I needed to change the system.
-
-## ... Express?
-
-Express is very fast and small. It can be extended using libraries.  
-In addition to that, it also is very fast and lightweight on the system.
+> After your removed your data, it can only be restored using a utility like `testdisk`
 
 ## ✏️ Contributing
 
@@ -110,9 +95,10 @@ You can contribute this project in many ways. I am happy about any feedback.
 If you found a bug, please open an issue and I will try to fix it.  
 Also, you are very welcome to **star** this project.
 
-## Star History
+## ⭐Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=wervice/zentrox&type=Date)](https://star-history.com/#wervice/zentrox&Date)
+#### Support this project with a Star.
 
 ## 📖 Legal
 
@@ -120,6 +106,5 @@ Zentrox is released under [Apache 2.0](https://github.com/Wervice/Codelink?tab=A
 
 Zentrox uses/requires the following resources:
 
-- Icons8 Icons [icons8.com](https://icons8.com)
+- Unicons (Outline) by [IconScout](https://github.com/Iconscout/unicons) 
 - Work Sans Font [OFL](https://github.com/weiweihuanghuang/Work-Sans/blob/master/OFL.txt)
-- VSFTPD as an FTP server [https://security.appspot.com/vsftpd.html](https://security.appspot.com/vsftpd.html) (Has not been modified)
