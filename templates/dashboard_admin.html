@@ -209,8 +209,9 @@
 				</div>
 				<div id="storage_files" hidden>
 					<h3>File system</h3>
-					<button onclick="goFUp()">Up</button
-					><input
+					<button onclick="goFUp()">Up</button>
+					<button onclick="uploadFileSystem()">Upload</button>
+					<input
 						type="checkbox"
 						id="showHiddenFiles"
 						name="showHiddenFiles"
@@ -247,14 +248,13 @@
 							<button onclick="rename_vault_file()">Rename</button>
 						</div>
 						<button onclick="vault_file_upload(this)" id="vault_upload_button">
-							Upload
+							<img src="upload.png" />
 						</button>
 						<button onclick="vault_new_folder(this)" id="vault_upload_button">
-							New Folder
-							<!-- Add icon here -->
+							<img src="folder_plus.png" />
 						</button>
 						<button onclick="vault_walk_up()">
-							Up
+							<img src="arrow_u.png" />
 						</button>
 						<button onclick="close_vault_files()">Done</button>
 						<div id="vault_files"></div>

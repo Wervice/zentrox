@@ -478,7 +478,7 @@ function open_vault_context(filename, button = null) {
 
 function delete_vault_file() {
 	const file_for_delete = vault_context_file;
-	vault_context_button.style.border = "2px solid red";
+	vault_context_button.style.boxShadow = "0px 0px 0px 2px red inset";
 	confirm_modal_warning(
 		"Delete",
 		"Do you want to proceed?",
@@ -534,7 +534,7 @@ function delete_vault_file() {
 				});
 		},
 		() => {
-			vault_context_button.style.border = "";
+			vault_context_button.style.boxShadow = "";
 		},
 		true,
 	);
@@ -558,6 +558,16 @@ function vault_file_upload(button) {
 		() => {
 			var file_for_upload = document.getElementById("vault_file_upload_input")
 				.files[0];
+			if (file_for_upload.size >= 1024 * 1024 * 2024 * 2) {
+				confirm_modal_warning(
+					"File to large",
+					"The file you are trying to upload is larger than 2GB. This can not be uploaded.",
+					() => {},
+					() => {},
+					false,
+				);
+				return;
+			}
 			var file_name = document.getElementById("vault_file_upload_input").value;
 			if (file_for_upload) {
 				var form_data = new FormData();
@@ -577,6 +587,7 @@ function vault_file_upload(button) {
 					.then((json) => {
 						if (json["message"]) {
 							confirm_modal_warning("Upload error", "Upload failed");
+							remove_loader(button.id);
 						} else {
 							confirm_modal(
 								"Upload success",
@@ -632,15 +643,15 @@ function vault_new_folder() {
 }
 
 function vault_walk_up() {
-	vault_path = vault_path.replace(/\/$/, ''); // Remove trailing slash if present
-    var lastIndex = vault_path.lastIndexOf('/');
-    if (lastIndex === -1) {
-        // Handle case when there's no parent (e.g., root path)
-        vault_path = '/';
-    } else {
-        vault_path = vault_path.substring(0, lastIndex + 1); // Include the trailing slash
-    }
-	draw_vault_file_structure(vault_path, vault_file_system)
+	vault_path = vault_path.replace(/\/$/, ""); // Remove trailing slash if present
+	var lastIndex = vault_path.lastIndexOf("/");
+	if (lastIndex === -1) {
+		// Handle case when there's no parent (e.g., root path)
+		vault_path = "/";
+	} else {
+		vault_path = vault_path.substring(0, lastIndex + 1); // Include the trailing slash
+	}
+	draw_vault_file_structure(vault_path, vault_file_system);
 }
 
 // Status bars (Dashboard)
@@ -902,6 +913,20 @@ function goFUp() {
 		currFPath = currFPath.replace(currFPathReps, "");
 		renderFiles(currFPath);
 	}
+}
+
+function uploadFileSystem() {
+	input_modal("Upload file", "Select a file to upload", "fileSystemUpload", "file", () => {
+		var fileForUpload = document.getElementById("fileSystemUpload").files[0]
+		var formData = new FormData()
+		formData.append("file", fileForUpload)
+		formData.set("filePath", currFPath)
+		fetch("/upload/fs", {
+			method: "POST",
+			headers: {},
+			body: formData
+		})
+	}, () => {}, true)
 }
 
 function contextMenuF(filename) {
@@ -1364,7 +1389,12 @@ function remove_loader(id) {
 	if (object.tagName.toLowerCase() == "input") {
 		object.style.backgroundImage = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1em' height='1em' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='m9.55 18l-5.7-5.7l1.425-1.425L9.55 15.15l9.175-9.175L20.15 7.4z'/%3E%3C/svg%3E")`;
 	} else if (object.tagName.toLowerCase() == "button") {
-		object.querySelector("img").remove();
+		if (object.querySelector("img:nth-child(2)")) {
+			object.querySelector("img:nth-child(2)").remove();
+			return;
+		} else {
+			object.querySelector("img:nth-child(1)").remove();
+		}
 	}
 }
 
@@ -1598,6 +1628,7 @@ function input_modal(
 		cancle();
 		document.getElementById("buttonCancle").hidden = false;
 	};
+	document.getElementById(input_id).focus();
 }
 
 function flyOut(id, duration) {

@@ -21,6 +21,7 @@ const compression = require("compression"); // Compressing conenction
 const cookieParser = require("cookie-parser");
 const session = require("express-session");
 const express = require("express"); // Using Express framework
+const { multiply } = require("lodash");
 const MemoryStore = require("memorystore")(session);
 
 const Worker = require("node:worker_threads").Worker; // For package cache worker
@@ -174,8 +175,6 @@ function zlog(string, type) {
 		console.log("[ Info " + new Date().toLocaleTimeString() + "] " + string);
 	} else if (type == "error") {
 		console.log("[ Error " + new Date().toLocaleTimeString() + "] " + string);
-	} else {
-		// console.log("[ Verb " + new Date().toLocaleTimeString() + "] " + string);
 	}
 }
 
@@ -462,8 +461,7 @@ app.get("/api", async (req, res) => {
 			);
 		}
 	} else {
-		res.status(403).send({
-			status: "f",
+		res.status(400).send({
 			text: "No supported command",
 		});
 	}
@@ -485,7 +483,12 @@ app.post("/api", async (req, res) => {
 	if (req.body.r == "deleteUser") {
 		// ? Deletes Zentrox user from the system
 		if (req.session.isAdmin) {
-			deleteUser(req.body.username);
+			var username = req.body.username;
+			if (!username) {
+				res.status(400).send();
+				return;
+			}
+			deleteUser(username);
 			res.send({
 				status: "s",
 			});
@@ -529,16 +532,21 @@ app.post("/api", async (req, res) => {
 	} else if (req.body.r == "filesRender") {
 		// ? List files as HTML and sends it to front end
 		if (req.session.isAdmin) {
+			var filePath = req.body.path;
+			if (!filePath) {
+				res.status(400).send();
+				return;
+			}
 			var filesHTML = "";
 			try {
-				for (fileN of fs.readdirSync(req.body.path)) {
+				for (fileN of fs.readdirSync(filePath)) {
 					if (fileN[0] == ".") {
 						if (
 							req.body.showHiddenFiles == true ||
 							req.body.showHiddenFiles == "on"
 						) {
 							try {
-								if (fs.statSync(path.join(req.body.path, fileN)).isFile()) {
+								if (fs.statSync(path.join(filePath, fileN)).isFile()) {
 									var fileIcon = "file.png";
 									var funcToUse = "downloadFile";
 								} else {
@@ -557,7 +565,7 @@ app.post("/api", async (req, res) => {
 						}
 					} else {
 						try {
-							if (fs.statSync(path.join(req.body.path, fileN)).isFile()) {
+							if (fs.statSync(path.join(filePath, fileN)).isFile()) {
 								var fileIcon = "file.png";
 								var funcToUse = "downloadFile";
 							} else {
@@ -591,9 +599,14 @@ app.post("/api", async (req, res) => {
 	} else if (req.body.r == "deleteFile") {
 		// ? Deletes a file from the linux file system
 		if (!req.session.isAdmin) return;
+		var filePath = req.body.path;
+		if (!filePath) {
+			res.status(400).send();
+			return;
+		}
 		try {
 			if (req.session.isAdmin) {
-				fs.rmSync(req.body.path, { recursive: true, force: true });
+				fs.rmSync(filePath, { recursive: true, force: true });
 				res.send({
 					status: "s",
 				});
@@ -605,9 +618,15 @@ app.post("/api", async (req, res) => {
 	} else if (req.body.r == "renameFile") {
 		// ? Renamve a file from the linux file system
 		if (!req.session.isAdmin) return;
+		var filePath = req.body.path;
+		var newName = req.body.newName;
+		if (!filePath || !newName) {
+			res.status(400).send();
+			return;
+		}
 		try {
 			if (req.session.isAdmin) {
-				fs.renameSync(req.body.path, req.body.newName);
+				fs.renameSync(filePath, newName);
 			}
 			res.send({
 				status: "s",
@@ -620,10 +639,7 @@ app.post("/api", async (req, res) => {
 		// ? Send the entire package database to the front end
 		// * Early return if not admin
 
-		if (!req.session.isAdmin) {
-			res.status(403).send("You have no permissions to access this resource");
-			return;
-		}
+		if (!req.session.isAdmin) return;
 		zlog("Request Package Database JSON", "info");
 		if (!fs.existsSync(path.join(zentroxInstallationPath, "allPackages.txt"))) {
 			var packagesString = String(new Date().getTime()) + "\n";
@@ -716,31 +732,43 @@ app.post("/api", async (req, res) => {
 			res.status(403).send("You have no permissions to access this resource");
 			return;
 		}
-		if (removePackage(req.body.packageName, req.body.sudoPassword)) {
+		var packageName = req.body.packageName;
+		var rootPassword = req.body.sudoPassword;
+		if (!packageName || !rootPassword) {
+			res.status(400).send();
+			return;
+		}
+		if (removePackage(packageName, rootPassword)) {
 			res.send({
 				status: "s",
 			});
-			zlog("Removed package " + req.body.packageName, "info");
+			zlog("Removed package " + packageName, "info");
 		} else {
 			res.status(500).send({});
-			zlog("Failed to remove package " + req.body.packageName, "error");
+			zlog("Failed to remove package " + packageName, "error");
 		}
 	} else if (req.body.r == "installPackage") {
 		//? Install a package on the system
 
-		zlog("Install package " + req.body.packageName, "info");
 		if (!req.session.isAdmin) {
 			res.status(403).send("You have no permissions to access this resource");
 			return;
 		}
-		if (installPackage(req.body.packageName, req.body.sudoPassword)) {
+		var packageName = req.body.packageName;
+		var rootPassword = req.body.sudoPassword;
+		if (!packageName || !rootPassword) {
+			res.status(400).send();
+			return;
+		}
+		zlog("Install package " + req.body.packageName, "info");
+		if (installPackage(packageName, rootPassword)) {
 			res.send({
 				status: "s",
 			});
-			zlog("Installed package " + req.body.packageName, "info");
+			zlog("Installed package " + packageName, "info");
 		} else {
 			res.status(500).send({});
-			zlog("Failed to install package " + req.body.packageName, "error");
+			zlog("Failed to install package " + packageName, "error");
 		}
 	} else if (req.body.r == "updateFTPconfig") {
 		// ? Change the FTP configuration on the system
@@ -748,10 +776,17 @@ app.post("/api", async (req, res) => {
 			res.status(403).send("You have no permissions to access this resource");
 			return;
 		}
+		var enableFTP = req.body.enableFTP;
+		var zentroxUserPassword = req.session.zentroxPassword;
+		var enableDisable = req.body.enableDisable;
+		if (typeof enableFTP == "undefined" || !enableDisable) {
+			res.status(400).send();
+			return;
+		}
 		zlog("Change FTP Settings");
-		if (req.body.enableFTP == false) {
+		if (enableFTP == false) {
 			try {
-				let killShell = new Shell("zentrox", "sh", req.session.zentroxPassword);
+				let killShell = new Shell("zentrox", "sh", zentroxUserPassword);
 				if (
 					readDatabase(
 						path.join(zentroxInstallationPath, "config.db"),
@@ -776,7 +811,7 @@ app.post("/api", async (req, res) => {
 				"ftp_running",
 				"0",
 			);
-		} else if (req.body.enableFTP == true) {
+		} else if (enableFTP == true) {
 			if (
 				readDatabase(
 					path.join(zentroxInstallationPath, "config.db"),
@@ -787,7 +822,7 @@ app.post("/api", async (req, res) => {
 				let ftpProcess = new Shell(
 					"zentrox",
 					"sh",
-					req.session.zentroxPassword,
+					zentroxUserPassword,
 					(data) => {
 						writeDatabase(
 							path.join(zentroxInstallationPath, "config.db"),
@@ -817,9 +852,16 @@ app.post("/api", async (req, res) => {
 		}
 
 		// Write changes to ftp.txt
-		if (req.body.enableDisable == undefined) {
-			if (req.body.ftpUserPassword.length != 0) {
-				new_ftp_password = hash512(req.body.ftpUserPassword);
+		if (typeof enableDisable == "undefined") {
+			var ftpUserPassword = req.body.ftpUserPassword;
+			var ftpUserUsername = req.body.ftpUserUsername;
+			var ftpLocalRoot = req.body.ftpLocalRoot;
+			if (!ftpUserUsername || !ftpUserPassword || !ftpLocalRoot) {
+				res.status(400).send();
+				return;
+			}
+			if (ftpUserPassword.length != 0) {
+				new_ftp_password = hash512(ftpUserPassword);
 				writeDatabase(
 					path.join(zentroxInstallationPath, "config.db"),
 					"ftp_password",
@@ -829,17 +871,17 @@ app.post("/api", async (req, res) => {
 			writeDatabase(
 				path.join(zentroxInstallationPath, "config.db"),
 				"ftp_username",
-				req.body.ftpUserUsername,
+				ftpUserUsername,
 			);
 			writeDatabase(
 				path.join(zentroxInstallationPath, "config.db"),
 				"ftp_root",
-				req.body.ftpLocalRoot,
+				ftpLocalRoot,
 			);
 			writeDatabase(
 				path.join(zentroxInstallationPath, "config.db"),
 				"ftp_running",
-				req.body.enableFTP == true ? "1" : "0",
+				enableFTP == true ? "1" : "0",
 			);
 		} else {
 			zlog("Enable/Disable FTP was requested (dashboard toggle used)", "info");
@@ -874,6 +916,7 @@ app.post("/api", async (req, res) => {
 			res.status(403).send("You have no permissions to access this resource");
 			return;
 		}
+		var driveName = req.body.driveName;
 
 		const dfOutput = chpr.execSync("df -P").toString("ascii");
 		const dfLines = dfOutput.trim().split("\n").slice(1); // ? Split output by lines, removing header
@@ -883,7 +926,7 @@ app.post("/api", async (req, res) => {
 			return { filesystem, size, used, available, capacity, mounted };
 		});
 		res.send({
-			drives: deviceInformation(req.body.driveName),
+			drives: deviceInformation(driveName),
 			ussage: dfData,
 		});
 	} else if (req.body.r == "deviceInformation") {
@@ -949,10 +992,15 @@ app.post("/api", async (req, res) => {
 		});
 	} else if (req.body.r == "power_off") {
 		if (!req.session.isAdmin) return;
+		var zentroxUserPassword = req.body.zentroxUserPassword;
+		if (!zentroxUserPassword) {
+			res.status(400).send();
+			return;
+		}
 		let shutdown_handler = new Shell(
 			"zentrox",
 			"sh",
-			req.session.zentroxPassword,
+			zentroxUserPassword,
 			() => {},
 		);
 		setTimeout(() => {
@@ -969,6 +1017,10 @@ app.post("/api", async (req, res) => {
 			!fs.existsSync(path.join(zentroxInstallationPath, "vault.vlt"))
 		) {
 			var key = req.body.key;
+			if (!key) {
+				res.status(400).send();
+				return;
+			}
 			var i = 0;
 			while (i != 1000) {
 				key = crypto.createHash("sha512").update(key).digest("hex");
@@ -1010,8 +1062,9 @@ app.post("/api", async (req, res) => {
 			} else {
 				var oldKey = req.body.oldKey;
 				var newKey = req.body.newKey;
-				if (oldKey.length === 0 || newKey.length === 0) {
+				if (!oldKey || !newKey) {
 					res.status(400).send("Bad request");
+					return;
 				}
 				var i = 0;
 				var j = 0;
@@ -1046,8 +1099,9 @@ app.post("/api", async (req, res) => {
 	} else if (req.body.r == "vault_tree") {
 		if (!req.session.isAdmin) return;
 		var key = req.body.key;
-		if (key.length === 0) {
-			res.status(400).send("Bad request");
+		if (!key) {
+			res.status(400).send({});
+			return;
 		}
 		var i = 0;
 		if (!fs.existsSync(path.join(zentroxInstallationPath, "vault.vlt"))) {
@@ -1084,11 +1138,15 @@ app.post("/api", async (req, res) => {
 	} else if (req.body.r == "vault_file_download") {
 		if (!req.session.isAdmin) return;
 		var fpath = req.body.path;
+		var key = req.body.key;
+		if (!fpath || !key) {
+			res.status(400).send();
+			return;
+		}
 		if (fpath[0] == "/") {
 			fpath = fpath.replace("/", "");
 		}
 		var i = 0;
-		var key = req.body.key;
 		if (key.length === 0) {
 			res.status(400).send("Bad request");
 		}
@@ -1134,7 +1192,8 @@ app.post("/api", async (req, res) => {
 	} else if (req.body.r == "delete_vault_file") {
 		if (!req.session.isAdmin) return;
 		var key = req.body.key;
-		if (key.length === 0) {
+		var deletePath = req.body.deletePath;
+		if (!key || !deletePath) {
 			res.status(400).send("Bad request");
 			return;
 		}
@@ -1147,7 +1206,7 @@ app.post("/api", async (req, res) => {
 		try {
 			removeFileFromArchive(
 				path.join(zentroxInstallationPath, "vault.vlt"),
-				req.body.deletePath,
+				deletePath,
 			);
 		} catch (err) {
 			console.error(err);
@@ -1166,8 +1225,8 @@ app.post("/api", async (req, res) => {
 	} else if (req.body.r == "vault_new_folder") {
 		var key = req.body.key;
 		var folder_name = req.body.folder_name;
-		if (key.length === 0 || folder_name.length === 0) {
-			res.status(400).send("Bad request");
+		if (!key || !folder_name) {
+			res.status(400).send();
 			return;
 		}
 
@@ -1195,8 +1254,8 @@ app.post("/api", async (req, res) => {
 		}
 		res.send({});
 	} else {
-		console.log("Got unknow request");
-		res.send(400).send({});
+		zlog("Got unknow request");
+		res.status(400).send({});
 	}
 });
 
@@ -1212,6 +1271,11 @@ app.post("/upload/vault", async (req, res, next) => {
 			var in_vault_path = fields["path"][0];
 		} catch (err) {
 			next(err);
+			return;
+		}
+		if (!key) {
+			res.status(400).send({});
+			return;
 		}
 		var i = 0;
 		while (i != 1000) {
@@ -1226,19 +1290,29 @@ app.post("/upload/vault", async (req, res, next) => {
 			return;
 		}
 		try {
-			var fpath = files["file"][0]["path"];
+			try {
+				var fpath = files["file"][0]["path"];
+				var ffilename = files["file"][0]["originalFilename"];
+			} catch {
+				res.status(400).send();
+				return;
+			}
 			var contents = [];
 			tar.t({
 				file: path.join(zentroxInstallationPath, "vault.vlt"),
 				onentry: (entry) => contents.push(entry.path),
 				sync: true,
 			});
-			var ffilename = files["file"][0]["originalFilename"];
-			while (contents.includes(path.join(in_vault_path, ffilename).replace("/", ""))) {
-				var filenameSplit = ffilename.split(".")
-				ffilename = filenameSplit[filenameSplit.length - 2] + "_new." + filenameSplit[filenameSplit.length - 1];
-			}
 
+			while (
+				contents.includes(path.join(in_vault_path, ffilename).replace("/", ""))
+			) {
+				var filenameSplit = ffilename.split(".");
+				ffilename =
+					filenameSplit[filenameSplit.length - 2] +
+					"_new." +
+					filenameSplit[filenameSplit.length - 1];
+			}
 			var new_path = path.join(
 				zentroxInstallationPath,
 				"vault_extract",
@@ -1288,6 +1362,30 @@ app.post("/upload/vault", async (req, res, next) => {
 		res.send({});
 	});
 });
+
+app.post("/upload/fs", (req, res, next) => {
+	if (!req.session.isAdmin) return;
+	var form = new multiparty.Form()	
+	form.parse(req, (err, fields, files) => {
+		if (err) next(err)
+		try {
+			var systemPath = fields["filePath"][0]
+			var fileName = files["file"][0]["originalFilename"]
+			var fullPath = path.join(systemPath, fileName)
+			var tempPath = files["file"][0]["path"]
+		}
+		catch (err) {
+			next(err);
+			return;
+		}
+		while (fs.existsSync(fullPath)) {
+			fullPath = path.dirname(fullPath)+"_new."+path.extname(fullPath)
+		}
+		fs.copyFileSync(tempPath, fullPath)
+		fs.unlinkSync(tempPath)
+		res.send({message: "Uploaded"})
+	})
+})
 
 process.on("beforeExit", function () {
 	zlog("Process exiting...");
