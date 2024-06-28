@@ -40,7 +40,7 @@
 		"compress-commons": "^2.1.1",
 		"compressible": "^2.0.18",
 		"compression": "^1.7.4",
-		"concat-map": "^0.0.1",
+		"concat-map": "^0.0.2",
 		"content-disposition": "^0.5.4",
 		"content-type": "^1.0.5",
 		"cookie": "^0.6.0",
