@@ -20,8 +20,8 @@
 ## 💡 Which problems does Zentrox solve?
 
 Zentrox helps you with the administration of your home server.
-It will provide you with the most important tools for managin your device.
-The is installation very fast and doesn't require great background knowledge.
+It will provide you with the most important tools for managing your device.
+The installation is very fast and doesn't require great background knowledge.
 
 ## 🎯 Features
 
