@@ -64,7 +64,7 @@ If you already have a .key and .crt, please copy it to the folder and call it se
 ### Installing
 
 1. Run the following command in your terminal:
-`curl -fsSL https://raw.githubusercontent.com/Wervice/zentrox/main/install.bash -o zentrox_installer.bash; bash zentrox_installer.bash`
+   `curl -fsSL https://raw.githubusercontent.com/Wervice/zentrox/main/install.bash -o zentrox_installer.bash; bash zentrox_installer.bash`
 2. Follow the installer.
 3. Run `cd ~/zentrox; node zentrox.js` to get started.
 4. Go to `https://localhost:3000` and login with your newly configured admin username and password.
@@ -82,9 +82,9 @@ You can now login to Zentrox using your admin credentials.
 
 ## 🗑️ Removing
 
-You can remove Zentrox by deleting the `zentrox` folder located in your home folder.   
+You can remove Zentrox by deleting the `zentrox` folder located in your home folder.  
 If you also want to erase all user & admin data, you can remove zentrox_data.
-__zentrox_data__ also contains Zentrox Vault.
+**zentrox_data** also contains Zentrox Vault.
 
 > [!IMPORTANT]
 > After your removed your data, it can only be restored using a utility like `testdisk`
@@ -98,6 +98,7 @@ Also, you are very welcome to **star** this project.
 ## ⭐Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=wervice/zentrox&type=Date)](https://star-history.com/#wervice/zentrox&Date)
+
 #### Support this project with a Star.
 
 ## 📖 Legal
@@ -106,5 +107,5 @@ Zentrox is released under [Apache 2.0](https://github.com/Wervice/Codelink?tab=A
 
 Zentrox uses/requires the following resources:
 
-- Unicons (Outline) by [IconScout](https://github.com/Iconscout/unicons) 
+- Unicons (Outline) by [IconScout](https://github.com/Iconscout/unicons)
 - Work Sans Font [OFL](https://github.com/weiweihuanghuang/Work-Sans/blob/master/OFL.txt)

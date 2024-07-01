@@ -47,4 +47,5 @@ try:
     main()
 except OSError as error:
     print("OS Error: "+str(error))
+    writeDatabase("ftp_running", "0")
     exit() 
