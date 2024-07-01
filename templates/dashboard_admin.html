@@ -85,7 +85,7 @@
 			<button onclick="changePage('shell')">
 				<img src="shell.png" alt="shell" />Shell</button
 			><br />
-			<button><img src="security.png" alt="lock" />Securitry</button><br />
+			<button onclick="changePage('security')"><img src="security.png" alt="lock" />Securitry</button><br />
 			<button onclick="changePage('users')">
 				<img src="users.png" alt="users" />Users</button
 			><br />
@@ -103,7 +103,7 @@
 		<div id="pages">
 			<div id="overview">
 				<nav>
-					<h2><img src="status.png" />Overview</h2>
+					<h2><img src="status.png" /> Overview</h2>
 				</nav>
 				<div style="padding: 10px" class="dashboard_section">
 					<small>Resources</small>
@@ -263,7 +263,7 @@
 			</div>
 			<div id="users" hidden>
 				<nav>
-					<h2><img src="users.png" />Users</h2>
+					<h2><img src="users.png" /> Users</h2>
 				</nav>
 				<button onclick="addNewUser()">New user</button>
 				<div id="usersTable"></div>
@@ -333,6 +333,19 @@
 						</small>
 					</div>
 					<div id="smb"></div>
+				</div>
+			</div>
+			<div id="security" hidden>
+				<nav>
+					<h2><img src="security.png" /> Security</h2>
+				</nav>
+				<div class="dashboard_section" style="padding: 10px;">
+				<div class="information_chip">
+					<span class="caption">Firewall</span>
+				</div>
+				<div class="information_chip">
+					<span class="caption">Running Processes</span>
+				</div>
 				</div>
 			</div>
 		</div>

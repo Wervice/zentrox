@@ -4,7 +4,17 @@
 }
 
 :root {
-	--accent-color: #8c8c8c;
+	--accent-color: #1f9af7;
+	--accent-color-dark: #1278c5;
+	--red: #ff3a3a;
+	--green: #bcff58;
+	--background-dark: #11111e; /* Dark background with a blue tint */
+	--background-semi-dark: #22222f; /* Brighter semi-dark background with a blue tint */
+	--background-semi-light: #333340; /* Brighter semi-light background with a blue tint */
+	--foreground-semi-light: #6b7077; /* Brighter semi-light foreground with a blue tint */
+	--foreground-light: #7d828a; /* Brighter light foreground with a blue tint */
+	--foreground: #ffffff; /* Keeping white for maximum contrast */
+	/* Keeping white for maximum contrast */
 }
 
 *:focus {
@@ -17,7 +27,7 @@ button:hover {
 }
 
 ::placeholder {
-	color: #888;
+	color: var(--background-semi-light);
 }
 
 * {
@@ -25,7 +35,7 @@ button:hover {
 }
 
 body {
-	background-color: #111;
+	background-color: var(--background-dark);
 	color: white;
 	padding: 0px;
 	margin: 0px;
@@ -50,7 +60,7 @@ select {
 	font-size: large;
 	border-radius: 8px;
 	color: white;
-	background-color: #222;
+	background-color: var(--background-dark);
 	border: 0px;
 	transition: ease-in-out 0.25s;
 	width: 200px;
@@ -61,11 +71,11 @@ select {
 }
 
 small {
-	color: #666;
+	color: var(--foreground-light);
 }
 
 span.caption {
-	color: #888;
+	color: var(--background-semi-light);
 	max-width: 200px;
 	font-size: 14px;
 }
@@ -81,20 +91,21 @@ button {
 	padding: 12px;
 	font-size: large;
 	border-radius: 3px;
-	background-color: #8c8c8c;
+	background-color: var(--background-semi-light);
+	color: var(--foreground);
 	border: 0px;
 	transition: ease-in-out 0.25s;
 	margin-right: 5px;
 }
 
 .outline {
-	border: 1px solid #8c8c8c;
+	border: 1px solid var(--background-semi-light);
 	background-color: transparent;
-	color: #8c8c8c;
+	color: var(--background-semi-light);
 }
 
 h3 {
-	color: #888;
+	color: var(--background-light);
 }
 
 @keyframes scale_in {
@@ -119,7 +130,7 @@ h3 {
 #logo {
 	width: 100px;
 	height: 100px;
-	box-shadow: 0px 5px 10px #111;
+	box-shadow: 0px 5px 10px var(--background-dark);
 	position: fixed;
 	top: calc(50vh - 50px);
 	left: 600px;
@@ -135,9 +146,9 @@ div.contentPage {
 	width: 500px;
 	max-width: 100vw;
 	padding: 20px;
-	background-color: #0e0e0e;
-	box-shadow: 0px 10px 20px rgba(0, 0, 0, 0.52);
-	border: 1px solid #222;
+	background-color: var(--background-semi-dark);
+	box-shadow: 0px 10px 20px rgba(0, 0, 0, 0.2);
+	border: 1px solid var(--background-semi-dark);
 	border-radius: 10px;
 	animation-name: scale_in;
 	animation-duration: 0.25s;
@@ -175,7 +186,7 @@ div.contentPage {
 	padding: 5px;
 	font-size: 14px;
 	cursor: default;
-	background-color: #222;
+	background-color: var(--background-semi-dark);
 }
 
 @media screen and (max-width: 550px) {

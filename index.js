@@ -21,7 +21,6 @@ const compression = require("compression"); // Compressing conenction
 const cookieParser = require("cookie-parser");
 const session = require("express-session");
 const express = require("express"); // Using Express framework
-const { multiply } = require("lodash");
 const MemoryStore = require("memorystore")(session);
 
 const Worker = require("node:worker_threads").Worker; // For package cache worker
@@ -367,6 +366,21 @@ app.get("/", async (req, res) => {
 });
 
 app.post("/login", async (req, res) => {
+	if (typeof req.session.loginAttempts == "undefined") {
+		req.session.loginAttempts = 1
+	}
+	var nowTime = new Date().getTime()
+	if (req.session.loginAttempts > 10 && (nowTime - req.session.lastLoginAttempt) < 20000) {
+		res.send("")
+		return;
+	}
+	else {
+		if ((nowTime - req.session.lastLoginAttempt) > 25000) {
+			req.session.loginAttempts = 1
+		}
+	}
+	req.session.lastLoginAttempt = nowTime
+	req.session.loginAttempts++;
 	var authTest = auth(req.body.username, req.body.password, req);
 	if (authTest == true) {
 		req.session.signedIn = true;
@@ -559,7 +573,7 @@ app.post("/api", async (req, res) => {
 							}
 							var filesHTML =
 								filesHTML +
-								`<button class='fileButtons' onclick="${funcToUse}('${fileN}')" oncontextmenu="contextMenuF('${fileN}')"><img src="${fileIcon}"><br>${fileN
+								`<button class='fileButtons' onclick="${funcToUse}('${fileN}')" oncontextmenu="contextMenuF('${fileN}')" title="${fileN}"><img src="${fileIcon}"><br>${fileN
 									.replaceAll("<", "&lt;")
 									.replaceAll(">", "&gt;")}</button>`;
 						}
@@ -578,7 +592,7 @@ app.post("/api", async (req, res) => {
 						}
 						var filesHTML =
 							filesHTML +
-							`<button class='fileButtons' onclick="${funcToUse}('${fileN}')" oncontextmenu="contextMenuF('${fileN}')"><img src="${fileIcon}"><br>${fileN
+							`<button class='fileButtons' onclick="${funcToUse}('${fileN}')" oncontextmenu="contextMenuF('${fileN}')" title="${fileN}"><img src="${fileIcon}"><br>${fileN
 								.replaceAll("<", "&lt;")
 								.replaceAll(">", "&gt;")}</button>`;
 					}
@@ -992,7 +1006,7 @@ app.post("/api", async (req, res) => {
 		});
 	} else if (req.body.r == "power_off") {
 		if (!req.session.isAdmin) return;
-		var zentroxUserPassword = req.body.zentroxUserPassword;
+		var zentroxUserPassword = req.session.zentroxUserPassword;
 		if (!zentroxUserPassword) {
 			res.status(400).send();
 			return;
@@ -1365,27 +1379,30 @@ app.post("/upload/vault", async (req, res, next) => {
 
 app.post("/upload/fs", (req, res, next) => {
 	if (!req.session.isAdmin) return;
-	var form = new multiparty.Form()	
+	var form = new multiparty.Form();
 	form.parse(req, (err, fields, files) => {
-		if (err) next(err)
+		if (err) next(err);
 		try {
-			var systemPath = fields["filePath"][0]
-			var fileName = files["file"][0]["originalFilename"]
-			var fullPath = path.join(systemPath, fileName)
-			var tempPath = files["file"][0]["path"]
-		}
-		catch (err) {
+			var systemPath = fields["filePath"][0];
+			var fileName = files["file"][0]["originalFilename"];
+			var fullPath = path.join(systemPath, fileName);
+			var tempPath = files["file"][0]["path"];
+		} catch (err) {
 			next(err);
 			return;
 		}
 		while (fs.existsSync(fullPath)) {
-			fullPath = path.dirname(fullPath)+"_new."+path.extname(fullPath)
+			var fullPathSplit = fullPath.split(".");
+			fullPath =
+				fullPathSplit[fullPathSplit.length - 2] +
+				"_new." +
+				fullPathSplit[fullPathSplit.length - 1];
 		}
-		fs.copyFileSync(tempPath, fullPath)
-		fs.unlinkSync(tempPath)
-		res.send({message: "Uploaded"})
-	})
-})
+		fs.copyFileSync(tempPath, fullPath);
+		fs.unlinkSync(tempPath);
+		res.send({ message: "Uploaded" });
+	});
+});
 
 process.on("beforeExit", function () {
 	zlog("Process exiting...");

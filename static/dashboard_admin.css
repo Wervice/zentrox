@@ -8,6 +8,13 @@
 	--accent-color-dark: #1278c5;
 	--red: #ff3a3a;
 	--green: #bcff58;
+	--background-dark: #11111e; /* Dark background with a blue tint */
+	--background-semi-dark: #22222f; /* Brighter semi-dark background with a blue tint */
+	--background-semi-light: #333340; /* Brighter semi-light background with a blue tint */
+	--foreground-semi-light: #6b7077; /* Brighter semi-light foreground with a blue tint */
+	--foreground-light: #7d828a; /* Brighter light foreground with a blue tint */
+	--foreground: #ffffff; /* Keeping white for maximum contrast */
+	/* Keeping white for maximum contrast */
 }
 
 ::selection {
@@ -15,7 +22,7 @@
 }
 
 ::placeholder {
-	color: #888;
+	color: var(--foreground-light);
 }
 
 ::-webkit-scrollbar {
@@ -64,8 +71,8 @@
 }
 
 body {
-	background-color: #111;
-	color: white;
+	background-color: var(--background-dark);
+	color: var(--foreground);
 	padding: 0px;
 	margin: 0px;
 	overflow: hidden;
@@ -77,7 +84,7 @@ body {
 	padding: 7px;
 	width: 150px !important;
 	border-radius: 1px;
-	background: #222;
+	background: #00000022;
 	display: inline-block;
 }
 
@@ -88,9 +95,9 @@ select {
 	margin-left: 5px;
 	padding: 8px;
 	font-size: large;
-	border-radius: 2.5px;
-	color: white;
-	background-color: #333;
+	border-radius: 5px;
+	color: var(--foreground);
+	background-color: var(--background-semi-dark);
 	border: 0px;
 	transition: ease-in-out 0.25s;
 	width: 200px;
@@ -124,7 +131,7 @@ select {
 }
 
 small {
-	color: #a0a0a0;
+	color: var(--foreground-semi-light);
 }
 
 h2 {
@@ -144,8 +151,8 @@ nav {
 	margin-left: -10px;
 	margin-right: -10px;
 	padding: 10px;
-	background: #111;
-	border-bottom: 1px solid #222;
+	background: var(--background-dark);
+	border-bottom: 1px solid var(--background-semi-dark);
 
 	h2 {
 		margin-top: 0px;
@@ -161,7 +168,6 @@ nav {
 }
 
 span.caption {
-	color: #888;
 	max-width: 200px;
 	font-size: 14px;
 }
@@ -177,8 +183,8 @@ button {
 	padding: 10px;
 	font-size: large;
 	border-radius: 4px;
-	color: white;
-	background: #222;
+	color: var(--foreground);
+	background: var(--background-semi-light);
 	border: 0px;
 	transition: ease-in-out 0.25s;
 	margin-right: 5px;
@@ -202,15 +208,16 @@ button {
 }
 
 .outline {
-	border: 1px solid #8c8c8c;
+	border: 1px solid #ffffff11;
 	background-color: transparent;
-	color: #8c8c8c;
+	color: #ffffff22;
 }
 
 #sideBar button {
 	width: 175px;
+	border-radius: 10px;
 	text-align: left;
-	background: #242424;
+	background: #00000000;
 
 	img {
 		margin-right: 5px;
@@ -219,11 +226,13 @@ button {
 
 #sideBar {
 	display: inline-block;
-	background-color: #242424;
+	background: linear-gradient(270deg, var(--background-semi-dark), #aaaaff11);
 	padding: 5px;
-	height: 100vh;
+	height: calc(100vh - 10px);
 	animation-name: fade-in;
 	animation-duration: 0.5s;
+	border-top-right-radius: 10px;
+	border-bottom-right-radius: 10px;
 	& h2 {
 		margin: 0px;
 		padding-top: 5px;
@@ -260,15 +269,15 @@ details {
 }
 
 .line_bar_chart {
-	width: 210px;
+	width: calc(100% - 10px);
 	margin-top: 5px;
 	height: 30px;
 	border-radius: 5px;
-	background-color: #00000055;
+	background-color: var(--background-dark);
 	overflow: hidden;
 	display: inline-block;
 	margin-right: 10px;
-
+	margin-left: 5px;
 	& div {
 		padding: 5px;
 		height: 20px;
@@ -296,7 +305,7 @@ details {
 	white-space: nowrap;
 
 	&:hover {
-		background-color: #222 !important;
+		background-color: var(--background-semi-dark) !important;
 	}
 }
 
@@ -304,8 +313,8 @@ details {
 #vault_view #vault_context_menu {
 	border-radius: 5px;
 	padding: 10px;
-	background-color: #222;
-	border: #111 1px solid;
+	background-color: var(--background-semi-dark);
+	border: var(--background-dark) 1px solid;
 	position: fixed;
 	z-index: 300;
 
@@ -313,12 +322,13 @@ details {
 		width: calc(100% - 5px);
 		display: block;
 		text-align: left;
-		padding: 5px;
+		padding: 7px;
 		margin: 5px;
 		transition: linear 0.125s;
+		background: transparent;
 
 		&:hover {
-			background-color: #111;
+			background-color: var(--background-semi-dark);
 		}
 	}
 }
@@ -328,7 +338,7 @@ td {
 
 	& button {
 		background: transparent;
-		color: white;
+		color: var(--foreground);
 		padding: 0px;
 		margin: 0px;
 	}
@@ -341,8 +351,8 @@ td {
 
 #renameNameInput {
 	padding: 8px;
-	background-color: #444;
-	border: 1px solid #333 !important;
+	background-color: var(--background-semi-light);
+	border: 1px solid var(--background-semi-light) !important;
 }
 
 label[for="showHiddenFiles"] {
@@ -364,13 +374,13 @@ label[for="showHiddenFiles"] {
 	padding: 10px;
 	vertical-align: middle;
 	border-radius: 2.5px;
-	border: 1px solid #333;
+	border: 1px solid var(--background-semi-light);
 	white-space: nowrap;
 	display: inline-block;
 	margin: 5px;
 
 	&:hover {
-		background-color: #222 !important;
+		background-color: var(--background-semi-dark) !important;
 	}
 
 	button {
@@ -397,9 +407,9 @@ label[for="showHiddenFiles"] {
 .package_small {
 	height: auto;
 	display: block;
-	background-color: #111;
-	border-bottom: #333 1px solid;
-	color: white;
+	background-color: var(--background-dark);
+	border-bottom: var(--background-semi-light) 1px solid;
+	color: var(--foreground);
 	padding: 5px;
 	font-size: 14px;
 
@@ -416,7 +426,7 @@ label[for="showHiddenFiles"] {
 	& button {
 		position: relative;
 		right: 10px;
-		background-color: #111;
+		background-color: var(--background-dark);
 		padding: 0px;
 		margin: 0px;
 		margin-right: 5px;
@@ -428,7 +438,7 @@ label[for="showHiddenFiles"] {
 	}
 
 	&:hover {
-		background-color: #222 !important;
+		background-color: var(--background-semi-dark) !important;
 	}
 }
 
@@ -530,17 +540,21 @@ div.warning {
 		width: calc(100vw - 120px) !important;
 		height: 55vh;
 	}
+
+	#pages {
+		width: calc(100vw - 50px);
+	}
 }
 
 button.drive {
 	margin: 10px;
 	padding: 10px;
 	border-radius: 5px;
-	background-color: #333;
+	background-color: var(--background-semi-light);
 }
 
 #driveModal {
-	background-color: #333;
+	background-color: var(--background-semi-light);
 	position: fixed;
 	top: calc(50vh - 250px);
 	left: calc(50vw - 250px);
@@ -551,7 +565,7 @@ button.drive {
 	padding: 10px;
 	border-radius: 5px;
 	box-shadow:
-		0px 0px 20px #111,
+		0px 0px 20px var(--background-dark),
 		0px 0px 0px 100vw #00000033;
 	animation-name: pop_open;
 	animation-duration: 0.5s;
@@ -571,7 +585,7 @@ button.drive {
 
 .disclaimer {
 	background: #e23d2844;
-	color: #ffffff;
+	color: var(--foreground);
 	border: 1px solid #800020;
 	border-radius: 5px;
 	padding: 10px;
@@ -585,18 +599,24 @@ small {
 }
 
 .information_chip {
-	padding: 5px;
-	border-radius: 2.5px;
-	background: #ffffff22;
+	padding: 6px;
+	border-radius: 5px;
+	background: var(--background-semi-light);
 	width: 250px;
 	margin-bottom: 10px;
 	display: block;
+	transition: ease-in-out 0.25s;
 
 	.caption {
 		font-size: smaller;
 		opacity: 70%;
 		display: block;
 	}
+}
+
+.information_chip:hover {
+	filter: brightness(1.1);
+	box-shadow: 0px 0px 10px #00000011;
 }
 
 .dashboard_section {
@@ -635,5 +655,5 @@ small {
 	border-radius: 5px;
 	width: calc(100% - 245px);
 	margin-top: 10px;
-	border: 1px solid #333;
+	border: 1px solid var(--background-semi-light);
 }

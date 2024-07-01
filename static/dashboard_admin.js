@@ -194,6 +194,24 @@ setInterval(function () {
 
 // Functions
 
+function changeTheme(theme = "light") {
+	if (theme === "light") {
+		for (image of document.querySelectorAll("img")) {
+			image.style.filter = "invert()";
+		}
+		document.documentElement.style.setProperty("--background-dark", "#fff");
+		document.documentElement.style.setProperty(
+			"--background-semi-dark",
+			"#9cf",
+		);
+		document.documentElement.style.setProperty(
+			"--background-semi-light",
+			"#ccccff22",
+		);
+		document.documentElement.style.setProperty("--foreground", "#000");
+	}
+}
+
 function ask_for_vault_dec_key() {
 	input_modal(
 		"Vault key",
@@ -850,10 +868,10 @@ function changePage(pageName) {
 	}
 
 	for (button of document.querySelectorAll("#sideBar > button")) {
-		button.style.backgroundColor = "#242424";
+		button.style.backgroundColor = "#00000000";
 	}
 
-	document.activeElement.style.backgroundColor = "#333333";
+	document.activeElement.style.backgroundColor = "var(--background-semi-light)";
 	document.activeElement.blur();
 
 	if (pageName == "applications" && typeof allApps == "undefined") {
@@ -916,17 +934,27 @@ function goFUp() {
 }
 
 function uploadFileSystem() {
-	input_modal("Upload file", "Select a file to upload", "fileSystemUpload", "file", () => {
-		var fileForUpload = document.getElementById("fileSystemUpload").files[0]
-		var formData = new FormData()
-		formData.append("file", fileForUpload)
-		formData.set("filePath", currFPath)
-		fetch("/upload/fs", {
-			method: "POST",
-			headers: {},
-			body: formData
-		})
-	}, () => {}, true)
+	input_modal(
+		"Upload file",
+		"Select a file to upload",
+		"fileSystemUpload",
+		"file",
+		() => {
+			var fileForUpload = document.getElementById("fileSystemUpload").files[0];
+			var formData = new FormData();
+			formData.append("file", fileForUpload);
+			formData.set("filePath", currFPath);
+			fetch("/upload/fs", {
+				method: "POST",
+				headers: {},
+				body: formData,
+			}).then(() => {
+				renderFiles(currFPath);
+			});
+		},
+		() => {},
+		true,
+	);
 }
 
 function contextMenuF(filename) {
@@ -1409,32 +1437,32 @@ cssCode = `@keyframes fly-in {
 
 #modalMain {
     position: fixed;
-	top: calc((100vh - 40vh) / 2 - 40px);
-	width: 40vh;
+    top: calc((100vh - 40vh) / 2 - 40px);
+    width: 40vh;
     left: calc((100vw - 40vh) / 2 - 40px);
     border-radius: 5px;
     padding: 20px;
-	padding-bottom: 5vh;
-	padding-top: 5vh;
-	background-color: #232323;
-    outline: rgb(64, 64, 64) solid 1px;
-    color: white;
+    padding-bottom: 5vh;
+    padding-top: 5vh;
+    background-color: #22222F; /* Brighter semi-dark background with a blue tint */
+    outline: #333340 solid 1px; /* Brighter semi-light background with a blue tint */
+    color: #ffffff; /* Keeping white for maximum contrast */
     font-family: "Work Sans", sans-serif;
     animation-name: pop_open;
     animation-duration: 0.25s;
     z-index: 300;
 
-	input {
-		padding: 8px;
-		font-size: 15px;
-		margin-left: 0px;
-		margin-top: 8px;
-		margin-bottom: 8px;
-	}
+    input {
+        padding: 8px;
+        font-size: 15px;
+        margin-left: 0px;
+        margin-top: 8px;
+        margin-bottom: 8px;
+    }
 }
 
 #modalMain.red {
-    outline: rgba(224, 89, 89, 0.478) solid 1px;
+    outline: rgba(255, 58, 58, 0.478) solid 1px; /* Using --red color */
 }
 
 #modalMain button {
@@ -1453,8 +1481,8 @@ cssCode = `@keyframes fly-in {
     padding: 10px;
     border-radius: 5px;
     border-width: 0px;
-    background-color: dodgerblue;
-    color: white;
+    background-color: #1f9af7; /* Using --accent-color */
+    color: #ffffff; /* Keeping white for maximum contrast */
     font-family: "Work Sans", sans-serif;
 }
 
@@ -1462,8 +1490,8 @@ cssCode = `@keyframes fly-in {
     padding: 10px;
     border-radius: 5px;
     border-width: 0px;
-    background-color: rgb(208, 14, 14);
-    color: white;
+    background-color: #ff3a3a; /* Using --red color */
+    color: #ffffff; /* Keeping white for maximum contrast */
     font-family: "Work Sans", sans-serif;
 }
 
@@ -1471,8 +1499,8 @@ cssCode = `@keyframes fly-in {
     padding: 10px;
     border-radius: 5px;
     border-width: 0px;
-    background-color: rgb(71, 71, 71);
-    color: white;
+    background-color: #6b7077; /* Brighter semi-light foreground with a blue tint */
+    color: #ffffff; /* Keeping white for maximum contrast */
     font-family: "Work Sans", sans-serif;
 }
 
@@ -1485,13 +1513,13 @@ cssCode = `@keyframes fly-in {
 #modalMain #modalMessage {
     font-size: 16px;
 
-	input {
-		padding: 8px;
-		font-size: 15px;
-		margin-left: 0px;
-		margin-top: 8px;
-		margin-bottom: 8px;
-	}
+    input {
+        padding: 8px;
+        font-size: 15px;
+        margin-left: 0px;
+        margin-top: 8px;
+        margin-bottom: 8px;
+    }
 }
 
 #modalMain input {
@@ -1499,7 +1527,7 @@ cssCode = `@keyframes fly-in {
     border-radius: 2.5px;
     background: #ffffff11;
     margin-bottom: 0px;
-	max-width: 100%;
+    max-width: 100%;
 }
 
 @keyframes fly-out {
@@ -1515,27 +1543,14 @@ cssCode = `@keyframes fly-in {
     bottom: 20px;
     padding: 10px;
     border-radius: 5px;
-    background-color: #222;
-    color: white;
-    border: solid 1px #777;
+    background-color: #333340; /* Brighter semi-light background with a blue tint */
+    color: #ffffff; /* Keeping white for maximum contrast */
+    border: solid 1px #7d828a; /* Brighter light foreground with a blue tint */
     animation-name: fade-in;
     animation-duration: 1s;
 }
-
-#fail_popup {
-    position: fixed;
-    left: 20px;
-    bottom: 20px;
-    padding: 10px;
-    border-radius: 5px;
-    background-color: #333;
-    color: white;
-    border: solid 1px #777;
-    animation-name: fade-in;
-    animation-duration: 1s;
-}
-
 `;
+
 code = `
         <div id='modalMain' hidden>
             <div id='modalTitle'></div>
