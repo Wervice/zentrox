@@ -1,5 +1,4 @@
 currFPath = "/";
-
 updatingFTPstatus = false;
 // Windows events
 
@@ -18,6 +17,7 @@ window.onload = function () {
 	setDiskBar();
 	renderFiles(currFPath);
 	getDeviceInformation();
+	getFireWallInformation();
 	addSkeletons();
 	window.onclick = function () {
 		document.getElementById("contextmenu").hidden = true;
@@ -149,6 +149,29 @@ window.onload = function () {
 				remove_loader("ftp_running");
 			});
 	});
+	document.getElementById("enableUFW").addEventListener("change", () => {
+		fetch("/api", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				r: "switchUFW",
+				enableUFW: document.getElementById("enableUFW").checked,
+			}),
+		})
+			.then((res) => {
+				if (!res.ok) {
+					fail_popup("Failed to change UFW status");
+					throw new Error("Failed to change UFW status");
+				}
+				return res.json();
+			})
+			.then((json) => {
+				console.log(json);
+				document.getElementById("fireWallRuleOverview").innerHTML = "";
+			});
+	});
 	document
 		.getElementById("submit_vault_config")
 		.addEventListener("click", function () {
@@ -188,9 +211,13 @@ window.onload = function () {
 setInterval(function () {
 	setCPUBar();
 	setRAMBar();
-	getDriveList();
-	getDeviceInformation();
 }, 4000);
+
+setInterval(() => {
+	getDeviceInformation();
+	getFireWallInformation();
+	getDriveList();
+}, 6000);
 
 // Functions
 
@@ -799,6 +826,74 @@ function getUserList() {
 		});
 }
 
+function getFireWallInformation() {
+	fetch("/api", {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify({
+			r: "fireWallInformation",
+		}),
+	})
+		.then((res) => {
+			if (!res.ok) {
+				fail_popup("Failed to get firewall information");
+				throw new Error("Failed to fetch list of users");
+			}
+			return res.json();
+		})
+		.then((data) => {
+			document.getElementById("enableUFW").checked = data["enabled"];
+
+			var rules = data["rules"];
+			var rulesTable =
+				"<table><tr><td>To</td><td>Action</td><td>From</td></tr>";
+			rules = rules.sort((rule, rule2) => {
+				if (Number(rule["to"]) == "NaN") {
+					return -1;
+				}
+				if (Number(rule["to"]) > Number(rule2["to"])) {
+					return +1;
+				}
+			});
+			for (rule of rules) {
+				rulesTable += `<tr>
+					<td id="fireWallRule${rule["index"]}"
+					onmouseover="showFireWallRuleOptions('fireWallRule${rule["index"]}', ${rule["index"]})"
+					onmouseleave="hideFireWallRuleOptions('fireWallRule${rule["index"]}')"
+					>${rule["to"].replaceAll("(v6)", `<span class="fireWallTag v6">v6</span>`)}
+					</td>
+					<td>${rule["action"].replaceAll("ALLOW", `<span class="fireWallTag allow">Allow</span>`).replaceAll("DENY", `<span class="fireWallTag deny">Deny</span>`)}</td>
+					<td>${rule["from"].replaceAll("(v6)", `<span class="fireWallTag v6">v6</span>`)}</td></tr>`;
+			}
+			rulesTable += "</table>";
+
+			document.getElementById("fireWallRuleOverview").innerHTML = rulesTable;
+		});
+}
+
+function showFireWallRuleOptions(ruleId, index) {
+	const ruleTd = document.getElementById(ruleId);
+	if (!ruleTd.querySelector("button")) {
+		ruleTd.innerHTML = ruleTd.innerHTML +
+		`
+		<button onclick="deleteFireWallRule(${index})" class="fireWallRuleButton"><img src="delete.png"></button>
+		`
+	}
+}
+
+function hideFireWallRuleOptions(ruleId, index) {
+	const ruleTd = document.getElementById(ruleId);
+	ruleTd.querySelectorAll("button").forEach((button) => {
+		button.remove()
+	})
+}
+
+function deleteFireWallRule(index) {
+	confirm_modal_warning("Delete rule", `You are deleting firewall rule ${index}.`, () => {}, () => {}, true)
+}
+
 // User management
 
 function deleteUser(username) {
@@ -1050,14 +1145,25 @@ function renderApplicationManagerList() {
 			var htmlCode = "";
 			for (e of Array.from(guiApps)) {
 				if (e != undefined) {
+					if (e[1].length > 18) {
+						var appExec = e[1].substring(0, 9) + "...";
+					} else {
+						var appExec = e[1];
+					}
+					if (e[0].length > 14) {
+						var appName =
+							e[0].split(".")[0].replace("-", " ").substring(0, 9) + "...";
+					} else {
+						var appName = e[0].split(".")[0].replace("-", " ");
+					}
 					var htmlCode =
 						htmlCode +
 						"<div class='package'>" +
-						e[0].split(".")[0].replace("-", " ") +
+						appName +
+						` (${appExec})` +
 						"<button class='remove_package' onclick='removePackage(\"" +
-						e[2] +
+						e[1] +
 						"\", this)'>Remove</button></div>";
-					console.log(e[1]);
 				}
 			}
 			document.getElementById("installedApps").innerHTML = htmlCode;
@@ -1582,7 +1688,7 @@ function killModalPopup() {
 	flyOut("modalMain", 500);
 }
 
-function confirm_modal(title, message, cb, cancle, show_cancle) {
+function confirm_modal(title, message, cb, cancle, show_cancle = true) {
 	document.getElementById("modalMain").hidden = false;
 	document.getElementById("modalTitle").innerHTML = title;
 	document.getElementById("modalMessage").innerHTML = message;
@@ -1591,7 +1697,7 @@ function confirm_modal(title, message, cb, cancle, show_cancle) {
 		setTimeout(cb, 600);
 		document.getElementById("buttonCancle").hidden = false;
 	};
-	document.getElementById("buttonCancle").hidden != show_cancle;
+	document.getElementById("buttonCancle").hidden = !show_cancle;
 	document.getElementById("buttonCancle").onclick = () => {
 		killModalPopup();
 		cancle();
@@ -1599,7 +1705,7 @@ function confirm_modal(title, message, cb, cancle, show_cancle) {
 	};
 }
 
-function confirm_modal_warning(title, message, cb, cancle, show_cancle) {
+function confirm_modal_warning(title, message, cb, cancle, show_cancle = true) {
 	document.getElementById("modalMain").hidden = false;
 	document.getElementById("modalTitle").innerHTML = title;
 	document.getElementById("modalMessage").innerHTML = message;
@@ -1610,7 +1716,7 @@ function confirm_modal_warning(title, message, cb, cancle, show_cancle) {
 		document.getElementById("buttonCancle").hidden = false;
 		document.getElementById("buttonConfirm").classList.remove("red");
 	};
-	document.getElementById("buttonCancle").hidden != show_cancle;
+	document.getElementById("buttonCancle").hidden = !show_cancle;
 	document.getElementById("buttonCancle").onclick = () => {
 		killModalPopup();
 		cancle();
@@ -1626,7 +1732,7 @@ function input_modal(
 	input_type,
 	cb,
 	cancle,
-	show_cancle,
+	show_cancle = true,
 ) {
 	document.getElementById("modalMain").hidden = false;
 	document.getElementById("modalTitle").innerHTML = title;
@@ -1637,7 +1743,7 @@ function input_modal(
 		setTimeout(cb, 600);
 		document.getElementById("buttonCancle").hidden = false;
 	};
-	document.getElementById("buttonCancle").hidden != show_cancle;
+	document.getElementById("buttonCancle").hidden = !show_cancle;
 	document.getElementById("buttonCancle").onclick = () => {
 		killModalPopup();
 		cancle();

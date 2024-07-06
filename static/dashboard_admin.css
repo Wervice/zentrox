@@ -657,3 +657,53 @@ small {
 	margin-top: 10px;
 	border: 1px solid var(--background-semi-light);
 }
+
+#fireWallRuleOverview {
+	max-height: 300px !important;
+	overflow: scroll;
+	display: block;
+
+	table {
+		padding: 5px;
+
+		tr {
+			padding: 2px;
+
+			td {
+				padding: 2px;
+				cursor: pointer !important;
+				button.fireWallRuleButton {
+					float: right;
+					padding: 0px;
+					margin: 0px;
+					margin-left: 2px;
+				} 
+			}
+		}
+	}
+}
+
+.fireWallTag {
+	padding: 2px;
+	padding-left: 5px;
+	padding-right: 5px;
+	margin-left: 5px;
+	float: right;
+	width: fit-content;
+	text-align: center;
+	border-radius: 4px;
+
+	&.v6 {
+		background: #ffb70033;
+	}
+
+	&.allow {
+		background: #bbff0033;
+		width: 60px;
+	}
+
+	&.deny {
+		background: #ff510033;
+		width: 60px;
+	}
+}

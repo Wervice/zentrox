@@ -41,6 +41,26 @@ python_failed() {
 	fi
 }
 
+ufw_fail() {
+	echo -ne "❌ The UFW is used to manage the firewall on your system.\nDo you want to install it now? It is required for the Firewall section under security.\nYou can also skip it for now, and install it later if you need it. [install/skip]"
+	read
+	if [[ $REPLY == "install" ]]; then
+		echo "❓ Please enter the name of your package manager [apt/dnf/pacman/zypper]"
+		read PYTHON_PACKAGE_MANAGER
+		if [[ $UFW_PACKAGE_MANAGER == "apt" ]]; then
+			apt install ufw -y &> /dev/null
+		elif [[ $UFW_PACKAGE_MANAGER == "dnf" ]]; then
+			dnf install ufw -y &> /dev/null
+		elif [[ $UFW_PACKAGE_MANAGER == "pacman" ]]; then
+			pacman -Sy ufw &> /dev/null
+		elif [[ $UFW_PACKAGE_MANAGER == "zypper" ]]; then
+			zypper -n install ufw &> /dev/null
+		else
+			echo "This package manager is not supported"
+		echo "✅ Installed the UFW"
+	fi
+}
+
 elevate() {
 	echo "⚠️  Elevated permissions required"
 	sudo echo "✅ Elevated"
@@ -176,6 +196,13 @@ echo "ℹ️ If you do not want to enter real information, you do not have to bu
 
 echo ""
 
+if ! ufw -v &> /dev/null; then
+	echo "❌ UFW (Uncomplicated firewall) is not installed"
+	ufw_fail
+fi
+
+echo "✅ The UFW is installed"
+
 openssl genrsa -out selfsigned.key 2048
 openssl req -new -key selfsigned.key -out selfsigned.pem
 openssl x509 -req -days 365 -in selfsigned.pem -signkey selfsigned.key -out selfsigned.crt
@@ -195,7 +222,10 @@ USER_PASSWORD=$(openssl rand -base64 48)
 echo "ℹ️  Changed Zentrox user password to $USER_PASSWORD"
 echo "zentrox:$USER_PASSWORD" | sudo chpasswd
 $(echo $(echo $USER_PASSWORD | openssl aes-256-cbc -a -A -pbkdf2 -salt -pass pass:$ADMIN_PASSWORD 2> /dev/null) > "$ZENTROX_DATA_PATH/zentrox_user_password.txt") &> /dev/null
+# The zentrox user password has to be stored somewhere for Zentrox to retrieve it. Instead of storing it as an ENV variable or in a plain file, it is encrypted with the admin password
+# thus granting some level of protection.
 
+# Sets up all folders and files for Zentrox
 echo "📁 Creating file structure"
 touch "$ZENTROX_DATA_PATH/admin.txt"
 touch "$ZENTROX_DATA_PATH/setupDone.txt"
@@ -210,6 +240,7 @@ openssl rand -base64 64 > "$ZENTROX_DATA_PATH/sessionSecret.txt"
 
 touch $ZENTROX_DATA_PATH/config.db
 
+# Compile, setup and configure mapbase
 cd $ZENTROX_PATH/libs/mapbase/
 
 go build mapbase.go
@@ -227,6 +258,7 @@ $ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db ftp_root /
 $ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db zentrox_user_password $(echo $USER_PASSWORD | openssl aes-256-cbc -a -A -pbkdf2 -salt -pass pass:$ADMIN_PASSWORD)
 $ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db vault_enabled "0"
 
+# Configure admin account
 echo -n "$ADMIN_USERNAME" > "$ZENTROX_DATA_PATH/admin.txt"
 echo -n "true" > "$ZENTROX_DATA_PATH/setupDone.txt"
 echo -n "$(echo -n $ADMIN_USERNAME | base64): $(echo -n "$ADMIN_PASSWORD" | sha512sum | cut -d ' ' -f 1): admin" > "$ZENTROX_DATA_PATH/users.txt"

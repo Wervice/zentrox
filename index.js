@@ -30,9 +30,9 @@ eval(fs.readFileSync("./libs/drives.js").toString("utf8"));
 eval(fs.readFileSync("./libs/cryptography_scripts.js").toString("utf8"));
 eval(fs.readFileSync("./libs/mapbase.js").toString("utf8"));
 
-var key = fs.readFileSync("./selfsigned.key");
-var cert = fs.readFileSync("./selfsigned.crt");
-var options = {
+const key = fs.readFileSync("./selfsigned.key");
+const cert = fs.readFileSync("./selfsigned.crt");
+const options = {
 	key: key,
 	cert: cert,
 };
@@ -115,7 +115,14 @@ new Worker("./libs/packageWorker.js"); // Start package cache worker (1h interva
 
 class Shell {
 	// Class that generates a shell to launch a new virtual shell with command "su ..."
-	constructor(username, shell, password, exitcall) {
+	constructor(
+		username,
+		shell,
+		password,
+		exitcall,
+		useTimeout = true,
+		timeout = 100000,
+	) {
 		// Username: Username to shell into
 		// Shell: Shell that will be used
 		// Password: Password to log into shell
@@ -123,53 +130,58 @@ class Shell {
 		this.username = username;
 		this.shell = shell;
 		this.password = password;
-		this.s_process = chpr.exec(`su ${username}\n`);
+		this.s_process = chpr.exec(`su -c sh ${username}\n`);
 		this.pid = this.s_process.pid;
 		this.authed = false;
+		this.outCall = () => {};
 		zlog("Shell summoned", "info");
 		this.authed = false;
 		this.s_process.stderr.on("data", (data) => {
-			zlog(
-				"Stderr: " + data.toString("ascii").endsWith("\n")
-					? data.toString("ascii").slice(0, -1)
-					: data.toString("ascii"),
-				"info",
-			);
 			if (data == "Password: " && !this.authed) {
 				this.s_process.stdin.write(this.password + "\n");
-				zlog("Entered password to shell", "info");
 				this.authed = true;
 			}
+			zlog(`Shell Err: ${data}`);
 		});
-		this.s_process.stdout.on("data", (data) => {
-			zlog(
-				"Shell Out: " + data.toString("ascii").endsWith("\n")
-					? data.toString("ascii").slice(0, -1)
-					: data.toString("ascii"),
-				"info",
-			);
-		});
+
 		this.s_process.on("exit", (data) => {
-			zlog("Shell exit (" + this.pid + ")", "error");
 			exitcall(data);
 		});
-	}
-	write(command) {
-		if (this.authed) {
-			this.s_process.stdin.write(command);
-			zlog("Shell In: " + command.replaceAll("\n", ""), "info");
-		} else {
+		if (useTimeout) {
 			setTimeout(() => {
-				this.write(command);
-			}, 500);
+				this.kill();
+			}, timeout);
 		}
 	}
+
+	write(command) {
+		zlog(`Shell In: ${command}`);
+		return new Promise((resolve, reject) => {
+			if (!this.authed) {
+				setTimeout(() => {
+					this.write(command).then(resolve).catch(reject);
+				}, 500);
+				return;
+			}
+
+			const handleStdout = (data) => {
+				resolve(data);
+				this.s_process.stdout.removeListener("data", handleStdout);
+				zlog(`Shell In: ${data}`);
+			};
+
+			this.s_process.stdout.on("data", handleStdout);
+
+			this.s_process.stdin.write(command);
+		});
+	}
+
 	kill() {
 		this.s_process.kill();
 	}
 }
 
-function zlog(string, type) {
+function zlog(string, type = "info") {
 	if (type == "info") {
 		console.log("[ Info " + new Date().toLocaleTimeString() + "] " + string);
 	} else if (type == "error") {
@@ -367,19 +379,21 @@ app.get("/", async (req, res) => {
 
 app.post("/login", async (req, res) => {
 	if (typeof req.session.loginAttempts == "undefined") {
-		req.session.loginAttempts = 1
+		req.session.loginAttempts = 1;
 	}
-	var nowTime = new Date().getTime()
-	if (req.session.loginAttempts > 10 && (nowTime - req.session.lastLoginAttempt) < 20000) {
-		res.send("")
+	var nowTime = new Date().getTime();
+	if (
+		req.session.loginAttempts > 10 &&
+		nowTime - req.session.lastLoginAttempt < 20000
+	) {
+		res.send("");
 		return;
-	}
-	else {
-		if ((nowTime - req.session.lastLoginAttempt) > 25000) {
-			req.session.loginAttempts = 1
+	} else {
+		if (nowTime - req.session.lastLoginAttempt > 25000) {
+			req.session.loginAttempts = 1;
 		}
 	}
-	req.session.lastLoginAttempt = nowTime
+	req.session.lastLoginAttempt = nowTime;
 	req.session.loginAttempts++;
 	var authTest = auth(req.body.username, req.body.password, req);
 	if (authTest == true) {
@@ -656,6 +670,7 @@ app.post("/api", async (req, res) => {
 		if (!req.session.isAdmin) return;
 		zlog("Request Package Database JSON", "info");
 		if (!fs.existsSync(path.join(zentroxInstallationPath, "allPackages.txt"))) {
+			zlog("Database outdated");
 			var packagesString = String(new Date().getTime()) + "\n";
 			var allPackages = await listPackages();
 			for (line of allPackages) {
@@ -666,64 +681,46 @@ app.post("/api", async (req, res) => {
 				packagesString,
 			);
 		}
+
 		// * Get applications, that feature a GUI
-		var desktopFile = "";
 		var guiApplications = [];
 		var allInstalledPackages = listInstalledPackages(); // ? All installed packages on the system
 		allPackages = fs
 			.readFileSync(path.join(zentroxInstallationPath, "allPackages.txt"))
 			.toString("ascii")
 			.split("\n");
+
 		allPackages.splice(0, 1);
-		for (desktopFile of fs.readdirSync("/usr/share/applications")) {
-			// ? Find all GUI applications using .desktop files
+		var applicationInUsrShare = fs.readdirSync("/usr/share/applications/");
+		var desktopFileContent,
+			desktopFileContentLines,
+			allOtherPackages,
+			guiApplications;
+		applicationInUsrShare.forEach((desktopFile) => {
 			var pathForFile = path.join("/usr/share/applications/", desktopFile);
-			zlog(pathForFile, "verb");
 			if (fs.statSync(pathForFile).isFile()) {
-				var desktopFileContent = fs.readFileSync(pathForFile).toString("utf-8"); // ? Read desktop file
-				var desktopFileContentLines = desktopFileContent.split("\n");
-				var allOtherPackages = [];
+				desktopFileContent = fs.readFileSync(pathForFile).toString("utf-8"); // ? Read desktop file
+				desktopFileContentLines = desktopFileContent.split("\n");
+				allOtherPackages = [];
 
-				for (var line of desktopFileContentLines) {
-					if (line.split("=")[0] == "Name") {
-						// ? Find nice name
-
-						var appName = line.split("=")[1];
-						break;
+				desktopFileContentLines.forEach((line) => {
+					const parsedLine = line.split("=");
+					if (parsedLine[0] == "Name") {
+						appName = line.split("=")[1];
+					} else if (parsedLine[0] == "Exec") {
+						appExecName = path.basename(line.split("=")[1].split(" ")[0]);
 					}
-				}
-
-				for (line of desktopFileContentLines) {
-					if (line.split("=")[0] == "Icon") {
-						// ? Find icon name
-
-						var appIconName = line.split("=")[1].split(" ")[0];
-						break;
-					}
-				}
-
-				for (line of desktopFileContentLines) {
-					// ? Find exec command
-
-					if (line.split("=")[0] == "Exec") {
-						var appExecName = line.split("=")[1].split(" ")[0];
-						break;
-					}
-				}
-
-				line = null;
-
+				});
 				guiApplications[guiApplications.length] = [appName, appExecName]; // ? The GUI application as an array
 			}
-		}
-
+		});
 		var i = 0;
-		for (e of allPackages) {
+		var allPackages = allPackages.forEach((e) => {
 			if (!allInstalledPackages.includes(e)) {
 				allOtherPackages[i] = e;
 				i++;
 			}
-		}
+		});
 
 		// * Send results to front end
 
@@ -800,7 +797,7 @@ app.post("/api", async (req, res) => {
 		zlog("Change FTP Settings");
 		if (enableFTP == false) {
 			try {
-				let killShell = new Shell("zentrox", "sh", zentroxUserPassword);
+				const killShell = new Shell("zentrox", "sh", zentroxUserPassword);
 				if (
 					readDatabase(
 						path.join(zentroxInstallationPath, "config.db"),
@@ -809,13 +806,14 @@ app.post("/api", async (req, res) => {
 				) {
 					var killDelay = 0;
 				} else {
-					var killDelay = 2000;
+					var killDelay = 3000;
 				}
-				setTimeout(() => {
-					killShell.write(
+				setTimeout(async () => {
+					await killShell.write(
 						`sudo kill ${readDatabase(path.join(zentroxInstallationPath, "config.db"), "ftp_pid")}\n`,
 					);
-				}, 500 + killDelay);
+					killShell.kill();
+				}, killDelay);
 			} catch (e) {
 				console.error(e);
 			}
@@ -833,7 +831,7 @@ app.post("/api", async (req, res) => {
 				) != "1"
 			) {
 				zlog("Starting FTP server");
-				let ftpProcess = new Shell(
+				const ftpProcess = new Shell(
 					"zentrox",
 					"sh",
 					zentroxUserPassword,
@@ -945,41 +943,41 @@ app.post("/api", async (req, res) => {
 		});
 	} else if (req.body.r == "deviceInformation") {
 		if (!req.session.isAdmin) return;
-		let os_name = chpr
+		const os_name = chpr
 			.execSync("lsb_release -d", { stdio: "pipe" })
 			.toString("ascii")
 			.replace("Description:\t", "")
 			.replace("\n", "");
-		let zentrox_pid = process.pid;
+		const zentrox_pid = process.pid;
 		try {
-			let battery_status = fs
+			const battery_status = fs
 				.readFileSync("/sys/class/power_supply/BAT0/status")
 				.toString("ascii")
 				.replaceAll("\n", "");
-			let battery_capacity = fs
+			const battery_capacity = fs
 				.readFileSync("/sys/class/power_supply/BAT0/capacity")
 				.toString("ascii");
 
 			if (battery_status == "Discharging") {
-				var battery_string = `Discharging (${battery_capacity}%)`;
+				const battery_string = `Discharging (${battery_capacity}%)`;
 			} else if (battery_status != "Full") {
-				var battery_string = `Charging (${battery_capacity}%)`;
+				const battery_string = `Charging (${battery_capacity}%)`;
 			} else {
-				var battery_string = battery_status;
+				const battery_string = battery_status;
 			}
 
 			battery_string = battery_string.replaceAll("\n", "");
 		} catch {
 			battery_string = `No battery`;
 		}
-		let process_number = chpr
-			.execSync(" ps -e | wc -l", { stdio: "pipe" })
+		const process_number = chpr
+			.execSync("ps -e | wc -l", { stdio: "pipe" })
 			.toString("ascii");
-		let uptime = chpr
+		const uptime = chpr
 			.execSync("uptime -p")
 			.toString("ascii")
 			.replace("up ", "");
-		let hostname = chpr
+		const hostname = chpr
 			.execSync("hostname")
 			.toString("ascii")
 			.replace("\n", "");
@@ -1011,7 +1009,7 @@ app.post("/api", async (req, res) => {
 			res.status(400).send();
 			return;
 		}
-		let shutdown_handler = new Shell(
+		const shutdown_handler = new Shell(
 			"zentrox",
 			"sh",
 			zentroxUserPassword,
@@ -1267,6 +1265,53 @@ app.post("/api", async (req, res) => {
 			encryptAESGCM256(path.join(zentroxInstallationPath, "vault.vlt"), key);
 		}
 		res.send({});
+	} else if (req.body.r == "fireWallInformation") {
+		if (!req.session.isAdmin) return;
+		var informationShell = new Shell(
+			"zentrox",
+			"sh",
+			req.session.zentroxPassword,
+			() => {},
+			true,
+			5000, // Prevent long outputs and holding the server
+		);
+		var ufwStatusReturnData = await informationShell.write("ufw status\n");
+		var ufwStatus = ufwStatusReturnData.toString("ascii");
+		const ufwStatusLines = ufwStatus.trim().split("\n");
+		const rules = [];
+		const ruleLines = ufwStatusLines.slice(4);
+		var index = 1;
+		ruleLines.forEach((line) => {
+			const [to, action, from] = line.trim().split(/\s{2,}/);
+			rules.push({ index, to, action, from });
+			index++;
+		});
+		informationShell.kill(); // Clear this shell
+		res.send({
+			enabled: ufwStatus.split("\n")[0] == "Status: active",
+			rules: rules,
+		});
+	} else if (req.body.r == "switchUFW") {
+		if (!req.session.isAdmin) return;
+		var ufwState = req.body.enableUFW;
+		if (typeof ufwState == "undefined") return;
+		const ufwShell = new Shell(
+			"zentrox",
+			"sh",
+			req.session.zentroxPassword,
+			() => {},
+			true,
+			1000,
+		);
+		if (!ufwState) {
+			console.log(await ufwShell.write("ufw disable\n"));
+			await ufwShell.write("systemctl disable ufw\n");
+		} else {
+			console.log(await ufwShell.write("ufw enable\n"));
+			await ufwShell.write("systemctl enable ufw\n");
+		}
+		ufwShell.kill();
+		res.send({});
 	} else {
 		zlog("Got unknow request");
 		res.status(400).send({});
@@ -1377,7 +1422,7 @@ app.post("/upload/vault", async (req, res, next) => {
 	});
 });
 
-app.post("/upload/fs", (req, res, next) => {
+app.post("/upload/fs", async (req, res, next) => {
 	if (!req.session.isAdmin) return;
 	var form = new multiparty.Form();
 	form.parse(req, (err, fields, files) => {

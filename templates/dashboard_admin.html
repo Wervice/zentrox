@@ -85,7 +85,9 @@
 			<button onclick="changePage('shell')">
 				<img src="shell.png" alt="shell" />Shell</button
 			><br />
-			<button onclick="changePage('security')"><img src="security.png" alt="lock" />Securitry</button><br />
+			<button onclick="changePage('security')">
+				<img src="security.png" alt="lock" />Securitry</button
+			><br />
 			<button onclick="changePage('users')">
 				<img src="users.png" alt="users" />Users</button
 			><br />
@@ -205,6 +207,7 @@
 				</nav>
 				<div id="storage_disks">
 					<h3>Disks</h3>
+					<button onclick="getDriveList()">Reload</button>
 					<div id="disks"></div>
 				</div>
 				<div id="storage_files" hidden>
@@ -339,13 +342,40 @@
 				<nav>
 					<h2><img src="security.png" /> Security</h2>
 				</nav>
-				<div class="dashboard_section" style="padding: 10px;">
-				<div class="information_chip">
-					<span class="caption">Firewall</span>
+				<div
+					class="dashboard_section"
+					style="padding: 10px; width: fit-content"
+				>
+					<div class="information_chip" style="width: fit-content">
+						<span class="caption">Firewall</span>
+						<small
+							>Uses
+							<a href="https://git.launchpad.net/ufw" target="_blank"
+								>UFW</a
+							></small
+						>
+						<input type="checkbox" id="enableUFW" />
+						<label for="enableUFW">Enable Firewall</label>
+						<span id="fireWallRuleOverview">
+							<!-- Show first 5-10 rules, then scroll -->
+						</span>
+					</div>
+					<div class="information_chip" style="width: calc(100% - 10px)">
+						<span class="caption">Running Processes</span>
+					</div>
 				</div>
-				<div class="information_chip">
-					<span class="caption">Running Processes</span>
+				<div class="dashboard_section" style="padding: 10px">
+					<div class="information_chip">
+						<span class="caption">User login</span>
+					</div>
+					<div class="information_chip">
+						<span class="caption">Network</span>
+					</div>
 				</div>
+				<div class="dashboard_section" style="padding: 10px">
+					<div class="information_chip">
+						<span class="caption">User login</span>
+					</div>
 				</div>
 			</div>
 		</div>
