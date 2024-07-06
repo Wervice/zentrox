@@ -185,7 +185,7 @@ button {
 	border-radius: 4px;
 	color: var(--foreground);
 	background: var(--background-semi-light);
-	border: 0px;
+	border: 1px solid #ffffff33;
 	transition: ease-in-out 0.25s;
 	margin-right: 5px;
 
@@ -200,6 +200,12 @@ button {
 
 	& :disabled {
 		filter: grayscale();
+	}
+
+	&.slim {
+		padding: 4px;
+		padding-left: 8px;
+		padding-right: 8px;
 	}
 
 	.loader {
@@ -218,6 +224,7 @@ button {
 	border-radius: 10px;
 	text-align: left;
 	background: #00000000;
+	border: 0px;
 
 	img {
 		margin-right: 5px;
@@ -670,14 +677,19 @@ small {
 			padding: 2px;
 
 			td {
-				padding: 2px;
+				padding: 5px;
 				cursor: pointer !important;
+
 				button.fireWallRuleButton {
 					float: right;
 					padding: 0px;
 					margin: 0px;
 					margin-left: 2px;
-				} 
+
+					&:active {
+						transform: scale(0.9);
+					}
+				}
 			}
 		}
 	}

@@ -150,6 +150,7 @@ window.onload = function () {
 			});
 	});
 	document.getElementById("enableUFW").addEventListener("change", () => {
+		attach_loader("enableUFW");
 		fetch("/api", {
 			method: "POST",
 			headers: {
@@ -167,9 +168,9 @@ window.onload = function () {
 				}
 				return res.json();
 			})
-			.then((json) => {
-				console.log(json);
-				document.getElementById("fireWallRuleOverview").innerHTML = "";
+			.then(() => {
+				remove_loader("enableUFW");
+				setTimeout(getFireWallInformation, 500);
 			});
 	});
 	document
@@ -215,9 +216,12 @@ setInterval(function () {
 
 setInterval(() => {
 	getDeviceInformation();
-	getFireWallInformation();
 	getDriveList();
 }, 6000);
+
+setInterval(() => {
+	getFireWallInformation();
+}, 20000);
 
 // Functions
 
@@ -826,7 +830,7 @@ function getUserList() {
 		});
 }
 
-function getFireWallInformation() {
+function getFireWallInformation(callback = () => {}) {
 	fetch("/api", {
 		method: "POST",
 		headers: {
@@ -870,28 +874,64 @@ function getFireWallInformation() {
 			rulesTable += "</table>";
 
 			document.getElementById("fireWallRuleOverview").innerHTML = rulesTable;
+			callback();
 		});
 }
 
 function showFireWallRuleOptions(ruleId, index) {
 	const ruleTd = document.getElementById(ruleId);
 	if (!ruleTd.querySelector("button")) {
-		ruleTd.innerHTML = ruleTd.innerHTML +
-		`
+		ruleTd.innerHTML =
+			ruleTd.innerHTML +
+			`
 		<button onclick="deleteFireWallRule(${index})" class="fireWallRuleButton"><img src="delete.png"></button>
-		`
+		`;
 	}
 }
 
 function hideFireWallRuleOptions(ruleId, index) {
 	const ruleTd = document.getElementById(ruleId);
 	ruleTd.querySelectorAll("button").forEach((button) => {
-		button.remove()
-	})
+		button.remove();
+	});
 }
 
 function deleteFireWallRule(index) {
-	confirm_modal_warning("Delete rule", `You are deleting firewall rule ${index}.`, () => {}, () => {}, true)
+	confirm_modal_warning(
+		"Delete rule",
+		`You are deleting firewall rule ${index}.`,
+		() => {
+			fetch("/api", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					r: "deleteFireWallRule",
+					index: index,
+				}),
+			})
+				.then((res) => {
+					if (!res.ok) {
+						fail_popup("Failed to remove firewall rule");
+						throw new Error("Failed to remove firewall rule");
+					}
+					return res.json();
+				})
+				.then(() => {
+					getFireWallInformation();
+				});
+		},
+		() => {},
+		true,
+	);
+}
+
+function updateUFWInformation() {
+	attach_loader("updateUFWInformationButton", "white");
+	getFireWallInformation(() => {
+		remove_loader("updateUFWInformationButton");
+	});
 }
 
 // User management
