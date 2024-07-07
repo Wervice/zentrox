@@ -235,7 +235,7 @@
 							id="vault_key_config"
 							onkeydown="rateVaultKeyConfig()"
 							onchange="rateVaultKeyConfig()"
-							/><br />
+						/><br />
 						<span id="vaultKeyRating"></span>
 						<button id="submit_vault_config">Apply</button>
 						<br /><br />
@@ -251,7 +251,7 @@
 					<div id="vault_view" hidden>
 						<div id="vault_context_menu" hidden>
 							<button onclick="delete_vault_file()">Delete</button>
-							<button onclick="rename_vault_file()">Rename</button>
+							<button onclick="renameVaultFile()">Rename</button>
 						</div>
 						<button onclick="vault_file_upload(this)" id="vault_upload_button">
 							<img src="upload.png" />
@@ -328,12 +328,8 @@
 							<details>
 								<summary>Information</summary>
 								<div>
-									The FTP server is powered using a library named pyftpdlib.<br />
-									<a
-										href="https://manpages.ubuntu.com/manpages/bionic/en/man8/ufw.8.html"
-										>UFW</a
-									>
-									is used to manage the firewall on this device.
+									The FTP server is powered using a python library named
+									pyftpdlib.
 								</div>
 							</details>
 						</small>

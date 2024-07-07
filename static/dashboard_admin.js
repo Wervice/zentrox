@@ -300,30 +300,68 @@ function ask_for_vault_dec_key() {
 }
 
 function rateVaultKeyConfig() {
-	var key = document.getElementById("vault_key_config").value
-	var score = 0
+	var key = document.getElementById("vault_key_config").value;
+	var score = 0;
 	const specialCharacters = [
-		"!", "\"", "§", "$", "%", "&", "/", "(", ")", "[", "]", "{", "}", "=", "?", ".", ":", ";", ",", "+", "*", "#", "_", "-", "<", ">", "|", "1", "2", "3", "4", "5", "6", "7",
-		"8", "9", "0"
-	]
-	score = score + key.length*0.75
+		"!",
+		'"',
+		"§",
+		"$",
+		"%",
+		"&",
+		"/",
+		"(",
+		")",
+		"[",
+		"]",
+		"{",
+		"}",
+		"=",
+		"?",
+		".",
+		":",
+		";",
+		",",
+		"+",
+		"*",
+		"#",
+		"_",
+		"-",
+		"<",
+		">",
+		"|",
+		"1",
+		"2",
+		"3",
+		"4",
+		"5",
+		"6",
+		"7",
+		"8",
+		"9",
+		"0",
+	];
+	score = score + key.length * 0.75;
 	for (const character in specialCharacters) {
 		if (key.includes(character)) score++;
 	}
 	if (score < 10) {
-		var scoreName = "Very weak"
+		var scoreName = "Very weak";
 	} else if (score < 10) {
-		var scoreName = "Weak"
+		var scoreName = "Weak";
 	} else if (score < 20) {
-		var scoreName = "Fair"
+		var scoreName = "Fair";
 	} else if (score < 30) {
-		var scoreName = "Good"
+		var scoreName = "Good";
 	} else if (score < 40) {
-		var scoreName = "Very Good"
+		var scoreName = "Very Good";
 	} else {
-		var scoreName = "Extremly Good"
+		var scoreName = "Extremly Good";
 	}
-	document.getElementById("vaultKeyRating").innerHTML = "Please choose a strong password.<br>This password is: "+scoreName+"<br><br>"
+	document.getElementById("vaultKeyRating").innerHTML =
+		"Please choose a strong password.<br>This password is: " +
+		scoreName +
+		"<br><br>";
 }
 
 function backup_vault() {
@@ -469,7 +507,7 @@ function draw_vault_file_structure(path, data) {
 		} else {
 			file = file.split("/")[file.split("/").length - 1];
 		}
-		files_code += `<button class="fileButtons" onclick="open_vault_file('${file}', '${path}', this)" oncontextmenu="open_vault_context('${file}', this)">${file}</button>`;
+		files_code += `<button class="fileButtons" onclick="open_vault_file('${file}', '${path}', this)" oncontextmenu="open_vault_context('${file}', this)">${file.replaceAll("<", "&lt;").replaceAll(">", "&gt;")}</button>`;
 	}
 	document.getElementById("vault_files").innerHTML = files_code;
 }
@@ -611,6 +649,7 @@ function delete_vault_file() {
 								return res.json();
 							})
 							.then((data) => {
+								vault_file_system = data["fs"];
 								draw_vault_file_structure(vault_path, data["fs"]);
 							});
 					}
@@ -623,7 +662,55 @@ function delete_vault_file() {
 	);
 }
 
-function rename_vault_file() {}
+function renameVaultFile() {
+	confirm_modal(
+		"Rename file",
+		`Rename the file<br><input type="text" id="vaultRenameFileInput">`,
+		() => {
+			fetch("/api", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					r: "renameVaultFile",
+					path: vault_context_file,
+					newName: path_join([
+						vault_path,
+						document.getElementById("vaultRenameFileInput").value,
+					]),
+					key: atob(sessionStorage.getItem("vault_key")),
+				}),
+			}).then(
+				() => {
+					vault_context_button.innerText = document.getElementById(
+						"vaultRenameFileInput",
+					).value;
+					fetch("/api", {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+						},
+						body: JSON.stringify({
+							r: "vault_tree",
+							key: atob(sessionStorage.getItem("vault_key")),
+						}),
+					})
+						.then((res) => {
+							return res.json();
+						})
+						.then((data) => {
+							vault_file_system = data["fs"];
+							draw_vault_file_structure(vault_path, data["fs"]);
+						});
+				},
+				() => {
+					fail_popup("Failed to rename file");
+				},
+			);
+		},
+	);
+}
 
 function close_vault_files() {
 	document.getElementById("vault_view").hidden = true;
@@ -937,15 +1024,18 @@ function deleteFireWallRule(index) {
 					index: index,
 				}),
 			})
-				.then((res) => {
-					if (!res.ok) {
-						fail_popup("Failed to remove firewall rule");
-						throw new Error("Failed to remove firewall rule");
-					}
-					return res.json();
-				}, () => {
-					fail_popup("Failed to delete rule")
-				})
+				.then(
+					(res) => {
+						if (!res.ok) {
+							fail_popup("Failed to remove firewall rule");
+							throw new Error("Failed to remove firewall rule");
+						}
+						return res.json();
+					},
+					() => {
+						fail_popup("Failed to delete rule");
+					},
+				)
 				.then(() => {
 					setTimeout(() => updateUFWInformation(), 500);
 				});
@@ -980,18 +1070,21 @@ function newFireWallRule() {
 					action: document.getElementById("fireWallNewRuleAction").value,
 				}),
 			})
-				.then((res) => {
-					if (!res.ok) {
-						confirm_modal_warning(
-							"Failed to create rule",
-							"The rule you tried to create could not be created.<br>Please make sure you only entered correct vaules.",
-						);
-						throw new Error("Failed to create new firewall rule");
-					}
-					return res.json();
-				}, () => {
-					fail_popup("Failed to create new rule")
-				})
+				.then(
+					(res) => {
+						if (!res.ok) {
+							confirm_modal_warning(
+								"Failed to create rule",
+								"The rule you tried to create could not be created.<br>Please make sure you only entered correct vaules.",
+							);
+							throw new Error("Failed to create new firewall rule");
+						}
+						return res.json();
+					},
+					() => {
+						fail_popup("Failed to create new rule");
+					},
+				)
 				.then(() => {
 					setTimeout(() => updateUFWInformation(), 500);
 				});
@@ -1002,12 +1095,12 @@ function newFireWallRule() {
 
 function updateUFWInformation() {
 	attach_loader("updateUFWInformationButton", "white");
-	document.getElementById("fireWallRuleOverview").style.opacity = "0.2"
-	document.getElementById("fireWallRuleOverview").style.overflow = "hidden"
+	document.getElementById("fireWallRuleOverview").style.opacity = "0.2";
+	document.getElementById("fireWallRuleOverview").style.overflow = "hidden";
 	getFireWallInformation(() => {
 		remove_loader("updateUFWInformationButton");
-		document.getElementById("fireWallRuleOverview").style.opacity = "1"
-		document.getElementById("fireWallRuleOverview").style.overflow = ""
+		document.getElementById("fireWallRuleOverview").style.opacity = "1";
+		document.getElementById("fireWallRuleOverview").style.overflow = "";
 	});
 }
 

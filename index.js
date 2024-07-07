@@ -3,7 +3,24 @@ By: Wervice / Constantin Volke
 Email: wervice@proton.me
 Licence: Apache 2.0 (See GitHub repo (https://github.com/Wervice/zentrox))
 
-This is open source software. It comes with no guarantee.
+This is open source software. It comes with no guarantee warranty.
+I am not liable for damage caused to your hardware, software, data or anything else involving this application.
+*/
+
+/*
+Naming policy:
+Every function, method, variable, path, key,... is named using camelCase
+Every class is named using PascalCase
+Every code file is named using snake_case
+Package names are not important, though their const has to be named with camelCase
+
+Permission policy:
+POST /api	Admin only
+GET /api	Admin only
+Other paths	Anyone
+
+Package policy:
+Zentrox should use as few packages as possible, without breaking scalability or maintanability.
 */
 
 const path = require("path");
@@ -21,9 +38,11 @@ const compression = require("compression"); // Compressing conenction
 const cookieParser = require("cookie-parser");
 const session = require("express-session");
 const express = require("express"); // Using Express framework
-const MemoryStore = require("memorystore")(session);
 
+const MemoryStore = require("memorystore")(session);
 const Worker = require("node:worker_threads").Worker; // For package cache worker
+
+const TarArchive = require("./libs/tar.js");
 
 eval(fs.readFileSync("./libs/packages.js").toString("utf8"));
 eval(fs.readFileSync("./libs/drives.js").toString("utf8"));
@@ -41,6 +60,8 @@ const zentroxInstallationPath = path.join(os.homedir(), "zentrox_data/"); // e.g
 
 const port = 3000;
 const app = express();
+
+var bruteForcePasswordIPs = {};
 
 // Database to default values
 writeDatabase(
@@ -95,7 +116,7 @@ app.use(
 		cookie: {
 			sameSite: true,
 			secure: true,
-			httpOnly: true
+			httpOnly: true,
 		},
 	}),
 );
@@ -122,7 +143,6 @@ class Shell {
 		exitcall = () => {},
 		useTimeout = true,
 		timeout = 100000,
-		killOnStderr = false
 	) {
 		// Username: Username to shell into
 		// Shell: Shell that will be used
@@ -177,7 +197,7 @@ class Shell {
 				zlog(`Shell Err: ${data}`, "error");
 
 				if (this.killOnStderr) {
-					this.kill()
+					this.kill();
 				}
 			};
 
@@ -198,13 +218,13 @@ function zlog(input, type = "info") {
 	input = String(input);
 	if (type == "info") {
 		const lines = input.split("\n");
-		const dateTime = new Date().toLocaleTimeString();
+		const dateTime = new Date().toLocaleString();
 		for (line of lines) {
-			console.log("[ \x1B[32m💡 Info\x1B[0m " + dateTime + "] " + line);
+			console.log("[ \x1B[32m✅ Info\x1B[0m  " + dateTime + "] " + line);
 		}
 	} else if (type == "error") {
 		const lines = input.split("\n");
-		const dateTime = new Date().toLocaleTimeString();
+		const dateTime = new Date().toLocaleString();
 		for (line of lines) {
 			console.error("[ \x1B[31m❎ Error \x1B[0m" + dateTime + "] " + line);
 		}
@@ -247,8 +267,9 @@ function deleteFilesRecursively(directory) {
 }
 
 function removeFileFromArchive(archivePath, fileToRemove) {
-	const tempExtractDir = path.join(os.tmpdir(), "zentrox_temp_extract_dir");
-	var tempArchivePath = path.join(os.tmpdir(), "temp_archive.tar");
+	var tempPath = fs.mkdtempSync(os.tmpdir() + path.sep);
+	const tempExtractDir = path.join(tempPath, "zentrox_temp_extract_dir");
+	var tempArchivePath = path.join(tempPath, "temp_archive.tar");
 
 	if (!fs.existsSync(tempExtractDir)) {
 		fs.mkdirSync(tempExtractDir);
@@ -341,15 +362,23 @@ function createFolderInTarSync(tarFilePath, newFolderPath) {
 
 function auth(username, password) {
 	// Check if user exists and password hash matches the database hash
-	if (typeof username === "undefined" || typeof password === "undefined") return false;
+	if (typeof username === "undefined" || typeof password === "undefined")
+		return false;
 	var users = fs
 		.readFileSync(path.join(zentroxInstallationPath, "users.txt"))
 		.toString()
 		.split("\n");
 	zlog('Auth "' + username + '"', "info");
 	for (const user of users) {
-		if (Buffer.from(user.split(": ")[0], "base64").toString("utf-8") === username) {
-			if (crypto.timingSafeEqual(Buffer.from(hash512(password), "utf-8"), Buffer.from(user.split(": ")[1], "utf-8"))) {
+		if (
+			Buffer.from(user.split(": ")[0], "base64").toString("utf-8") === username
+		) {
+			if (
+				crypto.timingSafeEqual(
+					Buffer.from(hash512(password), "utf-8"),
+					Buffer.from(user.split(": ")[1], "utf-8"),
+				)
+			) {
 				return true;
 			} else {
 				return false;
@@ -372,8 +401,8 @@ function deleteUser(username) {
 	var userfolder = path.join(zentroxInstallationPath, "users", btoa(username));
 	if (fs.existsSync(userfolder)) {
 		fs.rm(userfolder, {
-			recursive: true
-		})
+			recursive: true,
+		});
 	}
 	fs.writeFileSync(path.join(zentroxInstallationPath, "users.txt"), ostring);
 }
@@ -387,10 +416,14 @@ function hash512(str) {
 
 function isAdminMw(req, res, next) {
 	if (req.session.isAdmin === true) {
-		next()
-	}
-	else {
-		res.status(403).send("Missing permissions")
+		next();
+	} else {
+		var ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
+		zlog(
+			`Zentrox Permission error:\t${ip} tried to access a protected resource without admin permissions.`,
+			"error",
+		);
+		res.status(403).send("Missing permissions");
 		return;
 	}
 }
@@ -415,41 +448,44 @@ app.get("/", async (req, res) => {
 });
 
 app.post("/login", async (req, res) => {
-	if (typeof req.session.loginAttempts === "undefined") {
-		req.session.loginAttempts = 1;
+	var ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
+	if (!(ip in bruteForcePasswordIPs)) {
+		bruteForcePasswordIPs[ip] = [0, 0];
 	}
 	var nowTime = new Date().getTime();
 	if (
-		req.session.loginAttempts > 10 &&
-		nowTime - req.session.lastLoginAttempt < 20000
+		bruteForcePasswordIPs[ip][1] > 10 &&
+		nowTime - bruteForcePasswordIPs[ip][0] < 20000
 	) {
 		res.send("");
 		return;
 	} else {
-		if (nowTime - req.session.lastLoginAttempt > 25000) {
-			req.session.loginAttempts = 1;
+		if (nowTime - bruteForcePasswordIPs[ip][0] > 20000) {
+			bruteForcePasswordIPs[ip][1] = 1;
 		}
 	}
-	req.session.lastLoginAttempt = nowTime;
-	req.session.loginAttempts++;
-	var userPassword = req.body.password
-	var userUsername = req.body.username
-	
+	bruteForcePasswordIPs[ip] = [nowTime, bruteForcePasswordIPs[ip][1] + 1];
+	var userPassword = req.body.password;
+	var userUsername = req.body.username;
+
 	if (!userPassword || !userUsername) {
 		return;
 	}
-	
+
 	if (userPassword.length > 1024) return;
 	if (userUsername.length > 512) return;
 
 	var authTest = auth(userUsername, userPassword);
-	
+
 	if (authTest) {
 		req.session.signedIn = true;
 		req.session.username = req.body.username;
+		delete bruteForcePasswordIPs[ip];
 		if (
 			req.body.username ==
-			fs.readFileSync(path.join(zentroxInstallationPath, "admin.txt").toString("ascii"))
+			fs.readFileSync(
+				path.join(zentroxInstallationPath, "admin.txt").toString("ascii"),
+			)
 		) {
 			req.session.isAdmin = true;
 			req.session.zentroxPassword = decryptAES(
@@ -491,69 +527,64 @@ app.get("/dashboard", async (req, res) => {
 	}
 });
 
-app.get(
-	"/api",
-	isAdminMw
-	,
-	async (req, res) => {
-		// GET API (Not restful)
-		if (req.query["r"] == "cpuPercent") {
-			if (req.session.isAdmin == true) {
-				osu.cpu.usage().then((info) => {
-					res.send({
-						status: "s",
-						p: Number(info),
-					});
-				});
-			}
-		} else if (req.query["r"] == "ramPercent") {
-			if (req.session.isAdmin == true) {
+app.get("/api", isAdminMw, async (req, res) => {
+	// GET API (Not restful)
+	if (req.query["r"] == "cpuPercent") {
+		if (req.session.isAdmin == true) {
+			osu.cpu.usage().then((info) => {
 				res.send({
 					status: "s",
-					p: Number((os.totalmem() - os.freemem()) / os.totalmem()) * 100,
+					p: Number(info),
 				});
-			}
-		} else if (req.query["r"] == "diskPercent") {
-			if (req.session.isAdmin == true) {
-				var stats = fs.statfsSync("/");
-				var percent =
-					(stats.bsize * stats.blocks - stats.bsize * stats.bfree) /
-					(stats.bsize * stats.blocks);
-				res.send({
-					status: "s",
-					p: Number(percent) * 100,
-				});
-			}
-		} else if (req.query["r"] == "driveList") {
-			if (req.session.isAdmin == true) {
-				res.send({
-					status: "s",
-					drives: deviceList(),
-				});
-			}
-		} else if (req.query["r"] == "callfile") {
-			if (req.session.isAdmin == true) {
-				res
-					.set({
-						"Content-Disposition": `attachment; filename=${path.basename(
-							atob(req.query["file"]),
-						)}`,
-					})
-					.sendFile(atob(req.query["file"]));
-			} else {
-				res.send("This file can not be shown to you");
-				console.zlog(
-					`Somebody tried to access ${req.query["file"]} without the correct permissions.`,
-					"error",
-				);
-			}
-		} else {
-			res.status(400).send({
-				text: "No supported command",
 			});
 		}
-	},
-);
+	} else if (req.query["r"] == "ramPercent") {
+		if (req.session.isAdmin == true) {
+			res.send({
+				status: "s",
+				p: Number((os.totalmem() - os.freemem()) / os.totalmem()) * 100,
+			});
+		}
+	} else if (req.query["r"] == "diskPercent") {
+		if (req.session.isAdmin == true) {
+			var stats = fs.statfsSync("/");
+			var percent =
+				(stats.bsize * stats.blocks - stats.bsize * stats.bfree) /
+				(stats.bsize * stats.blocks);
+			res.send({
+				status: "s",
+				p: Number(percent) * 100,
+			});
+		}
+	} else if (req.query["r"] == "driveList") {
+		if (req.session.isAdmin == true) {
+			res.send({
+				status: "s",
+				drives: deviceList(),
+			});
+		}
+	} else if (req.query["r"] == "callfile") {
+		if (req.session.isAdmin == true) {
+			res
+				.set({
+					"Content-Disposition": `attachment; filename=${path.basename(
+						atob(req.query["file"]),
+					)}`,
+				})
+				.sendFile(atob(req.query["file"]));
+		} else {
+			res.send("This file can not be shown to you");
+			zlog(
+				`Somebody tried to access ${req.query["file"]} without the correct permissions.`,
+				"error",
+			);
+		}
+	} else {
+		res.status(400).send({
+			text: "No supported command",
+		});
+	}
+});
 
 app.post(
 	"/api",
@@ -910,9 +941,9 @@ app.post(
 							zlog(`FTP server exited with return of: \n${data}`);
 						},
 					);
-						ftpProcess.write(
-							`python3 ./libs/ftp.py ${os.userInfo().username} \n`,
-						);
+					ftpProcess.write(
+						`python3 ./libs/ftp.py ${os.userInfo().username} \n`,
+					);
 
 					writeDatabase(
 						path.join(zentroxInstallationPath, "config.db"),
@@ -1292,10 +1323,38 @@ app.post(
 			}
 			decryptAESGCM256(path.join(zentroxInstallationPath, "vault.vlt"), key);
 			try {
-				removeFileFromArchive(
+				const tarFile = new TarArchive(
 					path.join(zentroxInstallationPath, "vault.vlt"),
-					deletePath,
 				);
+				tarFile.removeEntrySync(deletePath);
+			} catch (err) {
+				zlog(err, "error");
+			}
+			encryptAESGCM256(path.join(zentroxInstallationPath, "vault.vlt"), key);
+			res.send({});
+		} else if (req.body.r == "renameVaultFile") {
+			if (!req.session.isAdmin) {
+				return;
+			}
+			var key = req.body.key;
+			var oldPath = req.body.path;
+			var newPath = req.body.newName;
+			if (!key || !oldPath || !newPath) {
+				res.status(400).send("Bad request");
+				return;
+			}
+			var i = 0;
+			while (i != 1000) {
+				key = crypto.createHash("sha512").update(key).digest("hex");
+				i++;
+			}
+			decryptAESGCM256(path.join(zentroxInstallationPath, "vault.vlt"), key);
+			try {
+				const tarFile = new TarArchive(
+					path.join(zentroxInstallationPath, "vault.vlt"),
+				);
+				console.log(oldPath, newPath);
+				tarFile.renameEntrySync(oldPath, newPath);
 			} catch (err) {
 				zlog(err, "error");
 			}
@@ -1399,13 +1458,13 @@ app.post(
 			if (!req.session.isAdmin) {
 				return;
 			}
-		
+
 			var ruleIndex = req.body.index;
-		
+
 			if (typeof ruleIndex === "undefined") {
 				return;
 			}
-			
+
 			const deleteRuleShell = new Shell(
 				"zentrox",
 				"sh",
@@ -1414,23 +1473,25 @@ app.post(
 				false,
 				2000,
 			);
-			try {	
-				await deleteRuleShell.write("ufw delete " + ruleIndex + "\n")
+			try {
+				await deleteRuleShell.write("ufw delete " + ruleIndex + "\n");
 			} catch (error) {
-				zlog("Deleting rule using UFW resulted in it throwing to Stderr. Stopped")
+				zlog(
+					"Deleting rule using UFW resulted in it throwing to Stderr. Stopped",
+				);
 				res.status(500).send({
-					msg: error
-				})
+					msg: error,
+				});
 				return;
 			}
 			await deleteRuleShell.write("y\n");
-			deleteRuleShell.kill()
+			deleteRuleShell.kill();
 			res.send({});
 		} else if (req.body.r == "newFireWallRule") {
 			if (!req.session.isAdmin) {
 				return;
 			}
-			
+
 			var ruleFrom = req.body.from;
 			var ruleTo = req.body.to;
 			var ruleAction = req.body.action;
@@ -1452,39 +1513,40 @@ app.post(
 			}
 			ruleFrom = ruleFrom.replaceAll(";", "");
 			ruleTo = ruleTo.replaceAll(";", "");
-			const ipRegex = /^(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(\.(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3}$/;
-			const portRegex =  /^[a-zA-Z0-9 :]*$/
+			const ipRegex =
+				/^(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(\.(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3}$/;
+			const portRegex = /^[a-zA-Z0-9 :]*$/;
 			if (!ipRegex.test(ruleFrom)) {
-				res.status(500).send(
-					{
-						msg: "Malformed IP"
-					}
-				)
+				res.status(500).send({
+					msg: "Malformed IP",
+				});
 				return;
 			}
 			if (!portRegex.test(ruleTo)) {
-				res.send(
-					{
-						msg: "Malformed port"
-					}
-				)
+				res.send({
+					msg: "Malformed port",
+				});
 				return;
 			}
 			try {
-			var newRuleCommandOutput = await newRuleShell.write(
-				`ufw ${ruleAction} from ${ruleFrom} to any port ${ruleTo}\n`,
-			);}
-			catch (err) {
-				newRuleShell.kill()
+				var newRuleCommandOutput = await newRuleShell.write(
+					`ufw ${ruleAction} from ${ruleFrom} to any port ${ruleTo}\n`,
+				);
+			} catch (err) {
+				newRuleShell.kill();
 				res.status(500).send({
-					msg: err
-				})
+					msg: err,
+				});
 				return;
 			}
-			newRuleShell.kill()
+			newRuleShell.kill();
 			res.send({
-				commandOutput: newRuleCommandOutput
+				commandOutput: newRuleCommandOutput,
 			});
+		} else if (req.body.r == "mwOk") {
+			res.send(
+				"If you are not logged in, you should not have gotten a response.",
+			);
 		} else {
 			zlog("Got unknow request");
 			res.status(400).send({});

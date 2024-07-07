@@ -231,11 +231,11 @@ if (releaseInfo.includes("debian") || releaseInfo.includes("ubuntu")) {
 	removeCommand = "apt remove PCKG -y";
 	supported_os = true;
 } else if (releaseInfo.includes("fedora") || releaseInfo.includes("centos")) {
-	p_manager = "dnf";
-	listInstalledCommand = "dnf list installed -q";
-	listCommand = "dnf list -q";
-	installedCommand = "dnf install PCKG -y";
-	removeCommand = "dnf remove PCKG -y";
+	p_manager = "yum";
+	listInstalledCommand = "yum list installed -q";
+	listCommand = "yum list -q";
+	installedCommand = "yum install PCKG -y";
+	removeCommand = "yum remove PCKG -y";
 	supported_os = true;
 } else if (releaseInfo.includes("arch")) {
 	p_manager = "pacman";

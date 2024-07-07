@@ -91,11 +91,20 @@ if [[ $ACTUAL_USERNAME == "" ]]; then
 	ACTUAL_USERNAME=$(whoami)
 fi
 
-echo -n "🤵 Please enter your zentrox admin username (e.g. johndoe) "
+echo -n "🤵 Please enter your zentrox admin username (max. 1024 characters) (e.g. johndoe) "
 read ADMIN_USERNAME
+
+if [[ ${ADMIN_USERNAME} > 512 ]]; then
+	echo "You will not be able to login with this username"
+fi
 
 echo -n "🔑 Please enter your zentrox admin password "
 read -s ADMIN_PASSWORD
+
+if [[ ${ADMIN_PASSWORD} > 1024 ]]; then
+	echo "You will not be able to login with this username"
+fi
+
 echo ""
 echo -n "🥏 Please enter a name for your zentrox server (e.g. glorious_server) "
 read ZENTROX_SERVER_NAME
@@ -221,7 +230,9 @@ sudo useradd -m -s /bin/bash -ou 0 -g 0 "zentrox" &> /dev/null
 USER_PASSWORD=$(openssl rand -base64 48)
 echo "ℹ️  Changed Zentrox user password to $USER_PASSWORD"
 echo "zentrox:$USER_PASSWORD" | sudo chpasswd
+
 $(echo $(echo $USER_PASSWORD | openssl aes-256-cbc -a -A -pbkdf2 -salt -pass pass:$ADMIN_PASSWORD 2> /dev/null) > "$ZENTROX_DATA_PATH/zentrox_user_password.txt") &> /dev/null
+
 # The zentrox user password has to be stored somewhere for Zentrox to retrieve it. Instead of storing it as an ENV variable or in a plain file, it is encrypted with the admin password
 # thus granting some level of protection.
 
@@ -261,6 +272,7 @@ $ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db vault_enab
 # Configure admin account
 echo -n "$ADMIN_USERNAME" > "$ZENTROX_DATA_PATH/admin.txt"
 echo -n "true" > "$ZENTROX_DATA_PATH/setupDone.txt"
+
 echo -n "$(echo -n $ADMIN_USERNAME | base64): $(echo -n "$ADMIN_PASSWORD" | sha512sum | cut -d ' ' -f 1): admin" > "$ZENTROX_DATA_PATH/users.txt"
 
 echo "✅ Installation"

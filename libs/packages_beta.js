@@ -1,4 +1,4 @@
-/* 
+/*
 ? Well, this function is still in beta, an I was to lazy to move it to another file ;-)
 function getIconForPackage(packageName) {
   if (fs.existsSync(path.join(os.homedir(), "/.local/share/icons"))) {

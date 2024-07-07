@@ -16,7 +16,9 @@ function cryptC(password) {
 	let c_output;
 
 	try {
-		c_output = chpr.execSync(`./libs/crypt_c ${password}`, { stdio: "pipe" });
+		c_output = chpr.execSync(`./libs/crypt_c ${password}`, {
+			stdio: "pipe",
+		});
 	} catch (e) {
 		throw new Error("Failed to encrypt password using C crypt();");
 	}

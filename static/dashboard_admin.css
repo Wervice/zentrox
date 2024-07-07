@@ -161,6 +161,7 @@ nav {
 
 	button {
 		background: transparent;
+		border: 0px;
 
 		& :hover {
 			background: transparent;
@@ -314,6 +315,7 @@ details {
 	text-align: center;
 	align-content: center;
 	white-space: nowrap;
+	border: 0px;
 
 	&:hover {
 		background-color: var(--background-semi-dark) !important;
@@ -560,7 +562,10 @@ div.warning {
 button.drive {
 	margin: 10px;
 	padding: 10px;
+
 	border-radius: 5px;
+	border: 0px;
+
 	background-color: var(--background-semi-light);
 }
 
