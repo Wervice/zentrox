@@ -70,7 +70,8 @@
 	}
 }
 
-body {
+body,
+html {
 	background-color: var(--background-dark);
 	color: var(--foreground);
 	padding: 0px;
@@ -92,13 +93,13 @@ input[type="text"],
 input[type="password"],
 select {
 	margin: 8px;
-	margin-left: 5px;
+	margin-left: 0px;
 	padding: 8px;
 	font-size: large;
 	border-radius: 5px;
 	color: var(--foreground);
 	background-color: var(--background-semi-dark);
-	border: 0px;
+	border: 1px solid #ffffff22;
 	transition: ease-in-out 0.25s;
 	width: 200px;
 }
@@ -206,6 +207,9 @@ button {
 		padding: 4px;
 		padding-left: 8px;
 		padding-right: 8px;
+		margin-left: 0px;
+		margin-top: 0px;
+		margin-bottom: 4px;
 	}
 
 	.loader {

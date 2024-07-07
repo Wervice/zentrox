@@ -195,7 +195,7 @@ window.onload = function () {
 						if (document.getElementById("vault_key_config").value.length != 0) {
 							confirm_modal(
 								"Change vault key",
-								"Do you want to change the encryption key of Zentrox Vault?",
+								"You are changing the encryption key of Zentrox vault.",
 								() => {
 									ask_for_vault_dec_key();
 								},
@@ -206,6 +206,7 @@ window.onload = function () {
 					this.innerHTML = "Apply";
 				});
 		});
+	document.body.hidden = false;
 };
 // Intervals
 
@@ -224,6 +225,21 @@ setInterval(() => {
 }, 20000);
 
 // Functions
+
+function addSkeletons() {
+	const skeleton = `
+		<span class="skeleton"></span>
+	`;
+	document.getElementById("operating_system_name").innerHTML = skeleton;
+	document.getElementById("power_supply").innerHTML = skeleton;
+	document.getElementById("zentrox_pid").innerHTML = skeleton;
+	document.getElementById("process_number").innerHTML = skeleton;
+	document.getElementById("hostname").innerHTML = skeleton;
+	document.getElementById("hostname_subtitle").innerHTML = skeleton;
+	document.getElementById("uptime").innerHTML = skeleton;
+	document.getElementById("small_uptime").innerHTML = skeleton;
+	document.getElementById("temperature").innerHTML = skeleton;
+}
 
 function changeTheme(theme = "light") {
 	if (theme === "light") {
@@ -283,19 +299,31 @@ function ask_for_vault_dec_key() {
 	);
 }
 
-function addSkeletons() {
-	const skeleton = `
-		<span class="skeleton"></span>
-	`;
-	document.getElementById("operating_system_name").innerHTML = skeleton;
-	document.getElementById("power_supply").innerHTML = skeleton;
-	document.getElementById("zentrox_pid").innerHTML = skeleton;
-	document.getElementById("process_number").innerHTML = skeleton;
-	document.getElementById("hostname").innerHTML = skeleton;
-	document.getElementById("hostname_subtitle").innerHTML = skeleton;
-	document.getElementById("uptime").innerHTML = skeleton;
-	document.getElementById("small_uptime").innerHTML = skeleton;
-	document.getElementById("temperature").innerHTML = skeleton;
+function rateVaultKeyConfig() {
+	var key = document.getElementById("vault_key_config").value
+	var score = 0
+	const specialCharacters = [
+		"!", "\"", "§", "$", "%", "&", "/", "(", ")", "[", "]", "{", "}", "=", "?", ".", ":", ";", ",", "+", "*", "#", "_", "-", "<", ">", "|", "1", "2", "3", "4", "5", "6", "7",
+		"8", "9", "0"
+	]
+	score = score + key.length*0.75
+	for (const character in specialCharacters) {
+		if (key.includes(character)) score++;
+	}
+	if (score < 10) {
+		var scoreName = "Very weak"
+	} else if (score < 10) {
+		var scoreName = "Weak"
+	} else if (score < 20) {
+		var scoreName = "Fair"
+	} else if (score < 30) {
+		var scoreName = "Good"
+	} else if (score < 40) {
+		var scoreName = "Very Good"
+	} else {
+		var scoreName = "Extremly Good"
+	}
+	document.getElementById("vaultKeyRating").innerHTML = "Please choose a strong password.<br>This password is: "+scoreName+"<br><br>"
 }
 
 function backup_vault() {
@@ -408,11 +436,17 @@ function get_current_folder_paths(paths, location) {
 		return "/" + path;
 	});
 	var paths = paths.filter((path) => {
-		if (!path.startsWith(location)) return false;
-		if (path == location) return false;
+		if (!path.startsWith(location)) {
+			return false;
+		}
+		if (path == location) {
+			return false;
+		}
 		if (path.replace(location, "").split("/").length < 3) {
 			try {
-				if (path.replace(location, "").split("/")[1].length === 0) return true;
+				if (path.replace(location, "").split("/")[1].length === 0) {
+					return true;
+				}
 			} catch {
 				return true;
 			}
@@ -852,7 +886,7 @@ function getFireWallInformation(callback = () => {}) {
 
 			var rules = data["rules"];
 			var rulesTable =
-				"<table><tr><td>To</td><td>Action</td><td>From</td></tr>";
+				"<table><tr><td></td><td>To</td><td>Action</td><td>From</td></tr>";
 			rules = rules.sort((rule, rule2) => {
 				if (Number(rule["to"]) == "NaN") {
 					return -1;
@@ -863,6 +897,9 @@ function getFireWallInformation(callback = () => {}) {
 			});
 			for (rule of rules) {
 				rulesTable += `<tr>
+					<td>
+						<button onclick="deleteFireWallRule(${rule["index"]})" class="fireWallRuleButton"><img src="delete.png"></button>
+					</td>
 					<td id="fireWallRule${rule["index"]}"
 					onmouseover="showFireWallRuleOptions('fireWallRule${rule["index"]}', ${rule["index"]})"
 					onmouseleave="hideFireWallRuleOptions('fireWallRule${rule["index"]}')"
@@ -876,17 +913,6 @@ function getFireWallInformation(callback = () => {}) {
 			document.getElementById("fireWallRuleOverview").innerHTML = rulesTable;
 			callback();
 		});
-}
-
-function showFireWallRuleOptions(ruleId, index) {
-	const ruleTd = document.getElementById(ruleId);
-	if (!ruleTd.querySelector("button")) {
-		ruleTd.innerHTML =
-			ruleTd.innerHTML +
-			`
-		<button onclick="deleteFireWallRule(${index})" class="fireWallRuleButton"><img src="delete.png"></button>
-		`;
-	}
 }
 
 function hideFireWallRuleOptions(ruleId, index) {
@@ -917,9 +943,11 @@ function deleteFireWallRule(index) {
 						throw new Error("Failed to remove firewall rule");
 					}
 					return res.json();
+				}, () => {
+					fail_popup("Failed to delete rule")
 				})
 				.then(() => {
-					getFireWallInformation();
+					setTimeout(() => updateUFWInformation(), 500);
 				});
 		},
 		() => {},
@@ -927,10 +955,59 @@ function deleteFireWallRule(index) {
 	);
 }
 
+function newFireWallRule() {
+	confirm_modal(
+		"New Rule",
+		`
+			Create a new firewall rule<br>
+			<input type="text" placeholder="Port (option)" id="fireWallNewRuleTo">
+			<input type="text" placeholder="IP Adress (optional)" id="fireWallNewRuleFrom">
+			<br>
+			<select id="fireWallNewRuleAction">
+				<option value="deny">Deny</option>
+				<option value="allow">Allow</option>
+			</select>`,
+		() => {
+			fetch("/api", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					r: "newFireWallRule",
+					from: document.getElementById("fireWallNewRuleFrom").value,
+					to: document.getElementById("fireWallNewRuleTo").value,
+					action: document.getElementById("fireWallNewRuleAction").value,
+				}),
+			})
+				.then((res) => {
+					if (!res.ok) {
+						confirm_modal_warning(
+							"Failed to create rule",
+							"The rule you tried to create could not be created.<br>Please make sure you only entered correct vaules.",
+						);
+						throw new Error("Failed to create new firewall rule");
+					}
+					return res.json();
+				}, () => {
+					fail_popup("Failed to create new rule")
+				})
+				.then(() => {
+					setTimeout(() => updateUFWInformation(), 500);
+				});
+		},
+		() => {},
+	);
+}
+
 function updateUFWInformation() {
 	attach_loader("updateUFWInformationButton", "white");
+	document.getElementById("fireWallRuleOverview").style.opacity = "0.2"
+	document.getElementById("fireWallRuleOverview").style.overflow = "hidden"
 	getFireWallInformation(() => {
 		remove_loader("updateUFWInformationButton");
+		document.getElementById("fireWallRuleOverview").style.opacity = "1"
+		document.getElementById("fireWallRuleOverview").style.overflow = ""
 	});
 }
 
@@ -1009,7 +1086,7 @@ function changePage(pageName) {
 	document.activeElement.style.backgroundColor = "var(--background-semi-light)";
 	document.activeElement.blur();
 
-	if (pageName == "applications" && typeof allApps == "undefined") {
+	if (pageName == "applications" && typeof allApps === "undefined") {
 		renderApplicationManagerList();
 	}
 	if (pageName == "connections") {

@@ -31,7 +31,7 @@
 		/>
 	</head>
 
-	<body>
+	<body hidden>
 		<div id="driveModal" hidden>
 			<h3 id="driveName"></h3>
 			<table>
@@ -233,7 +233,10 @@
 							type="password"
 							placeholder="Vault encryption key"
 							id="vault_key_config"
-						/><br />
+							onkeydown="rateVaultKeyConfig()"
+							onchange="rateVaultKeyConfig()"
+							/><br />
+						<span id="vaultKeyRating"></span>
 						<button id="submit_vault_config">Apply</button>
 						<br /><br />
 						<button onclick="open_vault()">Open vault</button
@@ -354,18 +357,27 @@
 								>UFW</a
 							></small
 						>
+						<button
+							onclick="updateUFWInformation()"
+							id="updateUFWInformationButton"
+							class="slim"
+							title="Check new rules or changes"
+						>
+							Reload
+						</button>
+						<button
+							onclick="newFireWallRule()"
+							id="newFireWallRuleButton"
+							class="slim"
+							title="Create a new firewall rule"
+						>
+							New Rule</button
+						><br />
 						<input type="checkbox" id="enableUFW" />
 						<label for="enableUFW">Enable Firewall</label>
 						<span id="fireWallRuleOverview">
 							<!-- Show first 5-10 rules, then scroll -->
 						</span>
-						<button
-							onclick="updateUFWInformation()"
-							id="updateUFWInformationButton"
-							class="slim"
-						>
-							Reload
-						</button>
 					</div>
 					<div class="information_chip" style="width: calc(100% - 10px)">
 						<span class="caption">Running Processes</span>
