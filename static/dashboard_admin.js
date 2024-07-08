@@ -665,12 +665,10 @@ function delete_vault_file() {
 function renameVaultFile() {
 	confirm_modal(
 		"Rename file",
-		`Rename the file<br><input type="text" id="vaultRenameFileInput" value="${vault_context_file.replace("\"", "'").replaceAll("<", "").replaceAll(">", "")}">`,
+		`Rename the file<br><input type="text" id="vaultRenameFileInput" value="${vault_context_file.replace('"', "'").replaceAll("<", "").replaceAll(">", "")}">`,
 		() => {
-			var newName = document.getElementById(
-						"vaultRenameFileInput",
-					).value;
-				vault_context_button.innerText = newName
+			var newName = document.getElementById("vaultRenameFileInput").value;
+			vault_context_button.innerText = newName;
 			fetch("/api", {
 				method: "POST",
 				headers: {
@@ -1412,7 +1410,7 @@ function lookForPackage() {
 				if (e.includes(packageName)) {
 					var htmlCode =
 						htmlCode +
-						`<div class=package_small>${e.split(".")[0]} <button class=remove_package onclick=\"removePackage('${e}', this)\">Remove</button></div>`;
+						`<div class=package_small>${e.split(".")[0]} <button class=remove_package onclick=\"removePackage('${e.split(".")[0]}', this)\">Remove</button></div>`;
 				}
 			}
 		}
@@ -1422,7 +1420,7 @@ function lookForPackage() {
 				if (e.includes(packageName)) {
 					var htmlCode =
 						htmlCode +
-						`<div class=package_small>${e.split(".")[0]} <button class=install_package onclick=\"installPackage('${e}', this)\">Install</button></div>`;
+						`<div class=package_small>${e.split(".")[0]} <button class=install_package onclick=\"installPackage('${e.split(".")[0]}', this)\">Install</button></div>`;
 				}
 			}
 		}
@@ -1442,9 +1440,10 @@ function lookForPackage() {
 function removePackage(packageName, button) {
 	confirm_modal(
 		"Remove package",
-		"<input type='password' placeholder='Root password' id='sudoPasswordInput'>",
+		`You are removing ${packageName}.<br>Please enter your root password to continue.<br><input type='password' placeholder='Root password' id='sudoPasswordInput'>`,
 		function () {
-			button.innerHTML = "In work";
+			button.innerHTML = "Removing";
+			button.classList.remove("install_package")
 			button.disabled = true;
 			fetch("/api", {
 				method: "POST",
@@ -1461,16 +1460,19 @@ function removePackage(packageName, button) {
 					if (!res.ok) {
 						fail_popup("Failed to remove package");
 						button.innerHTML = "Failed";
+						button.classList.remove("remove_package");
+						button.classList.add("failed_package");
 						button.disabled = false;
-						button.style.color = "rgb(255, 75, 75);";
+						button.parentElement.style.color = "gold"
 						throw new Error("Failed to remove package");
 					}
 					return res.json();
 				})
 				.then((data) => {
-					button.innerHTML = "Install";
+					button.innerHTML = "Done";
+					button.parentElement.style.color = "white"
 					button.classList.remove("remove_package");
-					button.classList.add("install_package");
+					button.classList.add("done_package");
 				});
 		},
 	);
@@ -1479,10 +1481,11 @@ function removePackage(packageName, button) {
 function installPackage(packageName, button) {
 	confirm_modal(
 		"Install package",
-		"<input type='password' placeholder='SUDO Password' id='sudoPasswordInput'>",
+		`You are installing ${packageName}.<br>Please enter your root password to continue.<br><input type='password' placeholder='Root password' id='sudoPasswordInput'>`,
 		function () {
-			button.innerHTML = "In work";
+			button.innerHTML = "Installing";
 			button.disabled = true;
+			button.classList.remove("remove_package")
 			fetch("/api", {
 				method: "POST",
 				headers: {
@@ -1498,16 +1501,20 @@ function installPackage(packageName, button) {
 					if (!res.ok) {
 						fail_popup("Failed to install package");
 						button.innerHTML = "Failed";
+						button.classList.remove("install_package");
+						button.classList.add("failed_package");
 						button.disabled = false;
-						button.style.color = "rgb(255, 75, 75);";
+						button.parentElement.style.color = "gold"
 						throw new Error("Failed to install package");
 					}
 					return res.json();
 				})
 				.then((data) => {
-					button.innerHTML = "Remove";
+					button.innerHTML = "Done";
+					button.parentElement.style.color = "white"
 					button.classList.remove("install_package");
-					button.classList.add("remove_package");
+					button.classList.add("done_package");
+					button.disabled = true
 				});
 		},
 	);

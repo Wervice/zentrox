@@ -428,13 +428,23 @@ label[for="showHiddenFiles"] {
 	font-size: 14px;
 
 	& .remove_package {
-		color: var(--red);
+		color: var(--red) !important;
 		background-color: transparent;
 	}
 
 	& .install_package {
-		color: var(--green);
+		color: var(--green) !important;
 		background-color: transparent;
+	}
+
+	& .done_package {
+		color: white !important;
+		background-color: transparent;
+	}
+	
+	& .failed_package {
+		color: gold !important;
+		background: transparent;
 	}
 
 	& button {

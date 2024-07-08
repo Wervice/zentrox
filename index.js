@@ -43,8 +43,14 @@ const MemoryStore = require("memorystore")(session);
 const Worker = require("node:worker_threads").Worker; // For package cache worker
 
 const TarArchive = require("./libs/tar.js");
+const Shell = require("./libs/shell.js")
 
-eval(fs.readFileSync("./libs/packages.js").toString("utf8"));
+const zlog = require("./libs/zlog.js")
+const {installPackage, removePackage, listInstalledPackages, listPackages} = require("./libs/packages.js")
+
+new Worker("./libs/packageWorker.js"); // Start package cache worker (1h interval)
+
+// eval(fs.readFileSync("./libs/packages.js").toString("utf8"));
 eval(fs.readFileSync("./libs/drives.js").toString("utf8"));
 eval(fs.readFileSync("./libs/cryptography_scripts.js").toString("utf8"));
 eval(fs.readFileSync("./libs/mapbase.js").toString("utf8"));
@@ -131,105 +137,6 @@ app.use(
 		memLevel: 4,
 	}),
 );
-
-new Worker("./libs/packageWorker.js"); // Start package cache worker (1h interval)
-
-class Shell {
-	// Class that generates a shell to launch a new virtual shell with command "su ..."
-	constructor(
-		username,
-		shell,
-		password,
-		exitcall = () => {},
-		useTimeout = true,
-		timeout = 100000,
-	) {
-		// Username: Username to shell into
-		// Shell: Shell that will be used
-		// Password: Password to log into shell
-		// Exitcall: Callback that is ran on s_process exit
-		this.username = username;
-		this.shell = shell;
-		this.password = password;
-		this.s_process = chpr.exec(`su -c sh ${username}\n`);
-		this.pid = this.s_process.pid;
-		this.authed = false;
-		this.outCall = () => {};
-		zlog("Shell summoned", "info");
-		this.authed = false;
-		this.s_process.stderr.on("data", (data) => {
-			if (data == "Password: " && !this.authed) {
-				this.s_process.stdin.write(this.password + "\n");
-				this.authed = true;
-			}
-			zlog(`Shell Err: ${data}`);
-		});
-
-		this.s_process.on("exit", (data) => {
-			exitcall(data);
-		});
-		if (useTimeout) {
-			setTimeout(() => {
-				this.kill();
-			}, timeout);
-		}
-	}
-
-	write(command) {
-		zlog(`Shell In: ${command}`);
-		return new Promise((resolve, reject) => {
-			if (!this.authed) {
-				setTimeout(() => {
-					this.write(command).then(resolve).catch(reject);
-				}, 500);
-				return;
-			}
-
-			const handleStdout = (data) => {
-				resolve(data);
-				this.s_process.stdout.removeListener("data", handleStdout);
-				zlog(`Shell In: ${data}`);
-			};
-
-			const handleStderr = (data) => {
-				reject(new Error(`Stderr of command ${command} is: ${data}`));
-				this.s_process.stdout.removeListener("data", handleStderr);
-				zlog(`Shell Err: ${data}`, "error");
-
-				if (this.killOnStderr) {
-					this.kill();
-				}
-			};
-
-			this.s_process.stdout.on("data", handleStdout);
-			this.s_process.stderr.on("data", handleStderr);
-
-			this.s_process.stdin.write(command);
-		});
-	}
-
-	kill() {
-		this.s_process.kill();
-	}
-}
-
-function zlog(input, type = "info") {
-	var line;
-	input = String(input);
-	if (type == "info") {
-		const lines = input.split("\n");
-		const dateTime = new Date().toLocaleString();
-		for (line of lines) {
-			console.log("[ \x1B[32m✅ Info\x1B[0m  " + dateTime + "] " + line);
-		}
-	} else if (type == "error") {
-		const lines = input.split("\n");
-		const dateTime = new Date().toLocaleString();
-		for (line of lines) {
-			console.error("[ \x1B[31m❎ Error \x1B[0m" + dateTime + "] " + line);
-		}
-	}
-}
 
 // Working with archives
 
@@ -1351,13 +1258,13 @@ app.post(
 			try {
 				decryptAESGCM256(path.join(zentroxInstallationPath, "vault.vlt"), key);
 			} catch (err) {
-				zlog(err, "error")
+				zlog(err, "error");
 				res.status(500).send({
-					msg: "auth_failed"
-				})
+					msg: "auth_failed",
+				});
 				return;
 			}
-				try {
+			try {
 				const tarFile = new TarArchive(
 					path.join(zentroxInstallationPath, "vault.vlt"),
 				);
@@ -1420,9 +1327,17 @@ app.post(
 				req.session.zentroxPassword,
 				() => {},
 				true,
-				5000, // Prevent long outputs and holding the server
+				20000, // Prevent long outputs and holding the server
 			);
-			var ufwStatusReturnData = await informationShell.write("ufw status\n");
+			try {
+				var ufwStatusReturnData = await informationShell.write("ufw status\n");
+			} catch (err) {
+				zlog(err, "error")
+				res.status(500).send({
+					msg: "ufw_timeout"
+				})
+				return;
+			}
 			var ufwStatus = ufwStatusReturnData.toString("ascii");
 			const ufwStatusLines = ufwStatus.trim().split("\n");
 			const rules = [];
