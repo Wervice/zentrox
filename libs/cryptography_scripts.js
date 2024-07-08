@@ -17,7 +17,7 @@ function encryptAESGCM256(file, key) {
 	var salt = crypto.randomBytes(32);
 	var key = crypto.pbkdf2Sync(key, salt, 100000, 32, "sha256");
 	// Generate a random initialization vector
-	const iv = crypto.randomBytes(96);
+	const iv = crypto.randomBytes(12);
 	// Create a cipher instance
 	const cipher = crypto.createCipheriv("aes-256-gcm", Buffer.from(key), iv);
 
@@ -38,10 +38,10 @@ function decryptAESGCM256(file, key) {
 
 	// Extract the IV, auth tag, and encrypted data
 	const file_buffer = Buffer.from(input);
-	const iv = file_buffer.subarray(0, 96);
-	const authTag = file_buffer.subarray(96 + 32, 96 + 16 + 32);
-	const encrypted = file_buffer.subarray(96 + 16 + 32, undefined);
-	const salt = file_buffer.subarray(96, 96 + 32);
+	const iv = file_buffer.subarray(0, 12);
+	const authTag = file_buffer.subarray(12 + 32, 12 + 16 + 32);
+	const encrypted = file_buffer.subarray(12 + 16 + 32, undefined);
+	const salt = file_buffer.subarray(12, 12 + 32);
 	var key = crypto.pbkdf2Sync(key, salt, 100000, 32, "sha256");
 	// Create a decipher instance
 	const decipher = crypto.createDecipheriv("aes-256-gcm", Buffer.from(key), iv);

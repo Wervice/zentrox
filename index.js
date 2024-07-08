@@ -1348,12 +1348,19 @@ app.post(
 				key = crypto.createHash("sha512").update(key).digest("hex");
 				i++;
 			}
-			decryptAESGCM256(path.join(zentroxInstallationPath, "vault.vlt"), key);
 			try {
+				decryptAESGCM256(path.join(zentroxInstallationPath, "vault.vlt"), key);
+			} catch (err) {
+				zlog(err, "error")
+				res.status(500).send({
+					msg: "auth_failed"
+				})
+				return;
+			}
+				try {
 				const tarFile = new TarArchive(
 					path.join(zentroxInstallationPath, "vault.vlt"),
 				);
-				console.log(oldPath, newPath);
 				tarFile.renameEntrySync(oldPath, newPath);
 			} catch (err) {
 				zlog(err, "error");

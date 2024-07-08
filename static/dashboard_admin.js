@@ -73,7 +73,7 @@ window.onload = function () {
 		.addEventListener("click", function () {
 			confirm_modal(
 				"Rename",
-				"Filename<br><br><input type='text' id='renameNameInput'>",
+				"Rename the file<br><input type='text' id='renameNameInput'>",
 				function () {
 					var newFileName = document.getElementById("renameNameInput").value;
 					fetch("/api", {
@@ -665,8 +665,12 @@ function delete_vault_file() {
 function renameVaultFile() {
 	confirm_modal(
 		"Rename file",
-		`Rename the file<br><input type="text" id="vaultRenameFileInput">`,
+		`Rename the file<br><input type="text" id="vaultRenameFileInput" value="${vault_context_file.replace("\"", "'").replaceAll("<", "").replaceAll(">", "")}">`,
 		() => {
+			var newName = document.getElementById(
+						"vaultRenameFileInput",
+					).value;
+				vault_context_button.innerText = newName
 			fetch("/api", {
 				method: "POST",
 				headers: {
@@ -674,18 +678,15 @@ function renameVaultFile() {
 				},
 				body: JSON.stringify({
 					r: "renameVaultFile",
-					path: vault_context_file,
+					path: vault_context_file, // What file are we talking about
 					newName: path_join([
-						vault_path,
-						document.getElementById("vaultRenameFileInput").value,
+						vault_path, // Where is the new file supposed to end up?
+						newName, // Whats it called again
 					]),
-					key: atob(sessionStorage.getItem("vault_key")),
+					key: atob(sessionStorage.getItem("vault_key")), // Hey, do you have permissions?
 				}),
 			}).then(
-				() => {
-					vault_context_button.innerText = document.getElementById(
-						"vaultRenameFileInput",
-					).value;
+				(data) => {
 					fetch("/api", {
 						method: "POST",
 						headers: {

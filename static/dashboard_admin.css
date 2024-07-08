@@ -339,6 +339,7 @@ details {
 		margin: 5px;
 		transition: linear 0.125s;
 		background: transparent;
+		border: 0px;
 
 		&:hover {
 			background-color: var(--background-semi-dark);
