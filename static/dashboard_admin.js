@@ -1163,8 +1163,6 @@ function submitNewUser() {
 
 function changePage(pageName) {
 	for (page of document.querySelectorAll("#pages > div")) {
-		console.log(page);
-		if (page.id != pageName) {
 			page.hidden = true;
 		} else {
 			page.hidden = false;
@@ -1180,6 +1178,28 @@ function changePage(pageName) {
 
 	if (pageName == "applications" && typeof allApps === "undefined") {
 		renderApplicationManagerList();
+		
+		fetch("/api", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				r: "packageDatabaseAutoremoves"
+			})
+		}).then((response) => {
+				response.json().then((responseJSON) => {
+			var packages = responseJSON["packages"]
+			var packageList = ""
+			for (const package of packages) {
+				packageList += `<div>${package}</div>`
+			}
+			document.getElementById("autoremovablePackageContainer").innerHTML = packageList
+
+				})	
+		}, () => {
+			fail_popup("Failed to fetch packages for autoremove")
+		})
 	}
 	if (pageName == "connections") {
 		fetchFTPconnectionInformation();
@@ -1350,7 +1370,6 @@ function renderApplicationManagerList() {
 			document.getElementById("installedPackagesDetails").hidden = false;
 			document.getElementById("installedAppsDetails").hidden = false;
 			document.getElementById("packageSearch").hidden = false;
-			console.log(guiApps);
 			var htmlCode = "";
 			for (e of Array.from(guiApps)) {
 				if (e != undefined) {
@@ -1388,7 +1407,6 @@ function renderApplicationManagerList() {
 							"<button class='remove_package' onclick='removePackage(\"" +
 							e +
 							"\", this)'>Remove</button></div>";
-						console.log(e[1]);
 					}
 				}
 			}

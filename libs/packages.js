@@ -234,12 +234,14 @@ if (releaseInfo.includes("debian") || releaseInfo.includes("ubuntu")) {
 	listInstalledCommand = "apt list --installed";
 	listCommand = "apt list";
 	installedCommand = "apt install PCKG -y";
+	listAutoRemoveCommand = "apt list -s autoremove -q"  
 	removeCommand = "apt remove PCKG -y";
 	supported_os = true;
 } else if (releaseInfo.includes("fedora") || releaseInfo.includes("centos")) {
 	p_manager = "dnf";
-	listInstalledCommand = "dnf list installed -q";
+	listInstalledCommand = "dnf list --installed -q";
 	listCommand = "dnf list -q";
+	listAutoRemoveCommand = "dnf list --autoremove -q"
 	installedCommand = "dnf install PCKG -y";
 	removeCommand = "dnf remove PCKG -y";
 	supported_os = true;
@@ -247,9 +249,12 @@ if (releaseInfo.includes("debian") || releaseInfo.includes("ubuntu")) {
 	p_manager = "pacman";
 	listCommand = "pacman -Sl";
 	listInstalledCommand = "pacman -Q";
+	listAutoRemoveCommand = "pacman -Qdtq"
 	installedCommand = "pacman -S PCKG --noconfirm";
 	removeCommand = "pacman -R PCKG --noconfirm";
 	supported_os = true;
+} else if (releaseInfo.includes("opensuse")) {
+	// Zypper commands
 }
 
 keywordFromCLI = ["Listing", "Installed", "Last", "Latest", "Listing..."];
@@ -378,6 +383,35 @@ function removePackage(name, password) {
 	return true;
 }
 
+function listAutoRemove() {
+	const commandOutput = chpr.execSync(listAutoRemoveCommand).toString("ascii")
+	
+	switch (p_manager) {
+		case "apt":
+			var relevantLines = commandOutput.split("\n").filter((line) => {
+				return line.startsWith("Remv ")
+			})
+			var extractedNames = relevantLines.map((line) => {
+				return line.replace("Remv ", "").split(" ")[0]
+			})
+			break;
+		case "dnf":
+			var relevantLines = commandOutput.split("\n").filter((line) => {
+				if (line == "Autoremove Packages") return false
+				return true
+			})
+			var extractedNames = relevantLines.map((line) => {
+				return line.split(" ")[0].split(".")[0]
+			})
+			break;
+		case "pacman":
+			var extractedNames = commandOutput.split("\n")
+			break;
+	}
+	if (typeof extractedNames == "undefined") return []
+	return extractedNames
+}
+
 function getIconForPackage(packageName) {
 	if (fs.existsSync(path.join(os.homedir(), "/.local/share/icons"))) {
 		var noIconFoundInLoop = true;
@@ -475,4 +509,4 @@ function getIconForPackage(packageName) {
 	return "";
 }
 
-module.exports = {installPackage, removePackage, listPackages, listInstalledPackages, getIconForPackage}
+module.exports = {installPackage, removePackage, listPackages, listInstalledPackages, listAutoRemove, getIconForPackage}

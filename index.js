@@ -5,9 +5,7 @@ Licence: Apache 2.0 (See GitHub repo (https://github.com/Wervice/zentrox))
 
 This is open source software. It comes with no guarantee warranty.
 I am not liable for damage caused to your hardware, software, data or anything else involving this application.
-*/
 
-/*
 Naming policy:
 Every function, method, variable, path, key,... is named using camelCase
 Every class is named using PascalCase
@@ -46,7 +44,7 @@ const TarArchive = require("./libs/tar.js");
 const Shell = require("./libs/shell.js")
 
 const zlog = require("./libs/zlog.js")
-const {installPackage, removePackage, listInstalledPackages, listPackages} = require("./libs/packages.js")
+const {installPackage, removePackage, listInstalledPackages, listPackages, listAutoRemove} = require("./libs/packages.js")
 
 new Worker("./libs/packageWorker.js"); // Start package cache worker (1h interval)
 
@@ -735,6 +733,11 @@ app.post(
 				zlog(err, "error");
 				res.status(500).send({});
 			}
+		} else if (req.body.r == "packageDatabaseAutoremoves") {
+			var packagesForAutoremove = listAutoRemove()
+			res.send({
+				packages: packagesForAutoremove
+			})
 		} else if (req.body.r == "removePackage") {
 			// ? Remove package from the system using apt, dnf, pacman
 
@@ -1369,10 +1372,13 @@ app.post(
 				true,
 				1000,
 			);
+			try {
 			if (!ufwState) {
 				await ufwShell.write("ufw disable\n");
 			} else {
 				await ufwShell.write("ufw enable\n");
+			} } catch (err) {
+				zlog(err, "error")
 			}
 			ufwShell.kill();
 			res.send({});
