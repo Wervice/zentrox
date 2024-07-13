@@ -206,3 +206,17 @@ div.contentPage {
 		font-size: 18px;
 	}
 }
+
+#otpInformationScreen {
+	position: fixed;
+	z-index: 100;
+	background: var(--background-dark);
+	color: white;
+	text-align: center;
+	vertical-align: middle;
+	height: 100vh;
+	width: 100vw;
+	font-size: 25px;
+	padding-top: calc(50vh - 25px);
+	margin-left: -20px;
+}

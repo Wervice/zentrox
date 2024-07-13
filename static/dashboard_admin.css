@@ -1,3 +1,7 @@
+[hidden] {
+	display: none !important;
+}
+
 @font-face {
 	font-family: "Work Sans";
 	src: url(WorkSansVar.ttf);
@@ -441,7 +445,7 @@ label[for="showHiddenFiles"] {
 		color: white !important;
 		background-color: transparent;
 	}
-	
+
 	& .failed_package {
 		color: gold !important;
 		background: transparent;

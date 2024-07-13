@@ -42,11 +42,11 @@ python_failed() {
 }
 
 ufw_fail() {
-	echo -ne "❌ The UFW is used to manage the firewall on your system.\nDo you want to install it now? It is required for the Firewall section under security.\nYou can also skip it for now, and install it later if you need it. [install/skip]"
+	echo -ne "❌ The UFW is used to manage the firewall on your system.\nDo you want to install it now? It is required for the Firewall section under security.\nYou can also skip it for now, and install it later if you need it. [install/skip] "
 	read
 	if [[ $REPLY == "install" ]]; then
 		echo "❓ Please enter the name of your package manager [apt/dnf/pacman/zypper]"
-		read PYTHON_PACKAGE_MANAGER
+		read UFW_PACKAGE_MANAGER
 		if [[ $UFW_PACKAGE_MANAGER == "apt" ]]; then
 			apt install ufw -y &> /dev/null
 		elif [[ $UFW_PACKAGE_MANAGER == "dnf" ]]; then
@@ -57,6 +57,7 @@ ufw_fail() {
 			zypper -n install ufw &> /dev/null
 		else
 			echo "This package manager is not supported"
+		fi
 		echo "✅ Installed the UFW"
 	fi
 }
@@ -91,21 +92,24 @@ if [[ $ACTUAL_USERNAME == "" ]]; then
 	ACTUAL_USERNAME=$(whoami)
 fi
 
-echo -n "🤵 Please enter your zentrox admin username (max. 1024 characters) (e.g. johndoe) "
+echo -n "🤵 Please enter your zentrox admin username (max. 512 characters) (e.g. johndoe) "
 read ADMIN_USERNAME
 
-if [[ ${ADMIN_USERNAME} > 512 ]]; then
+if (( ${ADMIN_USERNAME} > 512 )); then
 	echo "You will not be able to login with this username"
 fi
 
 echo -n "🔑 Please enter your zentrox admin password "
 read -s ADMIN_PASSWORD
 
-if [[ ${ADMIN_PASSWORD} > 1024 ]]; then
-	echo "You will not be able to login with this username"
+if (( ${ADMIN_PASSWORD} > 1024 )); then
+	echo "You will not be able to login with this password"
 fi
 
 echo ""
+echo -n "🔑 Enable 2FA [Y/n] "
+read ENABLE_2FA
+
 echo -n "🥏 Please enter a name for your zentrox server (e.g. glorious_server) "
 read ZENTROX_SERVER_NAME
 
@@ -250,6 +254,7 @@ touch "$ZENTROX_DATA_PATH/vault.vlt"
 openssl rand -base64 64 > "$ZENTROX_DATA_PATH/sessionSecret.txt"
 
 touch $ZENTROX_DATA_PATH/config.db
+touch $ZENTROX_DATA_PATH/locked.db
 
 # Compile, setup and configure mapbase
 cd $ZENTROX_PATH/libs/mapbase/
@@ -268,6 +273,13 @@ $ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db ftp_passwo
 $ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db ftp_root /
 $ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db zentrox_user_password $(echo $USER_PASSWORD | openssl aes-256-cbc -a -A -pbkdf2 -salt -pass pass:$ADMIN_PASSWORD)
 $ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db vault_enabled "0"
+
+# Enable 2FA
+if [[ $ENABLE_2FA == "Y" || $ENABLE_2FA == "" ]]; then
+	$ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db useOtp 1
+	echo "ℹ️ You will be informed about the otp secret at the first login attempt."
+	echo "ℹ️ Please copy it and store it in a dedicated app for OTP management."
+fi
 
 # Configure admin account
 echo -n "$ADMIN_USERNAME" > "$ZENTROX_DATA_PATH/admin.txt"

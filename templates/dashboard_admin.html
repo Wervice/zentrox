@@ -33,7 +33,7 @@
 			href="WorkSansVar.ttf"
 			type="font/ttf"
 			crossorigin="anonymous"
-		/>	
+		/>
 	</head>
 
 	<body hidden>
@@ -185,11 +185,19 @@
 					onkeyup="lookForPackage()"
 					hidden
 				/>
+				<br />
+				<button
+					onclick="refreshPackageList()"
+					id="refreshPackageListButton"
+					class="slim"
+				>
+					Refresh
+				</button>
 				<div id="loadingApplications">
 					<img src="Loading.svg" alt="Loading" />
 				</div>
 				<br />
-				<div class="dashboard_section" style="padding">
+				<div class="dashboard_section" id="packageDiagnostics" hidden>
 					<span class="information_chip">
 						<span class="caption">Autoremovable packages</span>
 						<span id="autoremovablePackageContainer">

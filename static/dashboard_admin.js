@@ -206,6 +206,19 @@ window.onload = function () {
 					this.innerHTML = "Apply";
 				});
 		});
+
+	fetch("/small_loading_white.svg").then((data) => {
+		data.text().then((data) => {
+			sessionStorage.setItem("loaderCodeWhite", data);
+		});
+	});
+
+	fetch("/small_loading_black.svg").then((data) => {
+		data.text().then((data) => {
+			sessionStorage.setItem("loaderCodeBlack", data);
+		});
+	});
+
 	document.body.hidden = false;
 };
 // Intervals
@@ -1163,6 +1176,7 @@ function submitNewUser() {
 
 function changePage(pageName) {
 	for (page of document.querySelectorAll("#pages > div")) {
+		if (page.id != pageName) {
 			page.hidden = true;
 		} else {
 			page.hidden = false;
@@ -1178,28 +1192,32 @@ function changePage(pageName) {
 
 	if (pageName == "applications" && typeof allApps === "undefined") {
 		renderApplicationManagerList();
-		
+
 		fetch("/api", {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
 			},
 			body: JSON.stringify({
-				r: "packageDatabaseAutoremoves"
-			})
-		}).then((response) => {
+				r: "packageDatabaseAutoremoves",
+			}),
+		}).then(
+			(response) => {
 				response.json().then((responseJSON) => {
-			var packages = responseJSON["packages"]
-			var packageList = ""
-			for (const package of packages) {
-				packageList += `<div>${package}</div>`
-			}
-			document.getElementById("autoremovablePackageContainer").innerHTML = packageList
-
-				})	
-		}, () => {
-			fail_popup("Failed to fetch packages for autoremove")
-		})
+					var packages = responseJSON["packages"];
+					var packageList = "";
+					for (const package of packages) {
+						packageList += `<div><a href="#" onclick="document.getElementById('packageSearch').value = this.innerHTML; lookForPackage()">${package}</a></div>`;
+					}
+					document.getElementById("autoremovablePackageContainer").innerHTML =
+						packageList;
+					document.getElementById("packageDiagnostics").hidden = false;
+				});
+			},
+			() => {
+				fail_popup("Failed to fetch packages for autoremove");
+			},
+		);
 	}
 	if (pageName == "connections") {
 		fetchFTPconnectionInformation();
@@ -1207,6 +1225,39 @@ function changePage(pageName) {
 	if (pageName == "users") {
 		getUserList();
 	}
+}
+
+function refreshPackageList() {
+	attach_loader("refreshPackageListButton");
+
+	renderApplicationManagerList();
+
+	fetch("/api", {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify({
+			r: "packageDatabaseAutoremoves",
+		}),
+	}).then(
+		(response) => {
+			response.json().then((responseJSON) => {
+				var packages = responseJSON["packages"];
+				var packageList = "";
+				for (const package of packages) {
+					packageList += `<div><a href="#" onclick="document.getElementById('packageSearch').value = this.innerHTML; lookForPackage()">${package}</a></div>`;
+				}
+				document.getElementById("autoremovablePackageContainer").innerHTML =
+					packageList;
+				document.getElementById("packageDiagnostics").hidden = false;
+				remove_loader("refreshPackageListButton");
+			});
+		},
+		() => {
+			fail_popup("Failed to fetch packages for autoremove");
+		},
+	);
 }
 
 // Files / Stroage
@@ -1418,6 +1469,7 @@ function lookForPackage() {
 	var packageName = document
 		.getElementById("packageSearch")
 		.value.toLowerCase();
+	var alreadyDone = [];
 	if (packageName != "" && packageName != null) {
 		document.getElementById("packageSearchResults").hidden = false;
 		document.getElementById("installedPackagesDetails").hidden = true;
@@ -1429,12 +1481,18 @@ function lookForPackage() {
 					var htmlCode =
 						htmlCode +
 						`<div class=package_small>${e.split(".")[0]} <button class=remove_package onclick=\"removePackage('${e.split(".")[0]}', this)\">Remove</button></div>`;
+					alreadyDone.push(e);
 				}
 			}
 		}
 
 		if (packageName.length > 1) {
-			for (e of [...new Set(Array.prototype.concat(allApps, anyApps))]) {
+			for (e of [...new Set(Array.prototype.concat(allApps, anyApps))].filter(
+				(package) => {
+					if (alreadyDone.includes(package)) return false;
+					return true;
+				},
+			)) {
 				if (e.includes(packageName)) {
 					var htmlCode =
 						htmlCode +
@@ -1461,7 +1519,7 @@ function removePackage(packageName, button) {
 		`You are removing ${packageName}.<br>Please enter your root password to continue.<br><input type='password' placeholder='Root password' id='sudoPasswordInput'>`,
 		function () {
 			button.innerHTML = "Removing";
-			button.classList.remove("install_package")
+			button.classList.remove("install_package");
 			button.disabled = true;
 			fetch("/api", {
 				method: "POST",
@@ -1481,14 +1539,14 @@ function removePackage(packageName, button) {
 						button.classList.remove("remove_package");
 						button.classList.add("failed_package");
 						button.disabled = false;
-						button.parentElement.style.color = "gold"
+						button.parentElement.style.color = "gold";
 						throw new Error("Failed to remove package");
 					}
 					return res.json();
 				})
 				.then((data) => {
 					button.innerHTML = "Done";
-					button.parentElement.style.color = "white"
+					button.parentElement.style.color = "white";
 					button.classList.remove("remove_package");
 					button.classList.add("done_package");
 				});
@@ -1503,7 +1561,7 @@ function installPackage(packageName, button) {
 		function () {
 			button.innerHTML = "Installing";
 			button.disabled = true;
-			button.classList.remove("remove_package")
+			button.classList.remove("remove_package");
 			fetch("/api", {
 				method: "POST",
 				headers: {
@@ -1522,17 +1580,17 @@ function installPackage(packageName, button) {
 						button.classList.remove("install_package");
 						button.classList.add("failed_package");
 						button.disabled = false;
-						button.parentElement.style.color = "gold"
+						button.parentElement.style.color = "gold";
 						throw new Error("Failed to install package");
 					}
 					return res.json();
 				})
 				.then((data) => {
 					button.innerHTML = "Done";
-					button.parentElement.style.color = "white"
+					button.parentElement.style.color = "white";
 					button.classList.remove("install_package");
 					button.classList.add("done_package");
-					button.disabled = true
+					button.disabled = true;
 				});
 		},
 	);
@@ -1747,10 +1805,18 @@ function openDetails(id) {
 
 function attach_loader(id, color = "black") {
 	var object = document.getElementById(id);
+	switch (color) {
+		case "black":
+			var loaderCode = `data:image/svg+xml;base64,${btoa(sessionStorage.getItem("loaderCodeBlack"))}`;
+			break;
+		case "white":
+			var loaderCode = `data:image/svg+xml;base64,${btoa(sessionStorage.getItem("loaderCodeWhite"))}`;
+			break;
+	}
 	if (object.tagName.toLowerCase() == "button") {
-		object.innerHTML += `<img src="small_loading_${color}.svg" class="loader">`;
+		object.innerHTML += `<img src="${loaderCode}" class="loader">`;
 	} else if (object.tagName.toLowerCase() == "input") {
-		object.style.backgroundImage = `url("small_loading_${color}.svg")`;
+		object.style.backgroundImage = `url("${loaderCode}.svg")`;
 	}
 }
 
@@ -1916,10 +1982,10 @@ function dataInit() {
 }
 
 function killModalPopup() {
-	document.getElementById("modalMain").classList.remove("red");
-	document.getElementById("buttonConfirm").classList.remove("red");
 	setTimeout(function () {
 		document.getElementById("modalMain").hidden = true;
+		document.getElementById("modalMain").classList.remove("red");
+		document.getElementById("buttonConfirm").classList.remove("red");
 	}, 510);
 	flyOut("modalMain", 500);
 }
