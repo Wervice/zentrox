@@ -124,7 +124,7 @@
 		"node-os-utils": "^1.3.7",
 		"normalize-path": "^3.0.0",
 		"nwjs-packager": "^1.5.1",
-		"object-inspect": "^1.13.1",
+		"object-inspect": "^1.13.2",
 		"on-finished": "^2.4.1",
 		"on-headers": "^1.0.2",
 		"once": "^1.4.0",
