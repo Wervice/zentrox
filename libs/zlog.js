@@ -14,4 +14,4 @@ module.exports = function zlog(input, type = "info") {
 			console.error("[ \x1B[31m❎ Error \x1B[0m" + dateTime + "] " + line);
 		}
 	}
-}
+};

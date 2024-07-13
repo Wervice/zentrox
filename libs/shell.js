@@ -1,27 +1,24 @@
-const chpr = require("child_process")
+const chpr = require("child_process");
 
-const zlog = require("./zlog")
+const zlog = require("./zlog");
 
-const logShellOut = true
+const logShellOut = true;
 
 module.exports = class Shell {
 	// Class that generates a shell to launch a new virtual shell with command "su ..."
 	constructor(
 		username,
-		shell,
+		shell = "sh",
 		password,
 		exitcall = () => {},
 		useTimeout = true,
 		timeout = 100000,
+		errorOnStderr = false,
 	) {
-		// Username: Username to shell into
-		// Shell: Shell that will be used
-		// Password: Password to log into shell
-		// Exitcall: Callback that is ran on s_process exit
 		this.username = username;
 		this.shell = shell;
 		this.password = password;
-		this.s_process = chpr.exec(`su -c sh ${username}\n`);
+		this.s_process = chpr.exec(`su -c ${this.shell} ${username}\n`);
 		this.pid = this.s_process.pid;
 		this.authed = false;
 		this.outCall = () => {};
@@ -38,6 +35,7 @@ module.exports = class Shell {
 		this.s_process.on("exit", (data) => {
 			exitcall(data);
 		});
+		this.errorOnStderr = errorOnStderr;
 		if (useTimeout) {
 			setTimeout(() => {
 				this.kill();
@@ -58,16 +56,19 @@ module.exports = class Shell {
 			const handleStdout = (data) => {
 				resolve(data);
 				this.s_process.stdout.removeListener("data", handleStdout);
-				if (logShellOut) { 
+				if (logShellOut) {
 					zlog(`Shell Out: ${data}`);
 				}
 			};
 
 			const handleStderr = (data) => {
-				reject(new Error(`Stderr of command ${command} is: ${data}`));
-				this.s_process.stdout.removeListener("data", handleStderr);
-				zlog(`Shell Err: ${data}`, "error");
-
+				if (this.errorOnStderr) {
+					reject(new Error(`Stderr of command ${command} is: ${data}`));
+					this.s_process.stdout.removeListener("data", handleStderr);
+					zlog(`Shell Err: ${data}`, "error");
+				} else {
+					zlog(`Supressed Shell Error: ${data}`, "error");
+				}
 				if (this.killOnStderr) {
 					this.kill();
 				}
@@ -83,4 +84,4 @@ module.exports = class Shell {
 	kill() {
 		this.s_process.kill();
 	}
-}
+};

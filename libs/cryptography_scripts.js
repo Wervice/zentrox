@@ -4,12 +4,19 @@
 const chpr = require("child_process");
 const fs = require("fs");
 const crypto = require("crypto");
+const zlog = require("./zlog");
 
 function decryptAES(string, password) {
 	// Missing string handler
-	const child = chpr.execSync(
-		`echo ${string} | openssl aes-256-cbc -d -a -pbkdf2 -pass pass:${password}`,
-	);
+	try {
+		var child = chpr.execSync(
+			`echo ${string} | openssl aes-256-cbc -d -a -pbkdf2 -pass pass:${password}`,
+			{ stdio: "pipe" },
+		);
+	} catch (err) {
+		zlog("Decryption Error With AES using OpenSSL command\n" + err, "error");
+		return "";
+	}
 	return child.toString("ascii").replaceAll("\n", "");
 }
 
@@ -56,3 +63,5 @@ function decryptAESGCM256(file, key) {
 	// Write the decrypted data to the output file
 	fs.writeFileSync(file, decrypted);
 }
+
+module.exports = { decryptAES, encryptAESGCM256, decryptAESGCM256 };

@@ -18,7 +18,9 @@ module.exports = class TarArchive {
 	_burnFile(tarFilePath) {
 		var i = 0;
 		var filePath = path.join(this._tempDir, tarFilePath); // True tar file path
-		if (!fs.existsSync(filePath)) return false;
+		if (!fs.existsSync(filePath)) {
+			return false;
+		}
 		while (i != 3) {
 			fs.writeFileSync(
 				filePath,
@@ -35,7 +37,9 @@ module.exports = class TarArchive {
 			recursive: true,
 		})) {
 			var realPath = path.join(startingPath, entry);
-			if (fs.statSync(realPath).isFile()) this._burnFile(realPath);
+			if (fs.statSync(realPath).isFile()) {
+				this._burnFile(realPath);
+			}
 		}
 		fs.rmSync(startingPath, {
 			recursive: true,
