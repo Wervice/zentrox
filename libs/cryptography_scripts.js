@@ -64,4 +64,11 @@ function decryptAESGCM256(file, key) {
 	fs.writeFileSync(file, decrypted);
 }
 
-module.exports = { decryptAES, encryptAESGCM256, decryptAESGCM256 };
+function hash512(str) {
+	// Calculate a SHA 512 hash
+	var hash = crypto.createHash("sha512");
+	var data = hash.update(str, "utf-8");
+	return data.digest("hex");
+}
+
+module.exports = { decryptAES, encryptAESGCM256, decryptAESGCM256, hash512 };

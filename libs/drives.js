@@ -22,3 +22,5 @@ function deviceInformation(deviceName) {
 	}
 	return undefined;
 }
+
+module.exports = { deviceList, deviceInformation };

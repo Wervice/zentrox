@@ -273,11 +273,13 @@ $ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db ftp_passwo
 $ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db ftp_root /
 $ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db zentrox_user_password $(echo $USER_PASSWORD | openssl aes-256-cbc -a -A -pbkdf2 -salt -pass pass:$ADMIN_PASSWORD)
 $ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db vault_enabled "0"
+$ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db knowsOtpSecret "0"
 
 # Enable 2FA
 if [[ $ENABLE_2FA == "Y" || $ENABLE_2FA == "" ]]; then
 	$ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db useOtp 1
-	echo "ℹ️ You will be informed about the otp secret at the first login attempt."
+	echo "ℹ️ You can read the OTP secret in Zentrox' log when you first start the server.'"
+	echo "ℹ️ The secret is also stored in ~/zentrox_data/config.db"
 	echo "ℹ️ Please copy it and store it in a dedicated app for OTP management."
 fi
 
