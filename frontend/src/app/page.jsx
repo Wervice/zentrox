@@ -20,8 +20,7 @@ import { KeyIcon, LockIcon, LockKeyholeIcon, User } from "lucide-react";
 
 const fetchURLPrefix = "https://localhost:3000";
 
-fetch(fetchURLPrefix + "/login/otpSecret", {
-}).then((res) => {
+fetch(fetchURLPrefix + "/login/otpSecret", {}).then((res) => {
 	if (res.ok) {
 		res.json().then((json) => {
 			toast({
@@ -43,10 +42,9 @@ fetch(fetchURLPrefix + "/login/otpSecret", {
 	}
 });
 
-function OTPInputField({value, onChange}) {
+function OTPInputField({ value, onChange }) {
 	const useOtpFetch = async () => {
-		fetch(fetchURLPrefix + "/login/useOtp", {
-		}).then((res) => {
+		fetch(fetchURLPrefix + "/login/useOtp", {}).then((res) => {
 			if (res.ok) {
 				res.json().then((json) => {
 					if (json["used"]) {
@@ -66,14 +64,10 @@ function OTPInputField({value, onChange}) {
 	if (isShown) {
 		return (
 			<>
-			<Label>
+				<Label>
 					<LockKeyholeIcon className="inline-block pr-1" /> OPT Key
 				</Label>
-				<InputOTP
-					maxLength={6}
-					value={value} 
-					onChange={onChange} 
-				>
+				<InputOTP maxLength={6} value={value} onChange={onChange}>
 					<InputOTPGroup>
 						<InputOTPSlot index={0} />
 						<InputOTPSlot index={1} />
@@ -123,7 +117,10 @@ export default function Login() {
 						changePassWord(event.target.value);
 					}}
 				/>
-				<OTPInputField value={otpKey} onChange={(value) => changeOtpKey(value)} />
+				<OTPInputField
+					value={otpKey}
+					onChange={(value) => changeOtpKey(value)}
+				/>
 				<Button
 					onClick={() => {
 						fetch("https://localhost:3000/login", {
@@ -144,7 +141,7 @@ export default function Login() {
 									duration: 4000,
 								});
 							} else {
-								location.href = "/dashboard"
+								location.href = "/dashboard";
 							}
 						});
 					}}
