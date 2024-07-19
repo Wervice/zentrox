@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button.jsx";
 import TopBarInformative from "@/components/ui/TopBarInformative";
 import { LogOut } from "lucide-react";
 import { useState } from "react";
+import { Label } from "@/components/ui/label";
+import { SideWayBarChart } from "@/components/ui/Charts.jsx";
 
 function TopBar({ children }) {
 	return (
@@ -40,14 +42,24 @@ function TabButton({ onClick, isDefault, isActive, children }) {
 
 function Page({ name, children }) {
 	return (
-		<div
-			className="w-full h-full flex-grow overflow-y-auto text-white"
-		>
+		<div className="w-full h-full flex-grow overflow-y-auto text-white">
 			<div className="p-4">
-				<h2 className="text-3xl font-bold">{name}</h2><br />
-				{...children}
+				<h2 className="text-3xl font-bold">{name}</h2>
+				{children}
 			</div>
 		</div>
+	);
+}
+
+function Overview() {
+	const [cpuUssagePercent, setCpuUssagePercent] = useState(20);
+	return (
+		<Page name="Overview">
+			<Label>Resources</Label>
+			<br />
+			<Label className="text-muted-foreground">Processor</Label><br />	
+			<SideWayBarChart percentage={cpuUssagePercent}/>
+		</Page>
 	);
 }
 
@@ -56,8 +68,8 @@ export default function Dashboard() {
 
 	function PageToShow() {
 		if (activeTab == "Overview") {
-			return <Page name="Overview">ABC</Page>;
-		} else if (activeTab == "Packages"){
+			return Overview();
+		} else if (activeTab == "Packages") {
 			return <Page name="Packages">DEF</Page>;
 		}
 	}
@@ -81,7 +93,7 @@ export default function Dashboard() {
 					isDefault={true}
 					isActive={activeTab == "Overview"}
 				>
-				Overview
+					Overview
 				</TabButton>
 				<TabButton
 					onClick={() => {
@@ -90,7 +102,7 @@ export default function Dashboard() {
 					isDefault={false}
 					isActive={activeTab == "Packages"}
 				>
-				 Packages
+					Packages
 				</TabButton>
 				<Button
 					variant="link"

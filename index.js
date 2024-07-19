@@ -82,7 +82,7 @@ const {
 const {
 	zentroxInstallationPath,
 	vaultFilePath,
-    configDatabasePath,
+	configDatabasePath,
 } = require("./libs/commonVariables.js");
 const { deviceList, deviceInformation } = require("./libs/drives.js");
 const { deleteFilesRecursively } = require("./libs/cleanUp.js");
@@ -150,12 +150,12 @@ app.use(
 			.toString("utf8"),
 	),
 );
-app.use(cors(
-	 {
-		 credentials: true,
-		 origin: "http://localhost:3001" // DO NOT USE THIS IN RELEASE -> Use https://locahost
-	 }
-));
+app.use(
+	cors({
+		credentials: true,
+		origin: "http://localhost:3001", // DO NOT USE THIS IN RELEASE -> Use https://locahost
+	}),
+);
 
 app.use(
 	session({
@@ -356,10 +356,10 @@ app.get("/login/otpSecret", async (req, res) => {
 app.get("/login/useOtp", async (req, res) => {
 	if (readDatabase(configDatabasePath, "useOtp") === "1") {
 		res.send({
-			used: true	
+			used: true,
 		});
 	} else {
-		res.send({used: false});
+		res.send({ used: false });
 	}
 });
 

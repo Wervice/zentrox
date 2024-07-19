@@ -17,8 +17,8 @@ function readDatabase(
 	key,
 ) {
 	var key = sanitizeString(key);
-	const readOut = chpr.spawnSync(`./libs/mapbase/mapbase`, ["read", file, key])
-	const stdOut = readOut.stdout.toString("utf8")
+	const readOut = chpr.spawnSync(`./libs/mapbase/mapbase`, ["read", file, key]);
+	const stdOut = readOut.stdout.toString("utf8");
 	return stdOut;
 }
 
@@ -29,11 +29,16 @@ function writeDatabase(
 ) {
 	var key = sanitizeString(key);
 	var value = sanitizeString(value);
-	const writeOut = chpr.spawnSync(`./libs/mapbase/mapbase`, ["write", file, key, value]);
-	const stdErr = writeOut.stderr.toString("utf8")
+	const writeOut = chpr.spawnSync(`./libs/mapbase/mapbase`, [
+		"write",
+		file,
+		key,
+		value,
+	]);
+	const stdErr = writeOut.stderr.toString("utf8");
 
 	if (stdErr.length > 0) {
-		console.error("Failed to write to Mapbase")
+		console.error("Failed to write to Mapbase");
 		return false;
 	}
 	return true;
@@ -44,9 +49,13 @@ function deleteDatabase(
 	key,
 ) {
 	var key = sanitizeString(key);
-	const deleteOut = chpr.spawnSync(`./libs/mapbase/mapbase`, ["delete", file, key]);
+	const deleteOut = chpr.spawnSync(`./libs/mapbase/mapbase`, [
+		"delete",
+		file,
+		key,
+	]);
 	if (deleteOut.stderr.toString("utf8").length > 0) return false;
-	return true
+	return true;
 }
 
 module.exports = { readDatabase, writeDatabase, deleteDatabase };

@@ -25,6 +25,37 @@
 	background: transparent;
 }
 
+#fireWallRuleOverview::-webkit-scrollbar,
+#installedApps::-webkit-scrollbar,
+#installedPackages::-webkit-scrollbar,
+#packageSearchResults::-webkit-scrollbar {
+	display: block;
+	background: transparent;
+	width: 5px;
+	border-radius: 2.5px;
+}
+
+#fireWallRuleOverview::-webkit-scrollbar-track,
+#installedApps::-webkit-scrollbar-track,
+#installedPackages::-webkit-scrollbar-track,
+#packageSearchResults::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+#fireWallRuleOverview::-webkit-scrollbar-corner,
+#installedApps::-webkit-scrollbar-corner,
+#installedPackages::-webkit-scrollbar-corner,
+#packageSearchResults::-webkit-scrollbar-corner {
+	background: transparent;
+}
+
+#fireWallRuleOverview::-webkit-scrollbar-thumb,
+#installedApps::-webkit-scrollbar-thumb,
+#installedPackages::-webkit-scrollbar-thumb,
+#packageSearchResults::-webkit-scrollbar-thumb {
+	background: #ffffff33;
+}
+
 ::placeholder {
 	color: var(--foreground-light);
 }
@@ -96,14 +127,13 @@ html {
 input[type="text"],
 input[type="password"],
 select {
-	margin: 8px;
-	margin-left: 0px;
-	padding: 8px;
+	margin: 5px 2px 7px 0px;
+	padding: 10px;
 	font-size: large;
 	border-radius: 5px;
 	color: var(--foreground);
 	background-color: var(--background-semi-dark);
-	border: 1px solid #ffffff22;
+	border: 0px;
 	transition: ease-in-out 0.25s;
 	width: 200px;
 }
@@ -185,15 +215,14 @@ a {
 }
 
 button {
-	margin: 5px;
+	margin: 5px 6px 7px 0px;
 	padding: 10px;
 	font-size: large;
 	border-radius: 4px;
 	color: var(--foreground);
 	background: var(--background-semi-light);
-	border: 1px solid #ffffff33;
+	border: 0px;
 	transition: ease-in-out 0.25s;
-	margin-right: 5px;
 
 	& img {
 		width: 18px;
@@ -215,6 +244,7 @@ button {
 		margin-left: 0px;
 		margin-top: 0px;
 		margin-bottom: 4px;
+		background: #ffffff22;
 	}
 
 	.loader {
@@ -232,8 +262,10 @@ button {
 	width: 175px;
 	border-radius: 10px;
 	text-align: left;
+	margin: 5px;
 	background: #00000000;
 	border: 0px;
+	box-shadow: none;
 
 	img {
 		margin-right: 5px;
@@ -261,6 +293,11 @@ details {
 	padding: 10px;
 	border-radius: 2.5px;
 	cursor: default;
+}
+
+summary img {
+	height: 20px;
+	margin-bottom: -4px;
 }
 
 #pages {
@@ -481,17 +518,11 @@ label[for="showHiddenFiles"] {
 	cursor: default;
 }
 
-#installedApps::-webkit-scrollbar,
-#installedPackages::-webkit-scrollbar,
-#packageSearchResults::-webkit-scrollbar {
-	display: none;
-}
-
 .remove_package,
 .install_package {
 	padding: 5px;
 	border-radius: 2.5px;
-	color: red;
+	color: var(--red);
 	border-width: 0px;
 	cursor: pointer;
 	background: transparent;
@@ -579,7 +610,7 @@ button.drive {
 	padding: 10px;
 
 	border-radius: 5px;
-	border: 0px;
+	box-shadow: none;
 
 	background-color: var(--background-semi-light);
 }
@@ -612,15 +643,6 @@ button.drive {
 		right: 10px;
 		bottom: 10px;
 	}
-}
-
-.disclaimer {
-	background: #e23d2844;
-	color: var(--foreground);
-	border: 1px solid #800020;
-	border-radius: 5px;
-	padding: 10px;
-	width: 100%;
 }
 
 small {
@@ -709,6 +731,7 @@ small {
 					padding: 0px;
 					margin: 0px;
 					margin-left: 2px;
+					box-shadow: none;
 
 					&:active {
 						transform: scale(0.9);

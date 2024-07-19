@@ -516,11 +516,15 @@ function draw_vault_file_structure(path, data) {
 	for (file of files) {
 		file = "/" + file;
 		if (file.endsWith("/")) {
+			// Folder
+			icon = `<img src="folder.png"> `;
 			file = file.split("/")[file.split("/").length - 2] + "/";
 		} else {
+			// File
+			icon = `<img src="file.png"> `;
 			file = file.split("/")[file.split("/").length - 1];
 		}
-		files_code += `<button class="fileButtons" onclick="open_vault_file('${file}', '${path}', this)" oncontextmenu="open_vault_context('${file}', this)">${file.replaceAll("<", "&lt;").replaceAll(">", "&gt;")}</button>`;
+		files_code += `<button class="fileButtons" onclick="open_vault_file('${file}', '${path}', this)" oncontextmenu="open_vault_context('${file}', this)">${icon + file.replaceAll("<", "&lt;").replaceAll(">", "&gt;")}</button>`;
 	}
 	document.getElementById("vault_files").innerHTML = files_code;
 }
@@ -617,8 +621,7 @@ function delete_vault_file() {
 		"Delete",
 		"Do you want to proceed?",
 		() => {
-			vault_context_button.remove();
-			vault_context_button = null;
+			attach_loader(vault_context_button, "white");
 			fetch("/api", {
 				method: "POST",
 				headers: {
@@ -678,10 +681,10 @@ function delete_vault_file() {
 function renameVaultFile() {
 	confirm_modal(
 		"Rename file",
-		`Rename the file<br><input type="text" id="vaultRenameFileInput" value="${vault_context_file.replace('"', "'").replaceAll("<", "").replaceAll(">", "")}">`,
+		`Rename the file<br><input type="text" id="vaultRenameFileInput" value="${vault_context_file.replace('"', "'").replaceAll("<", "").replaceAll(">", "").replaceAll("/", "")}">`,
 		() => {
 			var newName = document.getElementById("vaultRenameFileInput").value;
-			vault_context_button.innerText = newName;
+			attach_loader(vault_context_button, "white");
 			fetch("/api", {
 				method: "POST",
 				headers: {
@@ -1228,7 +1231,7 @@ function changePage(pageName) {
 }
 
 function refreshPackageList() {
-	attach_loader("refreshPackageListButton");
+	attach_loader("refreshPackageListButton", "white");
 
 	renderApplicationManagerList();
 
@@ -1421,6 +1424,7 @@ function renderApplicationManagerList() {
 			document.getElementById("installedPackagesDetails").hidden = false;
 			document.getElementById("installedAppsDetails").hidden = false;
 			document.getElementById("packageSearch").hidden = false;
+			document.getElementById("refreshPackageListButton").hidden = false;
 			var htmlCode = "";
 			for (e of Array.from(guiApps)) {
 				if (e != undefined) {
@@ -1606,15 +1610,13 @@ function updateFTPConnectionSettings() {
 	var ftpUserUsername = document.getElementById("ftpUserUsername").value;
 	var ftpUserPassword = document.getElementById("ftpUserPassword").value;
 
-	root_input_modal(
+	input_modal(
 		"Elevated privileges",
 		"Please enter your root password to change these settings",
 		"sudoPasswordFTP",
 		"password",
 		function () {
 			attach_loader("ftpSettingsApply", "white");
-			// TODO Not yet reading the sudo password
-			document.getElementById("ftpSettingsApply").innerText = "Updating";
 			fetch("/api", {
 				method: "POST",
 				headers: {
@@ -1627,6 +1629,7 @@ function updateFTPConnectionSettings() {
 					ftpUserUsername: ftpUserUsername,
 					ftpUserPassword: ftpUserPassword,
 					sudo: document.getElementById("sudoPasswordFTP").value,
+					enableDisable: false,
 				}),
 			})
 				.then((res) => {
@@ -1804,7 +1807,11 @@ function openDetails(id) {
 }
 
 function attach_loader(id, color = "black") {
-	var object = document.getElementById(id);
+	if (typeof id == "object") {
+		object = id;
+	} else {
+		var object = document.getElementById(id);
+	}
 	switch (color) {
 		case "black":
 			var loaderCode = `data:image/svg+xml;base64,${btoa(sessionStorage.getItem("loaderCodeBlack"))}`;
@@ -1854,7 +1861,8 @@ cssCode = `@keyframes fly-in {
     padding-top: 5vh;
     background-color: #22222F; /* Brighter semi-dark background with a blue tint */
     outline: #333340 solid 1px; /* Brighter semi-light background with a blue tint */
-    color: #ffffff; /* Keeping white for maximum contrast */
+    box-shadow: 0px 0px 10px #00000066;
+	color: #ffffff; /* Keeping white for maximum contrast */
     font-family: "Work Sans", sans-serif;
     animation-name: pop_open;
     animation-duration: 0.25s;
@@ -2015,15 +2023,12 @@ function confirm_modal_warning(title, message, cb, cancle, show_cancle = true) {
 	document.getElementById("buttonConfirm").onclick = () => {
 		killModalPopup();
 		setTimeout(cb, 600);
-		document.getElementById("buttonCancle").hidden = false;
-		document.getElementById("buttonConfirm").classList.remove("red");
 	};
 	document.getElementById("buttonCancle").hidden = !show_cancle;
 	document.getElementById("buttonCancle").onclick = () => {
 		killModalPopup();
 		cancle();
 		document.getElementById("buttonCancle").hidden = false;
-		document.getElementById("buttonConfirm").classList.remove("red");
 	};
 }
 
@@ -2055,7 +2060,6 @@ function input_modal(
 }
 
 function flyOut(id, duration) {
-	animationName_before = document.getElementById(id).style.animationName;
 	animationDuration_before =
 		document.getElementById(id).style.animationDuration;
 	document.getElementById(id).style.animationDuration = duration + "ms";
@@ -2064,9 +2068,8 @@ function flyOut(id, duration) {
 	setTimeout(function () {
 		document.getElementById(id).hidden = true;
 		document.getElementById(id).classList.remove("fly-out");
-		document.getElementById(id).style.animationName = animationName_before;
-		document.getElementById(id).style.animationDuration =
-			animationDuration_before;
+		document.getElementById(id).style.animationName = "pop_open";
+		document.getElementById(id).style.animationDuration = "500ms";
 	}, duration - 10);
 }
 

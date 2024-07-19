@@ -69,7 +69,7 @@
 				class="call_to_action"
 				onclick="document.getElementById('driveModal').hidden = true"
 			>
-				Close
+				<img src="times.png" /> Close
 			</button>
 		</div>
 		<div id="sideBar">
@@ -185,13 +185,12 @@
 					onkeyup="lookForPackage()"
 					hidden
 				/>
-				<br />
 				<button
 					onclick="refreshPackageList()"
 					id="refreshPackageListButton"
-					class="slim"
+					hidden
 				>
-					Refresh
+					<img src="sync.png" /> Refresh
 				</button>
 				<div id="loadingApplications">
 					<img src="Loading.svg" alt="Loading" />
@@ -210,11 +209,11 @@
 				<br />
 				<div id="packageSearchResults" hidden></div>
 				<details id="installedAppsDetails" hidden>
-					<summary>Installed apps</summary>
+					<summary><img src="window.png" /> Installed apps</summary>
 					<div id="installedApps"></div>
 				</details>
 				<details id="installedPackagesDetails" hidden>
-					<summary>Installed packages</summary>
+					<summary><img src="applications.png" /> Installed packages</summary>
 					<div id="installedPackages"></div>
 				</details>
 			</div>
@@ -225,9 +224,15 @@
 				</div>
 				<nav>
 					<h2><img src="storage.png" />Storage</h2>
-					<button onclick="openDetails('storage_disks')">Disks</button>
-					<button onclick="openDetails('storage_files')">Files</button>
-					<button onclick="openDetails('storage_vault')">Vault</button>
+					<button onclick="openDetails('storage_disks')">
+						<img src="storage.png" /> Disks
+					</button>
+					<button onclick="openDetails('storage_files')">
+						<img src="files.png" /> Files
+					</button>
+					<button onclick="openDetails('storage_vault')">
+						<img src="key_circle.png" /> Vault
+					</button>
 				</nav>
 				<div id="storage_disks">
 					<h3>Disks</h3>
@@ -236,8 +241,10 @@
 				</div>
 				<div id="storage_files" hidden>
 					<h3>File system</h3>
-					<button onclick="goFUp()">Up</button>
-					<button onclick="uploadFileSystem()">Upload</button>
+					<button onclick="goFUp()"><img src="arrow_u.png" /> Up</button>
+					<button onclick="uploadFileSystem()">
+						<img src="upload.png" /> Upload
+					</button>
 					<input
 						type="checkbox"
 						id="showHiddenFiles"
@@ -261,9 +268,12 @@
 							onchange="rateVaultKeyConfig()"
 						/><br />
 						<span id="vaultKeyRating"></span>
-						<button id="submit_vault_config">Apply</button>
+						<button id="submit_vault_config">
+							<img src="check.png" /> Apply
+						</button>
 						<br /><br />
-						<button onclick="open_vault()">Open vault</button
+						<button onclick="open_vault()">
+							<img src="open.png" /> Open vault</button
 						><button
 							onclick="backup_vault()"
 							title="Backup vault"
@@ -299,7 +309,7 @@
 				<nav>
 					<h2><img src="users.png" /> Users</h2>
 				</nav>
-				<button onclick="addNewUser()">New user</button>
+				<button onclick="addNewUser()"><img src="plus.png" /> New user</button>
 				<div id="usersTable"></div>
 			</div>
 			<div id="connections" hidden>
@@ -333,7 +343,6 @@
 							placeholder="FTP Root Folder"
 							id="ftpLocalRoot"
 						/>
-						<br />
 						<br />
 						<input
 							type="text"
@@ -395,7 +404,7 @@
 							class="slim"
 							title="Create a new firewall rule"
 						>
-							New Rule</button
+							<img src="plus.png" /> New Rule</button
 						><br />
 						<input type="checkbox" id="enableUFW" />
 						<label for="enableUFW">Enable Firewall</label>
