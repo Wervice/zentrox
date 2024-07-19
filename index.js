@@ -41,6 +41,8 @@ const cookieParser = require("cookie-parser");
 const session = require("express-session");
 const express = require("express"); // Using Express framework
 
+const devDisAuth = true;
+
 const MemoryStore = require("memorystore")(session);
 const Worker = require("node:worker_threads").Worker; // For package cache worker
 
@@ -209,8 +211,15 @@ function deleteUser(username) {
 	fs.writeFileSync(path.join(zentroxInstallationPath, "users.txt"), ostring);
 }
 
+if (devDisAuth === true) {
+	zlog(
+		"Developer Disable Auth is enabled! This poses a high security risk. Please report.",
+		"error",
+	);
+}
+
 function isAdminMw(req, res, next) {
-	if (req.session.isAdmin === true) {
+	if (req.session.isAdmin === true || devDisAuth) {
 		next();
 	} else {
 		var ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
@@ -387,55 +396,39 @@ app.get("/dashboard", async (req, res) => {
 app.get("/api", isAdminMw, async (req, res) => {
 	// GET API (Not restful)
 	if (req.query["r"] == "cpuPercent") {
-		if (req.session.isAdmin == true) {
-			osu.cpu.usage().then((info) => {
-				res.send({
-					status: "s",
-					p: Number(info),
-				});
+		osu.cpu.usage().then((info) => {
+			res.send({
+				status: "s",
+				p: Number(info),
 			});
-		}
+		});
 	} else if (req.query["r"] == "ramPercent") {
-		if (req.session.isAdmin == true) {
-			res.send({
-				status: "s",
-				p: Number((os.totalmem() - os.freemem()) / os.totalmem()) * 100,
-			});
-		}
+		res.send({
+			status: "s",
+			p: Number((os.totalmem() - os.freemem()) / os.totalmem()) * 100,
+		});
 	} else if (req.query["r"] == "diskPercent") {
-		if (req.session.isAdmin == true) {
-			var stats = fs.statfsSync("/");
-			var percent =
-				(stats.bsize * stats.blocks - stats.bsize * stats.bfree) /
-				(stats.bsize * stats.blocks);
-			res.send({
-				status: "s",
-				p: Number(percent) * 100,
-			});
-		}
+		var stats = fs.statfsSync("/");
+		var percent =
+			(stats.bsize * stats.blocks - stats.bsize * stats.bfree) /
+			(stats.bsize * stats.blocks);
+		res.send({
+			status: "s",
+			p: Number(percent) * 100,
+		});
 	} else if (req.query["r"] == "driveList") {
-		if (req.session.isAdmin == true) {
-			res.send({
-				status: "s",
-				drives: deviceList(),
-			});
-		}
+		res.send({
+			status: "s",
+			drives: deviceList(),
+		});
 	} else if (req.query["r"] == "callfile") {
-		if (req.session.isAdmin == true) {
-			res
-				.set({
-					"Content-Disposition": `attachment; filename=${path.basename(
-						atob(req.query["file"]),
-					)}`,
-				})
-				.sendFile(atob(req.query["file"]));
-		} else {
-			res.send("This file can not be shown to you");
-			zlog(
-				`Somebody tried to access ${req.query["file"]} without the correct permissions.`,
-				"error",
-			);
-		}
+		res
+			.set({
+				"Content-Disposition": `attachment; filename=${path.basename(
+					atob(req.query["file"]),
+				)}`,
+			})
+			.sendFile(atob(req.query["file"]));
 	} else {
 		res.status(400).send({
 			text: "No supported command",
@@ -451,88 +444,60 @@ app.post(
 		// ? Handle post API
 		if (req.body.r == "deleteUser") {
 			// ? Deletes Zentrox user from the system
-			if (req.session.isAdmin) {
-				var username = req.body.username;
-				if (!username) {
-					res.status(400).send();
-					return;
-				}
-				deleteUser(username);
-				res.send({
-					status: "s",
-				});
-			} else {
-				res.status(403).send("You have no permissions to access this resource");
+			var username = req.body.username;
+			if (!username) {
+				res.status(400).send();
+				return;
 			}
+			deleteUser(username);
+			res.send({
+				status: "s",
+			});
 		} else if (req.body.r == "userList") {
 			// ? Lists Zentrox users
-			if (req.session.isAdmin) {
-				var userTable = "<table>";
-				var userList = fs
-					.readFileSync(path.join(zentroxInstallationPath, "users.txt"))
-					.toString()
-					.split("\n");
-				i = 0;
-				while (i != userList.length) {
-					if (userList[i].split(": ")[2] == "admin") {
-						var userStatus = "<b>Admin</b>";
-					} else {
-						var userStatus = `User</td><td><button style='color:red' onclick="deleteUser('${atob(
-							userList[i].split(": ")[0],
-						)}')">Delete</button>`;
-					}
-					if (userList[i].split(": ")[0] != "") {
-						userTable +=
-							"<tr><td>" +
-							atob(userList[i].split(": ")[0]) +
-							"</td><td>" +
-							userStatus +
-							"</td></tr>";
-					}
-					i++;
+			var userTable = "<table>";
+			var userList = fs
+				.readFileSync(path.join(zentroxInstallationPath, "users.txt"))
+				.toString()
+				.split("\n");
+			i = 0;
+			while (i != userList.length) {
+				if (userList[i].split(": ")[2] == "admin") {
+					var userStatus = "<b>Admin</b>";
+				} else {
+					var userStatus = `User</td><td><button style='color:red' onclick="deleteUser('${atob(
+						userList[i].split(": ")[0],
+					)}')">Delete</button>`;
 				}
-				var userTable = userTable + "</table>";
-				res.send({
-					text: userTable,
-				});
-			} else {
-				res.status(403).send("You have no permissions to access this resource");
+				if (userList[i].split(": ")[0] != "") {
+					userTable +=
+						"<tr><td>" +
+						atob(userList[i].split(": ")[0]) +
+						"</td><td>" +
+						userStatus +
+						"</td></tr>";
+				}
+				i++;
 			}
+			var userTable = userTable + "</table>";
+			res.send({
+				text: userTable,
+			});
 		} else if (req.body.r == "filesRender") {
 			// ? List files as HTML and sends it to front end
-			if (req.session.isAdmin) {
-				var filePath = req.body.path;
-				if (!filePath) {
-					res.status(400).send();
-					return;
-				}
-				var filesHTML = "";
-				try {
-					for (fileN of fs.readdirSync(filePath)) {
-						if (fileN[0] == ".") {
-							if (
-								req.body.showHiddenFiles == true ||
-								req.body.showHiddenFiles == "on"
-							) {
-								try {
-									if (fs.statSync(path.join(filePath, fileN)).isFile()) {
-										var fileIcon = "file.png";
-										var funcToUse = "downloadFile";
-									} else {
-										var fileIcon = "folder.png";
-										var funcToUse = "navigateFolder";
-									}
-								} catch {
-									var fileIcon = "adminfile.png";
-									var funcToUse = "alert";
-								}
-								var filesHTML =
-									filesHTML +
-									`<button class='fileButtons' onclick="${funcToUse}('${fileN}')" oncontextmenu="contextMenuF('${fileN}')" title="${fileN}"><img src="${fileIcon}"><br>${fileN
-										.replaceAll("<", "&lt;")
-										.replaceAll(">", "&gt;")}</button>`;
-							}
-						} else {
+			var filePath = req.body.path;
+			if (!filePath) {
+				res.status(400).send();
+				return;
+			}
+			var filesHTML = "";
+			try {
+				for (fileN of fs.readdirSync(filePath)) {
+					if (fileN[0] == ".") {
+						if (
+							req.body.showHiddenFiles == true ||
+							req.body.showHiddenFiles == "on"
+						) {
 							try {
 								if (fs.statSync(path.join(filePath, fileN)).isFile()) {
 									var fileIcon = "file.png";
@@ -547,30 +512,44 @@ app.post(
 							}
 							var filesHTML =
 								filesHTML +
-								`<button class='fileButtons' onclick="${funcToUse}('${fileN}')" oncontextmenu="contextMenuF('${fileN}')" title="${fileN}">
-								<img src="${fileIcon}"><br>${fileN
+								`<button class='fileButtons' onclick="${funcToUse}('${fileN}')" oncontextmenu="contextMenuF('${fileN}')" title="${fileN}"><img src="${fileIcon}"><br>${fileN
 									.replaceAll("<", "&lt;")
 									.replaceAll(">", "&gt;")}</button>`;
 						}
+					} else {
+						try {
+							if (fs.statSync(path.join(filePath, fileN)).isFile()) {
+								var fileIcon = "file.png";
+								var funcToUse = "downloadFile";
+							} else {
+								var fileIcon = "folder.png";
+								var funcToUse = "navigateFolder";
+							}
+						} catch {
+							var fileIcon = "adminfile.png";
+							var funcToUse = "alert";
+						}
+						var filesHTML =
+							filesHTML +
+							`<button class='fileButtons' onclick="${funcToUse}('${fileN}')" oncontextmenu="contextMenuF('${fileN}')" title="${fileN}">
+								<img src="${fileIcon}"><br>${fileN
+									.replaceAll("<", "&lt;")
+									.replaceAll(">", "&gt;")}</button>`;
 					}
-				} catch (e) {
-					zlog(e, "error");
-					res.send({
-						message: "no_permissions",
-					});
-					return;
 				}
+			} catch (e) {
+				zlog(e, "error");
 				res.send({
-					content: filesHTML,
+					message: "no_permissions",
 				});
-			} else {
-				res.status(403).send("You have no permissions to access this resource");
-			}
-		} else if (req.body.r == "deleteFile") {
-			// ? Deletes a file from the linux file system
-			if (!req.session.isAdmin) {
 				return;
 			}
+			res.send({
+				content: filesHTML,
+			});
+		} else if (req.body.r == "deleteFile") {
+			// ? Deletes a file from the linux file system
+
 			var filePath = req.body.path;
 			if (!filePath) {
 				res.status(400).send();
@@ -589,9 +568,7 @@ app.post(
 			}
 		} else if (req.body.r == "renameFile") {
 			// ? Renamve a file from the linux file system
-			if (!req.session.isAdmin) {
-				return;
-			}
+
 			var filePath = req.body.path;
 			var newName = req.body.newName;
 			if (!filePath || !newName) {
@@ -613,9 +590,6 @@ app.post(
 			// ? Send the entire package database to the front end
 			// * Early return if not admin
 
-			if (!req.session.isAdmin) {
-				return;
-			}
 			zlog("Request Package Database JSON", "info");
 			if (
 				!fs.existsSync(path.join(zentroxInstallationPath, "allPackages.txt"))
@@ -694,10 +668,6 @@ app.post(
 		} else if (req.body.r == "removePackage") {
 			// ? Remove package from the system using apt, dnf, pacman
 
-			if (!req.session.isAdmin) {
-				res.status(403).send("You have no permissions to access this resource");
-				return;
-			}
 			var packageName = req.body.packageName;
 			var rootPassword = req.body.sudoPassword;
 			if (!packageName || !rootPassword) {
@@ -716,10 +686,6 @@ app.post(
 		} else if (req.body.r == "installPackage") {
 			//? Install a package on the system
 
-			if (!req.session.isAdmin) {
-				res.status(403).send("You have no permissions to access this resource");
-				return;
-			}
 			var packageName = req.body.packageName;
 			var rootPassword = req.body.sudoPassword;
 			if (!packageName || !rootPassword) {
@@ -738,10 +704,7 @@ app.post(
 			}
 		} else if (req.body.r == "updateFTPconfig") {
 			// ? Change the FTP configuration on the system
-			if (!req.session.isAdmin) {
-				res.status(403).send("You have no permissions to access this resource");
-				return;
-			}
+
 			var enableFTP = req.body.enableFTP;
 			var zentroxUserPassword = req.session.zentroxPassword;
 			var enableDisable = req.body.enableDisable;
@@ -861,10 +824,6 @@ app.post(
 			res.send({});
 		} else if (req.body.r == "fetchFTPconfig") {
 			// ? Send the current FTP information
-			if (!req.session.isAdmin) {
-				res.status(403).send("You have no permissions to access this resource");
-				return;
-			}
 
 			res.send({
 				enabled:
@@ -883,10 +842,6 @@ app.post(
 			});
 		} else if (req.body.r == "driveInformation") {
 			// ? Send the current drive information to the frontent
-			if (!req.session.isAdmin) {
-				res.status(403).send("You have no permissions to access this resource");
-				return;
-			}
 			var driveName = req.body.driveName;
 
 			const dfOutput = chpr.execSync("df -P").toString("ascii");
@@ -901,9 +856,6 @@ app.post(
 				ussage: dfData,
 			});
 		} else if (req.body.r == "deviceInformation") {
-			if (!req.session.isAdmin) {
-				return;
-			}
 			const os_name = chpr
 				.execSync("lsb_release -d", { stdio: "pipe" })
 				.toString("ascii")
@@ -964,9 +916,6 @@ app.post(
 				temperature: system_temperature,
 			});
 		} else if (req.body.r == "power_off") {
-			if (!req.session.isAdmin) {
-				return;
-			}
 			var zentroxUserPassword = req.session.zentroxUserPassword;
 			if (!zentroxUserPassword) {
 				res.status(400).send();
@@ -983,9 +932,6 @@ app.post(
 			}, 500);
 			res.send({});
 		} else if (req.body.r == "vault_configure") {
-			if (!req.session.isAdmin) {
-				return;
-			}
 			if (
 				readDatabase(
 					path.join(zentroxInstallationPath, "config.db"),
@@ -1078,9 +1024,6 @@ app.post(
 				}
 			}
 		} else if (req.body.r == "vault_tree") {
-			if (!req.session.isAdmin) {
-				return;
-			}
 			var key = req.body.key;
 			if (!key) {
 				res.status(400).send({});
@@ -1128,9 +1071,6 @@ app.post(
 				res.send({ message: "decrypted", fs: entries });
 			});
 		} else if (req.body.r == "vault_file_download") {
-			if (!req.session.isAdmin) {
-				return;
-			}
 			var fpath = req.body.path;
 			var key = req.body.key;
 			if (!fpath || !key) {
@@ -1191,9 +1131,6 @@ app.post(
 				res.end(Buffer.from(data, "binary"));
 			});
 		} else if (req.body.r == "delete_vault_file") {
-			if (!req.session.isAdmin) {
-				return;
-			}
 			var key = req.body.key;
 			var deletePath = req.body.deletePath;
 			if (!key || !deletePath) {
@@ -1221,9 +1158,6 @@ app.post(
 				res.send({});
 			});
 		} else if (req.body.r == "renameVaultFile") {
-			if (!req.session.isAdmin) {
-				return;
-			}
 			var key = req.body.key;
 			var oldPath = req.body.path;
 			var newPath = req.body.newName;
@@ -1263,9 +1197,6 @@ app.post(
 				res.send({});
 			});
 		} else if (req.body.r == "vault_backup") {
-			if (!req.session.isAdmin) {
-				return;
-			}
 			data = fs.readFileSync(path.join(zentroxInstallationPath, "vault.vlt"));
 			res.writeHead(200, {
 				"Content-Type": "application/binary",
@@ -1276,9 +1207,7 @@ app.post(
 		} else if (req.body.r == "vault_new_folder") {
 			var key = req.body.key;
 			var folder_name = req.body.folder_name;
-			if (!req.session.isAdmin) {
-				return;
-			}
+
 			if (!key || !folder_name) {
 				res.status(400).send();
 				return;
@@ -1318,9 +1247,6 @@ app.post(
 				res.send({});
 			});
 		} else if (req.body.r == "fireWallInformation") {
-			if (!req.session.isAdmin) {
-				return;
-			}
 			var informationShell = new Shell(
 				"zentrox",
 				"sh",
@@ -1355,9 +1281,6 @@ app.post(
 				rules: rules,
 			});
 		} else if (req.body.r == "switchUFW") {
-			if (!req.session.isAdmin) {
-				return;
-			}
 			var ufwState = req.body.enableUFW;
 			if (typeof ufwState === "undefined") {
 				return;
@@ -1383,10 +1306,6 @@ app.post(
 			ufwShell.kill();
 			res.send({});
 		} else if (req.body.r == "deleteFireWallRule") {
-			if (!req.session.isAdmin) {
-				return;
-			}
-
 			var ruleIndex = req.body.index;
 
 			if (typeof ruleIndex === "undefined") {
@@ -1417,10 +1336,6 @@ app.post(
 			deleteRuleShell.kill();
 			res.send({});
 		} else if (req.body.r == "newFireWallRule") {
-			if (!req.session.isAdmin) {
-				return;
-			}
-
 			var ruleFrom = req.body.from;
 			var ruleTo = req.body.to;
 			var ruleAction = req.body.action;
@@ -1486,188 +1401,163 @@ app.post(
 	},
 );
 
-app.post(
-	"/upload/vault",
-	(req, res, next) => {
-		if (!req.session.isAdmin) {
-			res.status(403).send("Missing permissions");
+app.post("/upload/vault", isAdminMw, async (req, res, next) => {
+	var form = new multiparty.Form();
+	form.parse(req, (err, fields, files) => {
+		if (err) {
+			zlog(err, "error");
+			res.status(400).send({ message: "Failed to parse request" });
+		}
+		try {
+			var key = fields["key"][0];
+			var in_vault_path = fields["path"][0];
+		} catch (err) {
+			next(err);
 			return;
 		}
-		next();
-	},
-	async (req, res, next) => {
-		var form = new multiparty.Form();
-		form.parse(req, (err, fields, files) => {
-			if (err) {
-				zlog(err, "error");
-				res.status(400).send({ message: "Failed to parse request" });
-			}
+		if (!key) {
+			res.status(400).send({});
+			return;
+		}
+		var i = 0;
+		while (i != 1000) {
+			key = crypto.createHash("sha512").update(key).digest("hex");
+			i++;
+		}
+		try {
+			fs.copyFile(
+				path.join(zentroxInstallationPath, "vault.vlt"),
+				path.join(zentroxInstallationPath, "vault.vlt.bak"),
+				(err) => {
+					if (err) {
+						zlog(err, "error");
+						return;
+					}
+				},
+			);
+			decryptAESGCM256(path.join(zentroxInstallationPath, "vault.vlt"), key);
+		} catch (err) {
+			zlog(err, "error");
+			res.send({ message: "auth_failed" });
+			return;
+		}
+		try {
 			try {
-				var key = fields["key"][0];
-				var in_vault_path = fields["path"][0];
-			} catch (err) {
-				next(err);
+				var fpath = files["file"][0]["path"];
+				var ffilename = files["file"][0]["originalFilename"];
+			} catch {
+				res.status(400).send();
 				return;
 			}
-			if (!key) {
-				res.status(400).send({});
-				return;
-			}
-			var i = 0;
-			while (i != 1000) {
-				key = crypto.createHash("sha512").update(key).digest("hex");
-				i++;
-			}
-			try {
-				fs.copyFile(
-					path.join(zentroxInstallationPath, "vault.vlt"),
-					path.join(zentroxInstallationPath, "vault.vlt.bak"),
-					(err) => {
-						if (err) {
-							zlog(err, "error");
-							return;
-						}
-					},
-				);
-				decryptAESGCM256(path.join(zentroxInstallationPath, "vault.vlt"), key);
-			} catch (err) {
-				zlog(err, "error");
-				res.send({ message: "auth_failed" });
-				return;
-			}
-			try {
-				try {
-					var fpath = files["file"][0]["path"];
-					var ffilename = files["file"][0]["originalFilename"];
-				} catch {
-					res.status(400).send();
-					return;
-				}
-				var contents = [];
-				tar.t({
-					file: path.join(zentroxInstallationPath, "vault.vlt"),
-					onentry: (entry) => contents.push(entry.path),
-					sync: true,
-				});
+			var contents = [];
+			tar.t({
+				file: path.join(zentroxInstallationPath, "vault.vlt"),
+				onentry: (entry) => contents.push(entry.path),
+				sync: true,
+			});
 
-				while (
-					contents.includes(
-						path.join(in_vault_path, ffilename).replace("/", ""),
-					)
-				) {
-					var filenameSplit = ffilename.split(".");
-					ffilename =
-						filenameSplit[filenameSplit.length - 2] +
-						"_new." +
-						filenameSplit[filenameSplit.length - 1];
-				}
-				var new_path = path.join(
-					zentroxInstallationPath,
-					"vault_extract",
-					in_vault_path,
-					ffilename,
-				);
-				fs.mkdirSync(
-					path.join(zentroxInstallationPath, "vault_extract", in_vault_path),
-					{
-						recursive: true,
-					},
-				);
-				fs.copyFileSync(fpath, new_path);
+			while (
+				contents.includes(path.join(in_vault_path, ffilename).replace("/", ""))
+			) {
+				var filenameSplit = ffilename.split(".");
+				ffilename =
+					filenameSplit[filenameSplit.length - 2] +
+					"_new." +
+					filenameSplit[filenameSplit.length - 1];
+			}
+			var new_path = path.join(
+				zentroxInstallationPath,
+				"vault_extract",
+				in_vault_path,
+				ffilename,
+			);
+			fs.mkdirSync(
+				path.join(zentroxInstallationPath, "vault_extract", in_vault_path),
+				{
+					recursive: true,
+				},
+			);
+			fs.copyFileSync(fpath, new_path);
+			fs.writeFileSync(
+				new_path,
+				zlib.gzipSync(fs.readFileSync(new_path), {
+					level: 9,
+				}),
+			);
+			tar.update(
+				{
+					file: path.join(zentroxInstallationPath, "vault.vlt"),
+					sync: true,
+					cwd: path.join(zentroxInstallationPath, "vault_extract"),
+				},
+				[path.join(in_vault_path.replace("/", ""), ffilename)],
+			);
+		} catch (err) {
+			zlog(err, "error");
+			res.send({ message: err });
+			encryptAESGCM256(path.join(zentroxInstallationPath, "vault.vlt"), key);
+			return;
+		}
+
+		encryptAESGCM256(path.join(zentroxInstallationPath, "vault.vlt"), key);
+		deleteFilesRecursively(path.join(zentroxInstallationPath, "vault_extract"));
+		var j = 0;
+		while (j < 4) {
+			fs.writeFileSync(fpath, crypto.randomBytes(fs.statSync(fpath).size));
+			fs.writeFileSync(
+				path.join(zentroxInstallationPath, "vault.vlt.bak"),
+				crypto.randomBytes(
+					fs.statSync(path.join(zentroxInstallationPath, "vault.vlt.bak")).size,
+				),
+			);
+			if (fs.existsSync(new_path)) {
 				fs.writeFileSync(
 					new_path,
-					zlib.gzipSync(fs.readFileSync(new_path), {
-						level: 9,
-					}),
+					crypto.randomBytes(fs.statSync(new_path).size),
 				);
-				tar.update(
-					{
-						file: path.join(zentroxInstallationPath, "vault.vlt"),
-						sync: true,
-						cwd: path.join(zentroxInstallationPath, "vault_extract"),
-					},
-					[path.join(in_vault_path.replace("/", ""), ffilename)],
-				);
-			} catch (err) {
-				zlog(err, "error");
-				res.send({ message: err });
-				encryptAESGCM256(path.join(zentroxInstallationPath, "vault.vlt"), key);
-				return;
 			}
+			j++;
+		}
+		if (fs.existsSync(new_path)) {
+			fs.unlinkSync(new_path);
+		}
+		if (fs.existsSync(fpath)) {
+			fs.unlinkSync(fpath);
+		}
+		if (fs.existsSync(path.join(zentroxInstallationPath, "vault.vlt.bak"))) {
+			fs.unlinkSync(path.join(zentroxInstallationPath, "vault.vlt.bak"));
+		}
+		res.send({});
+	});
+});
 
-			encryptAESGCM256(path.join(zentroxInstallationPath, "vault.vlt"), key);
-			deleteFilesRecursively(
-				path.join(zentroxInstallationPath, "vault_extract"),
-			);
-			var j = 0;
-			while (j < 4) {
-				fs.writeFileSync(fpath, crypto.randomBytes(fs.statSync(fpath).size));
-				fs.writeFileSync(
-					path.join(zentroxInstallationPath, "vault.vlt.bak"),
-					crypto.randomBytes(
-						fs.statSync(path.join(zentroxInstallationPath, "vault.vlt.bak"))
-							.size,
-					),
-				);
-				if (fs.existsSync(new_path)) {
-					fs.writeFileSync(
-						new_path,
-						crypto.randomBytes(fs.statSync(new_path).size),
-					);
-				}
-				j++;
-			}
-			if (fs.existsSync(new_path)) {
-				fs.unlinkSync(new_path);
-			}
-			if (fs.existsSync(fpath)) {
-				fs.unlinkSync(fpath);
-			}
-			if (fs.existsSync(path.join(zentroxInstallationPath, "vault.vlt.bak"))) {
-				fs.unlinkSync(path.join(zentroxInstallationPath, "vault.vlt.bak"));
-			}
-			res.send({});
-		});
-	},
-);
-
-app.post(
-	"/upload/fs",
-	(req, res, next) => {
-		if (!req.session.isAdmin) {
-			res.status(403).send("Missing permissions");
+app.post("/upload/fs", isAdminMw, async (req, res, next) => {
+	var form = new multiparty.Form();
+	form.parse(req, (err, fields, files) => {
+		if (err) {
+			next(err);
+		}
+		try {
+			var systemPath = fields["filePath"][0];
+			var fileName = files["file"][0]["originalFilename"];
+			var fullPath = path.join(systemPath, fileName);
+			var tempPath = files["file"][0]["path"];
+		} catch (err) {
+			next(err);
 			return;
 		}
-		next();
-	},
-	async (req, res, next) => {
-		var form = new multiparty.Form();
-		form.parse(req, (err, fields, files) => {
-			if (err) {
-				next(err);
-			}
-			try {
-				var systemPath = fields["filePath"][0];
-				var fileName = files["file"][0]["originalFilename"];
-				var fullPath = path.join(systemPath, fileName);
-				var tempPath = files["file"][0]["path"];
-			} catch (err) {
-				next(err);
-				return;
-			}
-			while (fs.existsSync(fullPath)) {
-				var fullPathSplit = fullPath.split(".");
-				fullPath =
-					fullPathSplit[fullPathSplit.length - 2] +
-					"_new." +
-					fullPathSplit[fullPathSplit.length - 1];
-			}
-			fs.copyFileSync(tempPath, fullPath);
-			fs.unlinkSync(tempPath);
-			res.send({ message: "Uploaded" });
-		});
-	},
-);
+		while (fs.existsSync(fullPath)) {
+			var fullPathSplit = fullPath.split(".");
+			fullPath =
+				fullPathSplit[fullPathSplit.length - 2] +
+				"_new." +
+				fullPathSplit[fullPathSplit.length - 1];
+		}
+		fs.copyFileSync(tempPath, fullPath);
+		fs.unlinkSync(tempPath);
+		res.send({ message: "Uploaded" });
+	});
+});
 
 process.on("beforeExit", function () {
 	zlog("Process exiting...");
