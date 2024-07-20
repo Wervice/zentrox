@@ -427,18 +427,19 @@ app.get("/api/driveList", isAdminMw, async (req, res) => {
 	});
 });
 
-app.get("/api/callFile", isAdminMw, async (req, res) => {
+app.get("/api/callFile/:file", isAdminMw, async (req, res) => {
+	var file = req.params.file
 	res
 		.set({
 			"Content-Disposition": `attachment; filename=${path.basename(
-				atob(req.query["file"]),
+				atob(file),
 			)}`,
 		})
-		.sendFile(atob(req.query["file"]));
+		.sendFile(atob(file));
 });
 
-app.get("/api/deleteUser", isAdminMw, async (req, res) => {
-	var username = req.body.username;
+app.get("/api/deleteUser/:username", isAdminMw, async (req, res) => {
+	var username = req.params.username
 	if (!username) {
 		res.status(400).send();
 		return;
@@ -480,19 +481,20 @@ app.get("/api/userList", isAdminMw, async (req, res) => {
 	});
 });
 
-app.get("/api/filesRender", isAdminMw, async (req, res) => {
-	var filePath = req.body.path;
+app.get("/api/filesRender/:path/:showHiddenFiles", isAdminMw, async (req, res) => {
+	var filePath = decodeURIComponent(req.params.path);
 	if (!filePath) {
 		res.status(400).send();
 		return;
 	}
 	var filesHTML = "";
+	var fileN;
 	try {
 		for (fileN of fs.readdirSync(filePath)) {
 			if (fileN[0] == ".") {
 				if (
-					req.body.showHiddenFiles == true ||
-					req.body.showHiddenFiles == "on"
+					req.params.showHiddenFiles == true ||
+					req.params.showHiddenFiles == "on"
 				) {
 					try {
 						if (fs.statSync(path.join(filePath, fileN)).isFile()) {
@@ -545,8 +547,8 @@ app.get("/api/filesRender", isAdminMw, async (req, res) => {
 	});
 });
 
-app.get("/api/deleteFile", isAdminMw, async (req, res) => {
-	var filePath = req.body.path;
+app.get("/api/deleteFile/*", isAdminMw, async (req, res) => {
+	var filePath = req.params[0];
 	if (!filePath) {
 		res.status(400).send();
 		return;
@@ -562,9 +564,9 @@ app.get("/api/deleteFile", isAdminMw, async (req, res) => {
 	}
 });
 
-app.get("/api/renameFile", isAdminMw, async (req, res) => {
-	var filePath = req.body.path;
-	var newName = req.body.newName;
+app.get("/api/renameFile/:oldPath/:newName", isAdminMw, async (req, res) => {
+	var filePath = decodeURIComponent(req.params.oldPath);
+	var newName = decodeURIComponent(req.params.newName);
 	if (!filePath || !newName) {
 		res.status(400).send();
 		return;
@@ -661,10 +663,10 @@ app.get("/api/packageDatabaseAutoremove", isAdminMw, async (req, res) => {
 	});
 });
 
-app.get("/api/removePackage", isAdminMw, async (req, res) => {
+app.post("/api/removePackage/:packageName", isAdminMw, async (req, res) => {
 	// ? Remove package from the system using apt, dnf, pacman
 
-	var packageName = req.body.packageName;
+	var packageName = decodeURIComponent(req.params.packageName);
 	var rootPassword = req.body.sudoPassword;
 	if (!packageName || !rootPassword) {
 		res.status(400).send();
@@ -681,10 +683,10 @@ app.get("/api/removePackage", isAdminMw, async (req, res) => {
 	}
 });
 
-app.get("/api/installPackage", isAdminMw, async (req, res) => {
+app.post("/api/installPackage/:packageName", isAdminMw, async (req, res) => {
 	//? Install a package on the system
 
-	var packageName = req.body.packageName;
+	var packageName = decodeURIComponent(req.params.packageName);
 	var rootPassword = req.body.sudoPassword;
 	if (!packageName || !rootPassword) {
 		res.status(400).send();
@@ -702,7 +704,7 @@ app.get("/api/installPackage", isAdminMw, async (req, res) => {
 	}
 });
 
-app.get("/api/updateFTPConfig", isAdminMw, async (req, res) => {
+app.post("/api/updateFTPConfig", isAdminMw, async (req, res) => {
 	// ? Change the FTP configuration on the system
 
 	var enableFTP = req.body.enableFTP;
@@ -836,9 +838,9 @@ app.get("/api/fetchFTPconfig", isAdminMw, async (req, res) => {
 	});
 });
 
-app.get("/api/driveInformation", isAdminMw, async (req, res) => {
+app.get("/api/driveInformation/:driveName", isAdminMw, async (req, res) => {
 	// ? Send the current drive information to the frontent
-	var driveName = req.body.driveName;
+	var driveName = decodeURIComponent(req.params.driveName);
 
 	const dfOutput = chpr.execSync("df -P").toString("ascii");
 	const dfLines = dfOutput.trim().split("\n").slice(1); // ? Split output by lines, removing header
@@ -933,7 +935,7 @@ app.get("/api/powerOff", isAdminMw, async (req, res) => {
 	res.send({});
 });
 
-app.get("/api/vaultConfigure", isAdminMw, async (req, res) => {
+app.post("/api/vaultConfigure", isAdminMw, async (req, res) => {
 	if (
 		readDatabase(
 			path.join(zentroxInstallationPath, "config.db"),
@@ -1024,7 +1026,7 @@ app.get("/api/vaultConfigure", isAdminMw, async (req, res) => {
 	}
 });
 
-app.get("/api/vaultTree", isAdminMw, async (req, res) => {
+app.post("/api/vaultTree", isAdminMw, async (req, res) => {
 	var key = req.body.key;
 	if (!key) {
 		res.status(400).send({});
@@ -1070,7 +1072,7 @@ app.get("/api/vaultTree", isAdminMw, async (req, res) => {
 	});
 });
 
-app.get("/api/vaultFileDownload", isAdminMw, async (req, res) => {
+app.post("/api/vaultFileDownload", isAdminMw, async (req, res) => {
 	var fpath = req.body.path;
 	var key = req.body.key;
 	if (!fpath || !key) {
@@ -1130,7 +1132,7 @@ app.get("/api/vaultFileDownload", isAdminMw, async (req, res) => {
 	});
 });
 
-app.get("/api/deleteVaultFile", isAdminMw, async (req, res) => {
+app.post("/api/deleteVaultFile", isAdminMw, async (req, res) => {
 	var key = req.body.key;
 	var deletePath = req.body.deletePath;
 	if (!key || !deletePath) {
@@ -1159,7 +1161,7 @@ app.get("/api/deleteVaultFile", isAdminMw, async (req, res) => {
 	});
 });
 
-app.get("/api/renameVaultFile", isAdminMw, async (req, res) => {
+app.post("/api/renameVaultFile", isAdminMw, async (req, res) => {
 	var key = req.body.key;
 	var oldPath = req.body.path;
 	var newPath = req.body.newName;
@@ -1207,7 +1209,7 @@ app.get("/api/vaultBackup", isAdminMw, async (req, res) => {
 	res.end(Buffer.from(data, "binary"));
 });
 
-app.get("/api/vaultNewFolder", isAdminMw, async (req, res) => {
+app.post("/api/vaultNewFolder", isAdminMw, async (req, res) => {
 	var key = req.body.key;
 	var folder_name = req.body.folder_name;
 
@@ -1281,8 +1283,8 @@ app.get("/api/fireWallInformation", isAdminMw, async (req, res) => {
 	});
 });
 
-app.get("/api/switchUFW", isAdminMw, async (req, res) => {
-	var ufwState = req.body.enableUFW;
+app.get("/api/switchUFW/:enable", isAdminMw, async (req, res) => {
+	var ufwState = req.params.enable === "true";
 	if (typeof ufwState === "undefined") {
 		return;
 	}
@@ -1308,8 +1310,8 @@ app.get("/api/switchUFW", isAdminMw, async (req, res) => {
 	res.send({});
 });
 
-app.get("/api/deleteFireWallRule", isAdminMw, async (req, res) => {
-	var ruleIndex = req.body.index;
+app.get("/api/deleteFireWallRule/:index", isAdminMw, async (req, res) => {
+	var ruleIndex = req.params.index;
 
 	if (typeof ruleIndex === "undefined") {
 		return;
@@ -1338,10 +1340,10 @@ app.get("/api/deleteFireWallRule", isAdminMw, async (req, res) => {
 	res.send({});
 });
 
-app.get("/api/newFireWallRule", isAdminMw, async (req, body) => {
-	var ruleFrom = req.body.from;
-	var ruleTo = req.body.to;
-	var ruleAction = req.body.action;
+app.get("/api/newFireWallRule/:from/:to/:action", isAdminMw, async (req, body) => {
+	var ruleFrom = decodeURIComponent(req.params.from);
+	var ruleTo = decodeURIComponent(req.params.to);
+	var ruleAction = decodeURIComponent(req.params.action);
 	zlog(ruleAction);
 	if (!ruleAction) {
 		return;
