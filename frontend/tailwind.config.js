@@ -24,7 +24,6 @@ module.exports = {
 				background: "hsl(var(--background))",
 				foreground: "hsl(var(--foreground))",
 				primary: {
-					// This one changes buttons n stuff
 					DEFAULT: "#222",
 					foreground: "hsl(var(--primary-foreground))",
 				},
@@ -53,12 +52,10 @@ module.exports = {
 					foreground: "hsl(var(--card-foreground))",
 				},
 			},
-			borderRadius: {
-				lg: "var(--radius)",
-				md: "calc(var(--radius) - 2px)",
-				sm: "calc(var(--radius) - 4px)",
-			},
 			keyframes: {
+				"expand-width": {
+					"0%": { width: "0px" },
+				},
 				"accordion-down": {
 					from: { height: "0" },
 					to: { height: "var(--radix-accordion-content-height)" },
@@ -69,8 +66,14 @@ module.exports = {
 				},
 			},
 			animation: {
+				"expand-width": "expand-width 0.75s ease-in-out",
 				"accordion-down": "accordion-down 0.2s ease-out",
 				"accordion-up": "accordion-up 0.2s ease-out",
+			},
+			borderRadius: {
+				lg: "var(--radius)",
+				md: "calc(var(--radius) - 2px)",
+				sm: "calc(var(--radius) - 4px)",
 			},
 		},
 	},

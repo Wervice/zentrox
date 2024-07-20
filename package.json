@@ -149,6 +149,7 @@
 		"range-parser": "^1.2.1",
 		"raw-body": "^2.5.2",
 		"rcedit": "^2.3.0",
+		"react-table": "^7.8.0",
 		"readable-stream": "^3.6.2",
 		"recursive-copy": "^2.0.14",
 		"rimraf": "^3.0.2",

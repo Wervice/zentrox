@@ -428,7 +428,7 @@ app.get("/api/driveList", isAdminMw, async (req, res) => {
 });
 
 app.get("/api/callFile/:file", isAdminMw, async (req, res) => {
-	var file = req.params.file
+	var file = req.params.file;
 	res
 		.set({
 			"Content-Disposition": `attachment; filename=${path.basename(
@@ -439,7 +439,7 @@ app.get("/api/callFile/:file", isAdminMw, async (req, res) => {
 });
 
 app.get("/api/deleteUser/:username", isAdminMw, async (req, res) => {
-	var username = req.params.username
+	var username = req.params.username;
 	if (!username) {
 		res.status(400).send();
 		return;
@@ -481,21 +481,43 @@ app.get("/api/userList", isAdminMw, async (req, res) => {
 	});
 });
 
-app.get("/api/filesRender/:path/:showHiddenFiles", isAdminMw, async (req, res) => {
-	var filePath = decodeURIComponent(req.params.path);
-	if (!filePath) {
-		res.status(400).send();
-		return;
-	}
-	var filesHTML = "";
-	var fileN;
-	try {
-		for (fileN of fs.readdirSync(filePath)) {
-			if (fileN[0] == ".") {
-				if (
-					req.params.showHiddenFiles == true ||
-					req.params.showHiddenFiles == "on"
-				) {
+app.get(
+	"/api/filesRender/:path/:showHiddenFiles",
+	isAdminMw,
+	async (req, res) => {
+		var filePath = decodeURIComponent(req.params.path);
+		if (!filePath) {
+			res.status(400).send();
+			return;
+		}
+		var filesHTML = "";
+		var fileN;
+		try {
+			for (fileN of fs.readdirSync(filePath)) {
+				if (fileN[0] == ".") {
+					if (
+						req.params.showHiddenFiles == true ||
+						req.params.showHiddenFiles == "on"
+					) {
+						try {
+							if (fs.statSync(path.join(filePath, fileN)).isFile()) {
+								var fileIcon = "file.png";
+								var funcToUse = "downloadFile";
+							} else {
+								var fileIcon = "folder.png";
+								var funcToUse = "navigateFolder";
+							}
+						} catch {
+							var fileIcon = "adminfile.png";
+							var funcToUse = "alert";
+						}
+						var filesHTML =
+							filesHTML +
+							`<button class='fileButtons' onclick="${funcToUse}('${fileN}')" oncontextmenu="contextMenuF('${fileN}')" title="${fileN}"><img src="${fileIcon}"><br>${fileN
+								.replaceAll("<", "&lt;")
+								.replaceAll(">", "&gt;")}</button>`;
+					}
+				} else {
 					try {
 						if (fs.statSync(path.join(filePath, fileN)).isFile()) {
 							var fileIcon = "file.png";
@@ -510,42 +532,24 @@ app.get("/api/filesRender/:path/:showHiddenFiles", isAdminMw, async (req, res) =
 					}
 					var filesHTML =
 						filesHTML +
-						`<button class='fileButtons' onclick="${funcToUse}('${fileN}')" oncontextmenu="contextMenuF('${fileN}')" title="${fileN}"><img src="${fileIcon}"><br>${fileN
-							.replaceAll("<", "&lt;")
-							.replaceAll(">", "&gt;")}</button>`;
-				}
-			} else {
-				try {
-					if (fs.statSync(path.join(filePath, fileN)).isFile()) {
-						var fileIcon = "file.png";
-						var funcToUse = "downloadFile";
-					} else {
-						var fileIcon = "folder.png";
-						var funcToUse = "navigateFolder";
-					}
-				} catch {
-					var fileIcon = "adminfile.png";
-					var funcToUse = "alert";
-				}
-				var filesHTML =
-					filesHTML +
-					`<button class='fileButtons' onclick="${funcToUse}('${fileN}')" oncontextmenu="contextMenuF('${fileN}')" title="${fileN}">
+						`<button class='fileButtons' onclick="${funcToUse}('${fileN}')" oncontextmenu="contextMenuF('${fileN}')" title="${fileN}">
 								<img src="${fileIcon}"><br>${fileN
 									.replaceAll("<", "&lt;")
 									.replaceAll(">", "&gt;")}</button>`;
+				}
 			}
+		} catch (e) {
+			zlog(e, "error");
+			res.send({
+				message: "no_permissions",
+			});
+			return;
 		}
-	} catch (e) {
-		zlog(e, "error");
 		res.send({
-			message: "no_permissions",
+			content: filesHTML,
 		});
-		return;
-	}
-	res.send({
-		content: filesHTML,
-	});
-});
+	},
+);
 
 app.get("/api/deleteFile/*", isAdminMw, async (req, res) => {
 	var filePath = req.params[0];
@@ -1340,62 +1344,66 @@ app.get("/api/deleteFireWallRule/:index", isAdminMw, async (req, res) => {
 	res.send({});
 });
 
-app.get("/api/newFireWallRule/:from/:to/:action", isAdminMw, async (req, body) => {
-	var ruleFrom = decodeURIComponent(req.params.from);
-	var ruleTo = decodeURIComponent(req.params.to);
-	var ruleAction = decodeURIComponent(req.params.action);
-	zlog(ruleAction);
-	if (!ruleAction) {
-		return;
-	}
-	const newRuleShell = new Shell(
-		"zentrox",
-		"sh",
-		req.session.zentroxPassword,
-		() => {},
-		true,
-		20000,
-		true,
-	);
-	if (!ruleFrom) {
-		ruleFrom = "any";
-	}
-	if (!ruleTo) {
-		ruleTo = "any";
-	}
-	ruleFrom = ruleFrom.replaceAll(";", "");
-	ruleTo = ruleTo.replaceAll(";", "");
-	const ipRegex =
-		/^(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(\.(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3}$/;
-	const portRegex = /^[a-zA-Z0-9 :]*$/;
-	if (!ipRegex.test(ruleFrom)) {
-		res.status(500).send({
-			msg: "Malformed IP",
-		});
-		return;
-	}
-	if (!portRegex.test(ruleTo)) {
-		res.send({
-			msg: "Malformed port",
-		});
-		return;
-	}
-	try {
-		var newRuleCommandOutput = await newRuleShell.write(
-			`ufw ${ruleAction} from ${ruleFrom} to any port ${ruleTo}\n`,
+app.get(
+	"/api/newFireWallRule/:from/:to/:action",
+	isAdminMw,
+	async (req, body) => {
+		var ruleFrom = decodeURIComponent(req.params.from);
+		var ruleTo = decodeURIComponent(req.params.to);
+		var ruleAction = decodeURIComponent(req.params.action);
+		zlog(ruleAction);
+		if (!ruleAction) {
+			return;
+		}
+		const newRuleShell = new Shell(
+			"zentrox",
+			"sh",
+			req.session.zentroxPassword,
+			() => {},
+			true,
+			20000,
+			true,
 		);
-	} catch (err) {
+		if (!ruleFrom) {
+			ruleFrom = "any";
+		}
+		if (!ruleTo) {
+			ruleTo = "any";
+		}
+		ruleFrom = ruleFrom.replaceAll(";", "");
+		ruleTo = ruleTo.replaceAll(";", "");
+		const ipRegex =
+			/^(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(\.(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3}$/;
+		const portRegex = /^[a-zA-Z0-9 :]*$/;
+		if (!ipRegex.test(ruleFrom)) {
+			res.status(500).send({
+				msg: "Malformed IP",
+			});
+			return;
+		}
+		if (!portRegex.test(ruleTo)) {
+			res.send({
+				msg: "Malformed port",
+			});
+			return;
+		}
+		try {
+			var newRuleCommandOutput = await newRuleShell.write(
+				`ufw ${ruleAction} from ${ruleFrom} to any port ${ruleTo}\n`,
+			);
+		} catch (err) {
+			newRuleShell.kill();
+			res.status(500).send({
+				msg: err,
+			});
+			return;
+		}
 		newRuleShell.kill();
-		res.status(500).send({
-			msg: err,
+		res.send({
+			commandOutput: newRuleCommandOutput,
 		});
-		return;
-	}
-	newRuleShell.kill();
-	res.send({
-		commandOutput: newRuleCommandOutput,
-	});
-});
+	},
+);
 
 app.get("/api/mwOk", isAdminMw, async (req, res) => {
 	res.send("If you are not logged in, you should not have gotten a response.");
