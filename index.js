@@ -649,9 +649,9 @@ app.get("/api/packageDatabase", isAdminMw, async (req, res) => {
 	try {
 		res.send({
 			content: JSON.stringify({
-				gui: guiApplications,
-				any: allInstalledPackages,
-				all: allOtherPackages,
+				apps: guiApplications, // .desktop files, but parsed
+				packages: allInstalledPackages, // Everything the package manager says that it is on the system
+				others: allOtherPackages, // Everything that is not in any
 			}), // * Sends GUI applications and installed packages as JSON
 		});
 	} catch (err) {
@@ -691,19 +691,17 @@ app.post("/api/installPackage/:packageName", isAdminMw, async (req, res) => {
 	//? Install a package on the system
 
 	var packageName = decodeURIComponent(req.params.packageName);
-	var rootPassword = req.body.sudoPassword;
+	var zentroxUserPassword = req.session.zentroxPassword
 	if (!packageName || !rootPassword) {
 		res.status(400).send();
 		return;
 	}
-	zlog("Install package " + req.body.packageName, "info");
-	if (installPackage(packageName, rootPassword)) {
-		res.send({
-			status: "s",
-		});
+	zlog("Install package " + packageName, "info");
+	if (installPackage(packageName, zentroxUserPassword)) {
+		res.send({});
 		zlog("Installed package " + packageName, "info");
 	} else {
-		res.status(500).send({});
+		res.status(400).send({});
 		zlog("Failed to install package " + packageName, "error");
 	}
 });
@@ -714,8 +712,11 @@ app.post("/api/updateFTPConfig", isAdminMw, async (req, res) => {
 	var enableFTP = req.body.enableFTP;
 	var zentroxUserPassword = req.session.zentroxPassword;
 	var enableDisable = req.body.enableDisable;
-	if (typeof enableFTP === "undefined" || typeof enableDisable == "undefined") {
-		res.status(400).send();
+	if (
+		typeof enableFTP === "undefined" ||
+		typeof enableDisable === "undefined"
+	) {
+		res.status(400).send({});
 		return;
 	}
 	zlog("Change FTP Settings");
@@ -732,12 +733,24 @@ app.post("/api/updateFTPConfig", isAdminMw, async (req, res) => {
 			} else {
 				var killDelay = 3000;
 			}
-			setTimeout(async () => {
-				await killShell.write(
-					`sudo kill ${readDatabase(path.join(zentroxInstallationPath, "config.db"), "ftp_pid")}\n`,
+			try {
+				var ftpServerPid = readDatabase(
+					path.join(zentroxInstallationPath, "config.db"),
+					"ftp_pid",
 				);
-				killShell.kill();
-			}, killDelay);
+				if (ftpServerPid == "") {
+					res.send({})
+					return;
+				}
+				setTimeout(async () => {
+					await killShell.write(
+						`sudo kill ${ftpServerPid}\n`,
+					);
+					killShell.kill();
+				}, killDelay);
+			} catch (e) {
+				zlog(e, "error");
+			}
 		} catch (e) {
 			zlog(e, "error");
 		}

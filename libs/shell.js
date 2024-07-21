@@ -77,7 +77,11 @@ module.exports = class Shell {
 			this.s_process.stdout.on("data", handleStdout);
 			this.s_process.stderr.on("data", handleStderr);
 
-			this.s_process.stdin.write(command);
+			try {
+				this.s_process.stdin.write(command);
+			} catch (err) {
+				zlog(err, "error");
+			}
 		});
 	}
 

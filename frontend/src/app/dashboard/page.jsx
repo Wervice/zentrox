@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button.jsx";
-import TopBarInformative from "@/components/ui/TopBarInformative";
+import { Checkbox } from "@/components/ui/checkbox.jsx";
 import {
 	ComputerIcon,
 	CpuIcon,
@@ -10,14 +10,20 @@ import {
 	LogOut,
 	MemoryStickIcon,
 	MonitorIcon,
-	MonitorUpIcon,
-	MonitorX,
 	Network,
 	PieChart,
 	Plug,
 	TableIcon,
 	Thermometer,
 	WatchIcon,
+	Share2,
+	UploadIcon,
+	HardDriveIcon,
+	AppWindow,
+	Package2,
+	Loader2,
+	CircleX,
+	CircleCheck,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Label } from "@/components/ui/label";
@@ -25,8 +31,17 @@ import { SideWayBarChart } from "@/components/ui/Charts.jsx";
 import { useInterval } from "usehooks-ts";
 import { table, tr, td, tbody } from "react-table";
 import "./table.css";
+import Spinner from "@/components/ui/Spinner.jsx";
+import StatCard from "@/components/ui/StatCard.jsx";
+import { Input } from "@/components/ui/input";
+import { Toaster } from "@/components/ui/toaster";
+import { useToast } from "@/components/ui/use-toast";
 
-const fetchURLPrefix = "https://localhost:3000"; // I need this while developing
+const fetchURLPrefix = "https://localhost:3000";
+
+if (fetchURLPrefix.length > 0) {
+	console.error("Fetch URL Prefix is enabled");
+}
 
 function TopBar({ children }) {
 	return (
@@ -129,6 +144,21 @@ function Overview() {
 		});
 	}
 
+	function ftpStatusFetch() {
+		fetch(fetchURLPrefix + "/api/fetchFTPconfig", {
+			method: "GET",
+			headers: {
+				"Content-Type": "application/json",
+			},
+		}).then((res) => {
+			if (res.ok) {
+				res.json().then((json) => {
+					setFtpEnabled(json["enabled"]);
+				});
+			}
+		});
+	}
+
 	const [cpuUssagePercent, setCpuUssagePercent] = useState(0);
 	const [ramUssagePercent, setRamUssagePercent] = useState(0);
 	const [diskUssagePercent, setDiskUssagePercent] = useState(0);
@@ -141,9 +171,19 @@ function Overview() {
 		uptime: "",
 		temperature: "",
 	});
-
-	useInterval(() => overviewFetch(), 5000);
-	useEffect(() => overviewFetch(), []);
+	const [ftpEnabled, setFtpEnabled] = useState(false);
+	const [updatingFTP, setUpdatingFTP] = useState(false);
+	const [ftpEnableSpinner, setFtpEnableSpinner] = useState(false);
+	useInterval(() => overviewFetch(), 2500);
+	useInterval(() => {
+		if (!updatingFTP) {
+			ftpStatusFetch();
+		}
+	}, 5000);
+	useEffect(() => {
+		overviewFetch();
+		ftpStatusFetch();
+	}, []);
 	return (
 		<Page name="Overview" className="align-top">
 			<div className="h-72">
@@ -234,9 +274,260 @@ function Overview() {
 						</tbody>
 					</table>
 				</div>
+				<div className="inline-block align-top w-48 h-full p-4 rounded-2xl border border-neutral-700 m-2">
+					<Label className="text-lg">Servers</Label>
+					<br />
+					<Checkbox
+						checked={ftpEnabled}
+						id="ftpEnabled"
+						onClick={(e) => {
+							setFtpEnabled(!ftpEnabled);
+							setFtpEnableSpinner(true);
+							setUpdatingFTP(true);
+							e.target.disabled = true;
+							fetch(fetchURLPrefix + "/api/updateFTPConfig", {
+								method: "POST",
+								headers: {
+									"Content-Type": "application/json",
+								},
+								body: JSON.stringify({
+									enableFTP: !ftpEnabled,
+									enableDisable: true,
+								}),
+							}).then((res) => {
+								setTimeout(() => {
+									ftpStatusFetch();
+									setUpdatingFTP(false);
+									setFtpEnableSpinner(false);
+									e.target.disabled = false;
+								}, 2000);
+							});
+						}}
+					/>{" "}
+					<label htmlFor="ftpEnabled">
+						<Share2 className="inline-block h-4 w-4" />{" "}
+						<Spinner visible={ftpEnableSpinner} /> FTP Server
+					</label>
+				</div>
 			</div>
 		</Page>
 	);
+}
+
+function Packages() {
+	const { toast } = useToast();
+	function fetchPackageList() {
+		if (
+			installedPackages.length + installedApps.length + otherPackages.length !==
+			0
+		)
+			return;
+		fetch(fetchURLPrefix + "/api/packageDatabase", {
+			headers: {
+				"Content-Type": "application/json",
+			},
+		}).then((res) => {
+			if (res.ok) {
+				res.json().then((json) => {
+					var content = JSON.parse(json["content"]);
+					setInstalledPackages(Array.from(content["packages"]));
+					setInstalledApps(Array.from(content["apps"]));
+					setOtherPackages(Array.from(content["others"]));
+					setVisibility(true);
+				});
+			} else {
+				toast({
+					title: "Package Database Error",
+					message: "Zentrox failed to retrieve a list of packages",
+				});
+				setVisibility(false);
+			}
+		});
+	}
+
+	function installPackage(packageName, stateFn) {
+		stateFn("working");
+		fetch(
+			fetchURLPrefix + "/api/installPackage/" + encodeURIComponent(packageName),
+		).then((res) => {
+			if (!res.ok) {
+				stateFn("failed");
+			} else {
+				stateFn("done");
+			}
+		});
+	}
+
+	function removePackage() {
+		stateFn("working");
+		fetch(
+			fetchURLPrefix + "/api/installPackage/" + encodeURIComponent(packageName),
+		).then((res) => {
+			if (!res.ok) {
+				stateFn("failed");
+			} else {
+				stateFn("done");
+			}
+		});
+	}
+
+	function PackageBox({ packageName, task }, key) {
+		const [buttonState, setButtonState] = useState("default");
+		return (
+			<div
+				className="inline-block p-4 m-2 w-72 h-24 border border-neutral-600 md:w-52 text-white rounded-sm align-top relative"
+				title={packageName}
+			>
+				<span className="block mb-1">
+					{packageName.length > 20
+						? packageName.substring(0, 17) + "..."
+						: packageName}
+				</span>
+				<Button
+					className="block right-2 bottom-2 absolute"
+					variant={task == "remove" ? "destructive" : "default"}
+					onClick={(function () {
+						if (task === "remove") {
+							return () => {
+								removePackage(packageName, setButtonState);
+							};
+						} else if (task === "install") {
+							return () => {
+								installPackage(packageName, setButtonState);
+							};
+						}
+					})()}
+				>
+					{(function () {
+						if (task === "remove" && buttonState === "default") {
+							return "Remove";
+						} else if (task === "install" && buttonState === "default") {
+							return "Install";
+						} else if (buttonState === "working") {
+							return (
+								<>
+									<Loader2 className="h-4 w-4 inline-block animate-spin" />{" "}
+									Working
+								</>
+							);
+						} else if (buttonState === "failed") {
+							return (
+								<>
+									<CircleX className="h-4 w-4 inline-block text-red-500" />{" "}
+									Failed
+								</>
+							);
+						} else if (buttonState === "done") {
+							return (
+								<>
+									<CircleCheck className="w-4 h-4 inline-block text-green-800" />{" "}
+									Done
+								</>
+							);
+						}
+					})()}
+				</Button>
+			</div>
+		);
+	}
+
+	const [installedPackages, setInstalledPackages] = useState([]);
+	const [installedApps, setInstalledApps] = useState([]);
+	const [otherPackages, setOtherPackages] = useState([]);
+	const [visible, setVisibility] = useState(false);
+	const [packageSearchValue, setPackageSearchValue] = useState("");
+
+	useEffect(() => fetchPackageList(), []);
+
+	if (visible) {
+		if (packageSearchValue.length > 2) {
+			var PackageView = (
+				<>
+					{installedPackages
+						.filter((pkg) => {
+							if (pkg == "Available") return false;
+							if (pkg.length === 0) return false;
+							if (pkg.includes(packageSearchValue)) {
+								return true;
+							}
+							return false;
+						})
+						.sort((pkg) => {
+							if (pkg == packageSearchValue) return -1;
+							return +1;
+						})
+						.map((pkg, i) => {
+							return (
+								<PackageBox
+									packageName={pkg.split(".")[0]}
+									task="remove"
+									key={i}
+								></PackageBox>
+							);
+						})}
+					{otherPackages
+						.filter((pkg) => {
+							if (pkg == "Available") return false;
+							if (pkg.length === 0) return false;
+							if (pkg.includes(packageSearchValue)) {
+								return true;
+							}
+							return false;
+						})
+						.sort((pkg) => {
+							if (pkg == packageSearchValue) return -1;
+							return +1;
+						})
+						.map((pkg, i) => {
+							return (
+								<PackageBox
+									packageName={pkg.split(".")[0]}
+									task="install"
+									key={i}
+								></PackageBox>
+							);
+						})}
+				</>
+			);
+		} else {
+			var PackageView = <></>;
+		}
+		return (
+			<Page name="Packages">
+				<StatCard
+					name="Installed Packages"
+					value={installedPackages.length}
+					Icon={<HardDriveIcon className="h-5 w-5 inline-block" />}
+				/>
+				<StatCard
+					name="Installed Apps"
+					value={installedApps.length}
+					Icon={<AppWindow className="h-5 w-5 inline-block" />}
+				/>
+				<StatCard
+					name="Other Packages"
+					value={otherPackages.length}
+					Icon={<Package2 className="h-5 w-5 inline-block" />}
+				/>
+				<br />
+				<Input
+					placeholder="Search for package"
+					onChange={(e) => {
+						setPackageSearchValue(e.target.value);
+					}}
+					className="mt-2"
+				/>
+				<br />
+				{PackageView}
+			</Page>
+		);
+	} else {
+		return (
+			<div className="p-auto pt-5">
+				<Loader2 className="animate-spin m-auto w-20 h-20" />
+			</div>
+		);
+	}
 }
 
 export default function Dashboard() {
@@ -246,12 +537,13 @@ export default function Dashboard() {
 		if (activeTab == "Overview") {
 			return Overview();
 		} else if (activeTab == "Packages") {
-			return <Page name="Packages">DEF</Page>;
+			return Packages();
 		}
 	}
 
 	return (
 		<main className="h-screen w-screen overflow-hidden p-0 m-0 flex flex-col">
+			<Toaster />
 			<TopBar>
 				<span
 					className="p-2 pl-4 pr-4 border border-neutral-700 cursor-pointer rounded transition-all content-center inline-block text-lg font-normal"

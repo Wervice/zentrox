@@ -16,9 +16,13 @@ import Caption from "@/components/ui/Caption.jsx";
 import TopBarInformative from "@/components/ui/TopBarInformative.jsx";
 import Image from "@/components/ui/Image.jsx";
 import { useEffect, useState } from "react";
-import { KeyIcon, LockIcon, LockKeyholeIcon, User } from "lucide-react";
+import { KeyIcon, LockKeyholeIcon, User } from "lucide-react";
 
 const fetchURLPrefix = "https://localhost:3000";
+
+if (fetchURLPrefix.length > 0) {
+	console.error("Fetch URL Prefix is enabled")
+}
 
 fetch(fetchURLPrefix + "/login/otpSecret", {}).then((res) => {
 	if (res.ok) {
