@@ -210,7 +210,7 @@ const noStdout = true;
 const fs = require("fs");
 const chpr = require("child_process");
 const path = require("path");
-
+const Shell = require("./shell.js")
 const zlog = require("./zlog");
 
 if (noStdout) {
@@ -233,7 +233,7 @@ if (releaseInfo.includes("debian") || releaseInfo.includes("ubuntu")) {
 	p_manager = "apt";
 	listInstalledCommand = "apt list --installed";
 	listCommand = "apt list";
-	installedCommand = "apt install PCKG -y";
+	installCommand = "apt install PCKG -y";
 	listAutoRemoveCommand = "apt list -s autoremove -q";
 	removeCommand = "apt remove PCKG -y";
 	supported_os = true;
@@ -242,7 +242,7 @@ if (releaseInfo.includes("debian") || releaseInfo.includes("ubuntu")) {
 	listInstalledCommand = "dnf list --installed -q";
 	listCommand = "dnf list -q";
 	listAutoRemoveCommand = "dnf list --autoremove -q";
-	installedCommand = "dnf install PCKG -y";
+	installCommand = "dnf install PCKG -y";
 	removeCommand = "dnf remove PCKG -y";
 	supported_os = true;
 } else if (releaseInfo.includes("arch")) {
@@ -250,7 +250,7 @@ if (releaseInfo.includes("debian") || releaseInfo.includes("ubuntu")) {
 	listCommand = "pacman -Sl";
 	listInstalledCommand = "pacman -Q";
 	listAutoRemoveCommand = "pacman -Qdtq";
-	installedCommand = "pacman -S PCKG --noconfirm";
+	installCommand = "pacman -S PCKG --noconfirm";
 	removeCommand = "pacman -R PCKG --noconfirm";
 	supported_os = true;
 } else if (releaseInfo.includes("opensuse")) {
@@ -332,19 +332,10 @@ function listInstalledPackages() {
 	}
 }
 
-function installPackage(name, password) {
+async function installPackage(name, password) {
 	try {
-		chpr.execSync(
-			`echo "${password
-				.replace('"', '\\"')
-				.replace("'", "\\'")
-				.replace("`", "\\`")}" | sudo -S -k ` +
-				installedCommand.replace(
-					"PCKG",
-					name.replace('"', '\\"').replace("'", "\\'").replace("`", "\\`"),
-				),
-			execOptions,
-		);
+		const installerShell = new Shell("zentrox", "sh", password)
+		await installerShell.write(`${installCommand.replace("PCKG", name.replace('"', '\\"').replace("'", "\\'").replace("`", "\\`"))}\n`)
 	} catch {
 		return false;
 	}
@@ -352,30 +343,10 @@ function installPackage(name, password) {
 	return true;
 }
 
-function removePackage(name, password) {
-	zlog(
-		`echo "${password
-			.replace('"', '\\"')
-			.replace("'", "\\'")
-			.replace("`", "\\`")}" | sudo -S -k ` +
-			removeCommand.replace(
-				"PCKG",
-				name.replace('"', '\\"').replace("'", "\\'").replace("`", "\\`"),
-			),
-		"verb",
-	);
+async function removePackage(name, password) {
 	try {
-		chpr.execSync(
-			`echo "${password
-				.replace('"', '\\"')
-				.replace("'", "\\'")
-				.replace("`", "\\`")}" | sudo -S ` +
-				removeCommand.replace(
-					"PCKG",
-					name.replace('"', '\\"').replace("'", "\\'").replace("`", "\\`"),
-				),
-			execOptions,
-		);
+		const removerShell = new Shell("zentrox", "sh", password)
+		await removerShell.write(`${removeCommand.replace("PCKG", name.replace('"', '\\"').replace("'", "\\'").replace("`", "\\`"))}\n`)
 	} catch {
 		return false;
 	}

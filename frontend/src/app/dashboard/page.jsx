@@ -354,19 +354,29 @@ function Packages() {
 				stateFn("failed");
 			} else {
 				stateFn("done");
+				setOtherPackages(otherPackages.filter((entry) => {
+					if (entry.split(".")[0] === packageName) return false
+					return true
+				}))
+				setInstalledPackages([packageName, ...installedPackages])
 			}
 		});
 	}
 
-	function removePackage() {
+	function removePackage(packageName, stateFn) {
 		stateFn("working");
 		fetch(
-			fetchURLPrefix + "/api/installPackage/" + encodeURIComponent(packageName),
+			fetchURLPrefix + "/api/removePackage/" + encodeURIComponent(packageName),
 		).then((res) => {
 			if (!res.ok) {
 				stateFn("failed");
 			} else {
 				stateFn("done");
+				setInstalledPackages(installedPackages.filter((entry) => {
+					if (entry.split(".")[0] === packageName) return false
+					return true
+				}))
+				setOtherPackages([packageName, ...otherPackages])
 			}
 		});
 	}
@@ -413,7 +423,7 @@ function Packages() {
 						} else if (buttonState === "failed") {
 							return (
 								<>
-									<CircleX className="h-4 w-4 inline-block text-red-500" />{" "}
+									<CircleX className="h-4 w-4 inline-block text-red-900" />{" "}
 									Failed
 								</>
 							);

@@ -667,37 +667,36 @@ app.get("/api/packageDatabaseAutoremove", isAdminMw, async (req, res) => {
 	});
 });
 
-app.post("/api/removePackage/:packageName", isAdminMw, async (req, res) => {
+app.get("/api/removePackage/:packageName", isAdminMw, async (req, res) => {
 	// ? Remove package from the system using apt, dnf, pacman
 
 	var packageName = decodeURIComponent(req.params.packageName);
-	var rootPassword = req.body.sudoPassword;
-	if (!packageName || !rootPassword) {
+	var zentroxUserPassword = req.session.zentroxPassword
+	if (!packageName) {
 		res.status(400).send();
 		return;
 	}
-	if (removePackage(packageName, rootPassword)) {
-		res.send({
-			status: "s",
-		});
+	zlog("Remove package " + packageName, "info");
+	if (await removePackage(packageName, zentroxUserPassword)) {
+		res.send({});
 		zlog("Removed package " + packageName, "info");
 	} else {
-		res.status(500).send({});
+		res.status(400).send({});
 		zlog("Failed to remove package " + packageName, "error");
 	}
 });
 
-app.post("/api/installPackage/:packageName", isAdminMw, async (req, res) => {
+app.get("/api/installPackage/:packageName", isAdminMw, async (req, res) => {
 	//? Install a package on the system
 
 	var packageName = decodeURIComponent(req.params.packageName);
 	var zentroxUserPassword = req.session.zentroxPassword
-	if (!packageName || !rootPassword) {
+	if (!packageName) {
 		res.status(400).send();
 		return;
 	}
 	zlog("Install package " + packageName, "info");
-	if (installPackage(packageName, zentroxUserPassword)) {
+	if (await installPackage(packageName, zentroxUserPassword)) {
 		res.send({});
 		zlog("Installed package " + packageName, "info");
 	} else {
