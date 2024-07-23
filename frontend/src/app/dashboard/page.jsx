@@ -1,7 +1,9 @@
 "use client";
 
-import { Button } from "@/components/ui/button.jsx";
+
 import { Checkbox } from "@/components/ui/checkbox.jsx";
+import { Separator } from "@/components/ui/separator.jsx"
+import { Button } from "@/components/ui/button.jsx"
 import {
 	ComputerIcon,
 	CpuIcon,
@@ -17,13 +19,15 @@ import {
 	Thermometer,
 	WatchIcon,
 	Share2,
-	UploadIcon,
 	HardDriveIcon,
 	AppWindow,
 	Package2,
 	Loader2,
 	CircleX,
 	CircleCheck,
+	SearchIcon,
+	TrashIcon,
+    Paintbrush2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Label } from "@/components/ui/label";
@@ -36,7 +40,9 @@ import StatCard from "@/components/ui/StatCard.jsx";
 import { Input } from "@/components/ui/input";
 import { Toaster } from "@/components/ui/toaster";
 import { useToast } from "@/components/ui/use-toast";
+import InfoButton from "@/components/ui/InfoButton.jsx";
 
+// const fetchURLPrefix = "";
 const fetchURLPrefix = "https://localhost:3000";
 
 if (fetchURLPrefix.length > 0) {
@@ -230,14 +236,22 @@ function Overview() {
 
 							<tr>
 								<td>
-									<Network className="inline-block h-6 pb-1 pr-1" /> Hostname
+									<Network className="inline-block h-6 pb-1 pr-1" /> Hostname{" "}
+									<InfoButton
+										title="Hostname"
+										info="The name of your computer in your local network"
+									/>
 								</td>
 								<td>{deviceInformation["hostname"]}</td>
 							</tr>
 							<tr>
 								<td>
 									<Thermometer className="inline-block h-6 pb-1 pr-1" />{" "}
-									Temperature
+									Temperature{" "}
+									<InfoButton
+										title="Temperature"
+										info="The temperature of your computer's CPU"
+									/>
 								</td>
 								<td>
 									{deviceInformation["temperature"] === null
@@ -247,7 +261,11 @@ function Overview() {
 							</tr>
 							<tr>
 								<td>
-									<WatchIcon className="inline-block h-6 pb-1 pr-1" /> Uptime
+									<WatchIcon className="inline-block h-6 pb-1 pr-1" /> Uptime{" "}
+									<InfoButton
+										title="Uptime"
+										info="The time your computer is running since the last boot"
+									/>
 								</td>
 								<td>{deviceInformation["uptime"]}</td>
 							</tr>
@@ -260,14 +278,22 @@ function Overview() {
 							<tr>
 								<td>
 									<List className="inline-block h-6 pb-1 pr-1" /> Active
-									Processes
+									Processes{" "}
+									<InfoButton
+										title="Active Processes"
+										info="The number of currently running processes on your system"
+									/>
 								</td>
 								<td>{deviceInformation["process_number"]}</td>
 							</tr>
 							<tr>
 								<td>
 									<TableIcon className="inline-block h-6 pb-1 pr-1" /> Zentrox
-									PID
+									PID{" "}
+									<InfoButton
+										title="Zentrox PID"
+										info="The process ID of the currently running Zentrox instance"
+									/>
 								</td>
 								<td>{deviceInformation["zentrox_pid"]}</td>
 							</tr>
@@ -343,6 +369,24 @@ function Packages() {
 				setVisibility(false);
 			}
 		});
+
+		fetch(fetchURLPrefix + "/api/packageDatabaseAutoremove", {
+			headers: {
+				"Content-Type": "application/json",
+			},
+		}).then((res) => {
+			if (res.ok) {
+				res.json().then((json) => {
+					setAutoRemovePackages(json["packages"]);
+				});
+			} else {
+				toast({
+					title: "Package Database Error",
+					message: "Zentrox failed to retrieve a list of packages",
+				});
+				setVisibility(false);
+			}
+		});
 	}
 
 	function installPackage(packageName, stateFn) {
@@ -354,11 +398,13 @@ function Packages() {
 				stateFn("failed");
 			} else {
 				stateFn("done");
-				setOtherPackages(otherPackages.filter((entry) => {
-					if (entry.split(".")[0] === packageName) return false
-					return true
-				}))
-				setInstalledPackages([packageName, ...installedPackages])
+				setOtherPackages(
+					otherPackages.filter((entry) => {
+						if (entry.split(".")[0] === packageName) return false;
+						return true;
+					}),
+				);
+				setInstalledPackages([packageName, ...installedPackages]);
 			}
 		});
 	}
@@ -372,16 +418,18 @@ function Packages() {
 				stateFn("failed");
 			} else {
 				stateFn("done");
-				setInstalledPackages(installedPackages.filter((entry) => {
-					if (entry.split(".")[0] === packageName) return false
-					return true
-				}))
-				setOtherPackages([packageName, ...otherPackages])
+				setInstalledPackages(
+					installedPackages.filter((entry) => {
+						if (entry.split(".")[0] === packageName) return false;
+						return true;
+					}),
+				);
+				setOtherPackages([packageName, ...otherPackages]);
 			}
 		});
 	}
 
-	function PackageBox({ packageName, task }, key) {
+	function PackageBox({ packageName, task, key }) {
 		const [buttonState, setButtonState] = useState("default");
 		return (
 			<div
@@ -444,9 +492,10 @@ function Packages() {
 	const [installedPackages, setInstalledPackages] = useState([]);
 	const [installedApps, setInstalledApps] = useState([]);
 	const [otherPackages, setOtherPackages] = useState([]);
+	const [autoRemovePackages, setAutoRemovePackages] = useState([]);
 	const [visible, setVisibility] = useState(false);
 	const [packageSearchValue, setPackageSearchValue] = useState("");
-
+	const [clearAutoRemoveButtonState, setClearAutoRemoveButtonState] = useState("default")
 	useEffect(() => fetchPackageList(), []);
 
 	if (visible) {
@@ -500,7 +549,17 @@ function Packages() {
 				</>
 			);
 		} else {
-			var PackageView = <></>;
+			var PackageView = (
+				<>
+					<div className="p-auto">
+						<SearchIcon className="w-16 h-16 m-auto mt-8 text-neutral-600" />
+						<br />
+						<h3 className="text-xl text-neutral-600 m-auto text-center">
+							Search for package to install or uninstall
+						</h3>
+					</div>
+				</>
+			);
 		}
 		return (
 			<Page name="Packages">
@@ -508,25 +567,48 @@ function Packages() {
 					name="Installed Packages"
 					value={installedPackages.length}
 					Icon={<HardDriveIcon className="h-5 w-5 inline-block" />}
+					Info="Packages that are installed on your system. This includes apps."
 				/>
 				<StatCard
 					name="Installed Apps"
 					value={installedApps.length}
 					Icon={<AppWindow className="h-5 w-5 inline-block" />}
+					Info="Packages that have a graphical interface and are installed on your system."
 				/>
 				<StatCard
 					name="Other Packages"
 					value={otherPackages.length}
 					Icon={<Package2 className="h-5 w-5 inline-block" />}
+					Info="Packages including apps, that are not installed on your system but listed in your package manager."
 				/>
+				<StatCard
+					name="Autoremove Packages"
+					value={autoRemovePackages.length}
+					Icon={<TrashIcon className="h-5 w-5 inline-block" />}
+					Info="Packages that are not required by the system anymore"
+				/>
+
 				<br />
+				<div className="h-fit">
 				<Input
 					placeholder="Search for package"
 					onChange={(e) => {
 						setPackageSearchValue(e.target.value);
 					}}
-					className="mt-2"
-				/>
+					className="mt-2 inline-block"
+				/> <Button variant="secondary" className="inline" onClick={
+					() => {
+						setClearAutoRemoveButtonState("working")
+						fetch("/api/clearAutoRemove").then((res) => {
+							if (res.ok) {
+								res.json().then((json) => {
+									setAutoRemovePackages(json["packages"])
+								})
+							}
+						})
+					}
+				}><Paintbrush2 className="h-4 w-4 inline-block" /> Autoremove</Button>
+				</div>
 				<br />
 				{PackageView}
 			</Page>
@@ -540,6 +622,10 @@ function Packages() {
 	}
 }
 
+function Security() {
+	return (<Page name="Security"></Page>)
+}
+
 export default function Dashboard() {
 	const [activeTab, setActiveTab] = useState("Overview");
 
@@ -548,6 +634,8 @@ export default function Dashboard() {
 			return Overview();
 		} else if (activeTab == "Packages") {
 			return Packages();
+		} else if (activeTab == "Security") {
+			return Security();
 		}
 	}
 

@@ -41,6 +41,7 @@ const cookieParser = require("cookie-parser");
 const session = require("express-session");
 const express = require("express"); // Using Express framework
 
+// const devDisAuth = false;
 const devDisAuth = true;
 
 const MemoryStore = require("memorystore")(session);
@@ -56,6 +57,7 @@ const {
 	listInstalledPackages,
 	listPackages,
 	listAutoRemove,
+	autoRemove
 } = require("./libs/packages.js");
 const {
 	decryptAESGCM256,
@@ -662,6 +664,18 @@ app.get("/api/packageDatabase", isAdminMw, async (req, res) => {
 
 app.get("/api/packageDatabaseAutoremove", isAdminMw, async (req, res) => {
 	var packagesForAutoremove = listAutoRemove();
+	res.send({
+		packages: packagesForAutoremove,
+	});
+});
+
+app.get("/api/clearAutoRemove", isAdminMw, async (req, res) => {
+	var autoRemoveReturn = await autoRemove(req.session.zentroxPassword)
+	var packagesForAutoremove = listAutoRemove();
+	if (!autoRemoveReturn) {
+		res.status(400).send({})
+		return 
+	}
 	res.send({
 		packages: packagesForAutoremove,
 	});

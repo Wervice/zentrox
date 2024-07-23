@@ -234,14 +234,16 @@ if (releaseInfo.includes("debian") || releaseInfo.includes("ubuntu")) {
 	listInstalledCommand = "apt list --installed";
 	listCommand = "apt list";
 	installCommand = "apt install PCKG -y";
-	listAutoRemoveCommand = "apt list -s autoremove -q";
+	listAutoRemoveCommand = "apt list --autoremove";
+	autoRemoveCommand = "apt autoremove --purge -y";
 	removeCommand = "apt remove PCKG -y";
 	supported_os = true;
 } else if (releaseInfo.includes("fedora") || releaseInfo.includes("centos")) {
 	p_manager = "dnf";
-	listInstalledCommand = "dnf list --installed -q";
+	listInstalledCommand = "dnf list installed -q";
 	listCommand = "dnf list -q";
-	listAutoRemoveCommand = "dnf list --autoremove -q";
+	listAutoRemoveCommand = "dnf repoquery --unneeded";
+	autoRemoveCommand = "dnf autoremove -y";
 	installCommand = "dnf install PCKG -y";
 	removeCommand = "dnf remove PCKG -y";
 	supported_os = true;
@@ -250,11 +252,21 @@ if (releaseInfo.includes("debian") || releaseInfo.includes("ubuntu")) {
 	listCommand = "pacman -Sl";
 	listInstalledCommand = "pacman -Q";
 	listAutoRemoveCommand = "pacman -Qdtq";
+	autoRemoveCommand = "pacman -R $(pacman -Qdtq) --noconfirm";
 	installCommand = "pacman -S PCKG --noconfirm";
 	removeCommand = "pacman -R PCKG --noconfirm";
 	supported_os = true;
 } else if (releaseInfo.includes("opensuse")) {
-	// Zypper commands
+	p_manager = "zypper";
+	listCommand = "zypper se";
+	listInstalledCommand = "zypper se --installed-only";
+	listAutoRemoveCommand = "zypper packages --orphaned";
+	autoRemoveCommand = "zypper remove --clean-deps -y";
+	installCommand = "zypper install -y PCKG";
+	removeCommand = "zypper remove -y PCKG";
+	supported_os = true;
+} else {
+    supported_os = false;
 }
 
 keywordFromCLI = ["Listing", "Installed", "Last", "Latest", "Listing..."];
@@ -387,6 +399,17 @@ function listAutoRemove() {
 	return extractedNames;
 }
 
+async function autoRemove(password) {
+	const autoRemoveShell = new Shell("zentrox", "sh", password)
+	try {
+		await autoRemoveShell.write(autoRemoveCommand+"\n")
+		return true
+	} catch (err) {
+		zlog(err, "error")
+		return false
+	}
+}
+
 function getIconForPackage(packageName) {
 	if (fs.existsSync(path.join(os.homedir(), "/.local/share/icons"))) {
 		var noIconFoundInLoop = true;
@@ -491,4 +514,5 @@ module.exports = {
 	listInstalledPackages,
 	listAutoRemove,
 	getIconForPackage,
+	autoRemove
 };
