@@ -1,9 +1,8 @@
 "use client";
 
-
 import { Checkbox } from "@/components/ui/checkbox.jsx";
-import { Separator } from "@/components/ui/separator.jsx"
-import { Button } from "@/components/ui/button.jsx"
+import { Separator } from "@/components/ui/separator.jsx";
+import { Button } from "@/components/ui/button.jsx";
 import {
 	ComputerIcon,
 	CpuIcon,
@@ -24,10 +23,18 @@ import {
 	Package2,
 	Loader2,
 	CircleX,
-	CircleCheck,
 	SearchIcon,
 	TrashIcon,
-    Paintbrush2,
+	Paintbrush2,
+	Plus,
+	Ban,
+	CircleCheck,
+	BrickWall,
+	ArrowUpFromDot,
+	ArrowDownToDot,
+	Shield,
+    PowerOff,
+	PowerIcon
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Label } from "@/components/ui/label";
@@ -42,8 +49,8 @@ import { Toaster } from "@/components/ui/toaster";
 import { useToast } from "@/components/ui/use-toast";
 import InfoButton from "@/components/ui/InfoButton.jsx";
 
-// const fetchURLPrefix = "";
-const fetchURLPrefix = "https://localhost:3000";
+const fetchURLPrefix = "";
+// const fetchURLPrefix = "https://localhost:3000";
 
 if (fetchURLPrefix.length > 0) {
 	console.error("Fetch URL Prefix is enabled");
@@ -329,7 +336,7 @@ function Overview() {
 								}, 2000);
 							});
 						}}
-					/>{" "}
+					/>
 					<label htmlFor="ftpEnabled">
 						<Share2 className="inline-block h-4 w-4" />{" "}
 						<Spinner visible={ftpEnableSpinner} /> FTP Server
@@ -489,13 +496,58 @@ function Packages() {
 		);
 	}
 
+	function AutoRemoveButon() {
+		if (clearAutoRemoveButtonState === "default") {
+			return (
+				<Button
+					variant="secondary"
+					className="inline"
+					onClick={() => {
+						setClearAutoRemoveButtonState("working");
+						fetch("/api/clearAutoRemove").then((res) => {
+							if (res.ok) {
+								res.json().then((json) => {
+									setAutoRemovePackages(json["packages"]);
+								});
+							}
+							setClearAutoRemoveButtonState("default");
+						});
+					}}
+				>
+					<Paintbrush2 className="h-4 w-4 inline-block" /> Autoremove
+				</Button>
+			);
+		} else {
+			return (
+				<Button
+					variant="secondary"
+					className="inline"
+					onClick={() => {
+						setClearAutoRemoveButtonState("working");
+						fetch("/api/clearAutoRemove").then((res) => {
+							if (res.ok) {
+								res.json().then((json) => {
+									setAutoRemovePackages(json["packages"]);
+								});
+								setClearAutoRemoveButtonState("default");
+							}
+						});
+					}}
+				>
+					<Loader2 className="h-4 w-4 inline-block animate-spin" /> Working
+				</Button>
+			);
+		}
+	}
+
 	const [installedPackages, setInstalledPackages] = useState([]);
 	const [installedApps, setInstalledApps] = useState([]);
 	const [otherPackages, setOtherPackages] = useState([]);
 	const [autoRemovePackages, setAutoRemovePackages] = useState([]);
 	const [visible, setVisibility] = useState(false);
 	const [packageSearchValue, setPackageSearchValue] = useState("");
-	const [clearAutoRemoveButtonState, setClearAutoRemoveButtonState] = useState("default")
+	const [clearAutoRemoveButtonState, setClearAutoRemoveButtonState] =
+		useState("default");
 	useEffect(() => fetchPackageList(), []);
 
 	if (visible) {
@@ -590,24 +642,14 @@ function Packages() {
 
 				<br />
 				<div className="h-fit">
-				<Input
-					placeholder="Search for package"
-					onChange={(e) => {
-						setPackageSearchValue(e.target.value);
-					}}
-					className="mt-2 inline-block"
-				/> <Button variant="secondary" className="inline" onClick={
-					() => {
-						setClearAutoRemoveButtonState("working")
-						fetch("/api/clearAutoRemove").then((res) => {
-							if (res.ok) {
-								res.json().then((json) => {
-									setAutoRemovePackages(json["packages"])
-								})
-							}
-						})
-					}
-				}><Paintbrush2 className="h-4 w-4 inline-block" /> Autoremove</Button>
+					<Input
+						placeholder="Search for package"
+						onChange={(e) => {
+							setPackageSearchValue(e.target.value);
+						}}
+						className="mt-2 inline-block"
+					/>{" "}
+					<AutoRemoveButon />
 				</div>
 				<br />
 				{PackageView}
@@ -623,7 +665,118 @@ function Packages() {
 }
 
 function Security() {
-	return (<Page name="Security"></Page>)
+	const [rules, setRules] = useState([]);
+	const [fireWallEnabled, setFireWallEnabled] = useState(false);
+	const [fireWallToggleSpinner, setFireWallToggleSpinner] = useState(false)
+	function fetchFireWallInformation() {
+		fetch(fetchURLPrefix + "/api/fireWallInformation", {
+			headers: {
+				"Content-Type": "application/json",
+			},
+		}).then((res) => {
+			if (res.ok) {
+				res.json().then((json) => {
+					setRules(json["rules"]);
+					setFireWallEnabled(json["enabled"]);
+				});
+			}
+		});
+	}
+
+	useEffect(() => {
+		fetchFireWallInformation();
+	}, []);
+
+	function RuleView() {
+		if (fireWallEnabled) {
+			return (
+				<table className="pt-2 fireWall block">
+					<tbody>
+						<tr>
+							<td>
+								<ArrowUpFromDot className="w-4 h-4 pb-0.5 inline" /> To
+							</td>
+							<td>
+								<ArrowDownToDot className="w-4 h-4 pb-0.5 inline" /> From
+							</td>
+							<td>
+								<Shield className="w-4 h-4 pb-0.5 inline" /> Action
+							</td>
+						</tr>
+						{rules.map((rule, i) => {
+							return (
+								<tr key={i} className="w-fit">
+									<td>{rule.to.replaceAll("(v6)", "IPv6")}</td>
+									<td>{rule.from.replaceAll("(v6)", "IPv6")}</td>
+									<td>
+										{rule.action === "DENY" ? (
+											<>
+												<Ban className="h-4 w-4 inline-block text-red-500 pr-1" />
+												Deny
+											</>
+										) : (
+											<>
+												<CircleCheck className="h-4 w-4 inline-block text-green-500 pr-1" />
+												Allow
+											</>
+										)}
+									</td>
+								</tr>
+							);
+						})}
+					</tbody>
+				</table>
+			);
+		} else {
+			return (
+				<span className="align-middle p-2 block">
+					<BrickWall className="w-8 h-8 inline text-neutral-600" /> Firewall is
+					disabled
+				</span>
+			);
+		}
+	}
+
+	if (fireWallEnabled) {
+		var toggleCaption = <><PowerIcon className="h-6 w-auto inline" /></>	
+	} else if (!fireWallEnabled) {
+		var toggleCaption = <><PowerOff className="h-6 w-auto inline"/></>
+	}
+	if (fireWallToggleSpinner) {
+		var toggleCaption = <><Loader2 className="h-6 w-auto inline animate-spin"/></>
+	}
+
+	return (
+		<Page name="Security">
+			<div className="font-semibold pb-1">Firewall</div>
+			<div className="w-64">
+				<Button className="mr-1">
+					<Plus className="h-6 w-6 inline" />
+					New Rule
+				</Button>
+				<Button onClick={
+					(e) => {
+						e.target.disabled = true;
+						setFireWallToggleSpinner(true)
+						fetch(fetchURLPrefix + "/api/switchUFW/" + !fireWallEnabled).then(
+							(res) => {
+									setFireWallEnabled(!fireWallEnabled);
+									setFireWallToggleSpinner(false)
+								e.target.disabled = false;
+								fetchFireWallInformation();
+							},
+						);
+
+					}
+				} className="w-auto">
+					{
+						toggleCaption
+					}
+				</Button>
+				<RuleView />
+			</div>
+		</Page>
+	);
 }
 
 export default function Dashboard() {
@@ -669,6 +822,15 @@ export default function Dashboard() {
 					isActive={activeTab == "Packages"}
 				>
 					Packages
+				</TabButton>
+				<TabButton
+					onClick={() => {
+						setActiveTab("Security");
+					}}
+					isDefault={false}
+					isActive={activeTab == "Security"}
+				>
+					Security
 				</TabButton>
 				<Button
 					variant="link"

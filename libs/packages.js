@@ -234,7 +234,7 @@ if (releaseInfo.includes("debian") || releaseInfo.includes("ubuntu")) {
 	listInstalledCommand = "apt list --installed";
 	listCommand = "apt list";
 	installCommand = "apt install PCKG -y";
-	listAutoRemoveCommand = "apt list --autoremove";
+	listAutoRemoveCommand = "apt-get autoremove --dry-run";
 	autoRemoveCommand = "apt autoremove --purge -y";
 	removeCommand = "apt remove PCKG -y";
 	supported_os = true;
