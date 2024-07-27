@@ -41,8 +41,8 @@ const cookieParser = require("cookie-parser");
 const session = require("express-session");
 const express = require("express"); // Using Express framework
 
-// const devDisAuth = false;
-const devDisAuth = true;
+const devDisAuth = false;
+// const devDisAuth = true;
 
 const MemoryStore = require("memorystore")(session);
 const Worker = require("node:worker_threads").Worker; // For package cache worker
@@ -1288,7 +1288,7 @@ app.get("/api/fireWallInformation", isAdminMw, async (req, res) => {
 		false,
 	);
 	try {
-		var ufwStatusReturnData = await informationShell.write("ufw status\n");
+		var ufwStatusReturnData = await informationShell.write("/usr/sbin/ufw status\n");
 	} catch (err) {
 		zlog(err, "error");
 		res.status(500).send({
@@ -1329,12 +1329,14 @@ app.get("/api/switchUFW/:enable", isAdminMw, async (req, res) => {
 	);
 	try {
 		if (!ufwState) {
-			await ufwShell.write("ufw disable\n");
+			await ufwShell.write("/usr/sbin/ufw disable\n");
 		} else {
-			await ufwShell.write("ufw enable\n");
+			await ufwShell.write("/usr/sbin/ufw enable\n");
 		}
 	} catch (err) {
 		zlog(err, "error");
+		res.status(400).send({})
+		return
 	}
 	ufwShell.kill();
 	res.send({});
@@ -1357,7 +1359,7 @@ app.get("/api/deleteFireWallRule/:index", isAdminMw, async (req, res) => {
 		true,
 	);
 	try {
-		await deleteRuleShell.write("ufw delete " + ruleIndex + "\n");
+		await deleteRuleShell.write("/usr/sbin/ufw delete " + ruleIndex + "\n");
 	} catch (error) {
 		zlog("Deleting rule using UFW resulted in it throwing to Stderr. Stopped");
 		res.status(500).send({
@@ -1373,7 +1375,7 @@ app.get("/api/deleteFireWallRule/:index", isAdminMw, async (req, res) => {
 app.get(
 	"/api/newFireWallRule/:from/:to/:action",
 	isAdminMw,
-	async (req, body) => {
+	async (req) => {
 		var ruleFrom = decodeURIComponent(req.params.from);
 		var ruleTo = decodeURIComponent(req.params.to);
 		var ruleAction = decodeURIComponent(req.params.action);
@@ -1415,7 +1417,7 @@ app.get(
 		}
 		try {
 			var newRuleCommandOutput = await newRuleShell.write(
-				`ufw ${ruleAction} from ${ruleFrom} to any port ${ruleTo}\n`,
+				`/usr/sbin/ufw ${ruleAction} from ${ruleFrom} to any port ${ruleTo}\n`,
 			);
 		} catch (err) {
 			newRuleShell.kill();
