@@ -4,8 +4,8 @@ td {
 }
 
 table.fireWall td {
-	min-width: 140px;
+	min-width: 120px;
 	width: 100%;
-	max-width: 180px;
+	max-width: 140px;
 	text-overflow: ellipsis;
 }

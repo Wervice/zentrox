@@ -41,8 +41,8 @@ const cookieParser = require("cookie-parser");
 const session = require("express-session");
 const express = require("express"); // Using Express framework
 
-const devDisAuth = false;
-// const devDisAuth = true;
+// const devDisAuth = false;
+const devDisAuth = true;
 
 const MemoryStore = require("memorystore")(session);
 const Worker = require("node:worker_threads").Worker; // For package cache worker

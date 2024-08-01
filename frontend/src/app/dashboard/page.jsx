@@ -1,7 +1,7 @@
 "use client";
 
 import { Checkbox } from "@/components/ui/checkbox.jsx";
-import { Separator } from "@/components/ui/separator.jsx";
+import { Switch } from "@/components/ui/switch.jsx";
 import { Button } from "@/components/ui/button.jsx";
 import {
 	ComputerIcon,
@@ -33,10 +33,9 @@ import {
 	ArrowUpFromDot,
 	ArrowDownToDot,
 	Shield,
-    PowerOff,
-	PowerIcon
+	DeleteIcon,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Label } from "@/components/ui/label";
 import { SideWayBarChart } from "@/components/ui/Charts.jsx";
 import { useInterval } from "usehooks-ts";
@@ -48,9 +47,41 @@ import { Input } from "@/components/ui/input";
 import { Toaster } from "@/components/ui/toaster";
 import { useToast } from "@/components/ui/use-toast";
 import InfoButton from "@/components/ui/InfoButton.jsx";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogHeader,
+	DialogTitle,
+	DialogTrigger,
+	DialogFooter,
+	DialogClose,
+} from "@/components/ui/dialog";
+import {
+	Select,
+	SelectContent,
+	SelectGroup,
+	SelectItem,
+	SelectLabel,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+	AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
-const fetchURLPrefix = "";
-// const fetchURLPrefix = "https://localhost:3000";
+import { Description } from "@radix-ui/react-toast";
+
+// const fetchURLPrefix = "";
+const fetchURLPrefix = "https://localhost:3000";
 
 if (fetchURLPrefix.length > 0) {
 	console.error("Fetch URL Prefix is enabled");
@@ -338,8 +369,8 @@ function Overview() {
 						}}
 					/>
 					<label htmlFor="ftpEnabled">
-						<Share2 className="inline-block h-4 w-4" />{" "}
-						<Spinner visible={ftpEnableSpinner} /> FTP Server
+						<Share2 className="inline-block h-4 w-4 ml-1" />{" "}
+						FTP Server
 					</label>
 				</div>
 			</div>
@@ -665,9 +696,19 @@ function Packages() {
 }
 
 function Security() {
-	const [rules, setRules] = useState([]);
-	const [fireWallEnabled, setFireWallEnabled] = useState(false);
-	const [fireWallToggleSpinner, setFireWallToggleSpinner] = useState(false)
+	const [rules, setRules] = useState([
+		{
+			from: "1.1.1.1",
+			to: "222",
+			action: "DENY",
+		},
+	]);
+	const [fireWallEnabled, setFireWallEnabled] = useState(true);
+	const [newRuleAction, setNewRuleAction] = useState("allow");
+	var newRuleTo = useRef("");
+	var newRuleFrom = useRef("");
+	const { toast } = useToast();
+
 	function fetchFireWallInformation() {
 		fetch(fetchURLPrefix + "/api/fireWallInformation", {
 			headers: {
@@ -676,8 +717,8 @@ function Security() {
 		}).then((res) => {
 			if (res.ok) {
 				res.json().then((json) => {
-					setRules(json["rules"]);
-					setFireWallEnabled(json["enabled"]);
+					// setRules(json["rules"]);
+					// setFireWallEnabled(json["enabled"]);
 				});
 			}
 		});
@@ -702,6 +743,7 @@ function Security() {
 							<td>
 								<Shield className="w-4 h-4 pb-0.5 inline" /> Action
 							</td>
+							<td></td>
 						</tr>
 						{rules.map((rule, i) => {
 							return (
@@ -721,6 +763,46 @@ function Security() {
 											</>
 										)}
 									</td>
+									<td>
+										<AlertDialog>
+											<AlertDialogTrigger asChild>
+												<Button className="bg-transparent text-white p-0 m-0 hover:bg-red-500/20 active:bg-red-500/30 w-12">
+													<TrashIcon />
+												</Button>
+											</AlertDialogTrigger>
+											<AlertDialogContent>
+												<AlertDialogHeader>
+													<AlertDialogTitle>Delete Rule</AlertDialogTitle>
+													<AlertDialogDescription>
+														Do you really want to remove this rule? This action
+														can not be undone.
+													</AlertDialogDescription>
+												</AlertDialogHeader>
+												<AlertDialogFooter>
+													<AlertDialogCancel>Cancel</AlertDialogCancel>
+													<AlertDialogAction
+														onClick={() => {
+															fetch(
+																fetchURLPrefix +
+																	"/deleteFireWallRule/" +
+																	rule.index,
+															).then((res) => {
+																if (!res.ok) {
+																	toast({
+																		title: "Failed to delete rule",
+																		description:
+																			"Zentrox failed to delete this rule.",
+																	});
+																}
+															});
+														}}
+													>
+														Continue
+													</AlertDialogAction>
+												</AlertDialogFooter>
+											</AlertDialogContent>
+										</AlertDialog>
+									</td>
 								</tr>
 							);
 						})}
@@ -737,45 +819,157 @@ function Security() {
 		}
 	}
 
-	if (fireWallEnabled) {
-		var toggleCaption = <><PowerIcon className="h-6 w-auto inline" /></>	
-	} else if (!fireWallEnabled) {
-		var toggleCaption = <><PowerOff className="h-6 w-auto inline"/></>
-	}
-	if (fireWallToggleSpinner) {
-		var toggleCaption = <><Loader2 className="h-6 w-auto inline animate-spin"/></>
-	}
-
 	return (
-		<Page name="Security">
-			<div className="font-semibold pb-1">Firewall</div>
-			<div className="w-64">
-				<Button className="mr-1">
-					<Plus className="h-6 w-6 inline" />
-					New Rule
-				</Button>
-				<Button onClick={
-					(e) => {
-						e.target.disabled = true;
-						setFireWallToggleSpinner(true)
-						fetch(fetchURLPrefix + "/api/switchUFW/" + !fireWallEnabled).then(
-							(res) => {
+		<>
+			<Toaster />
+			<Page name="Security">
+				<div className="font-semibold pb-1 align-middle">
+					Firewall{" "}
+					<InfoButton
+						title="Firewall"
+						info={
+							<>
+								A firewall blocks certain connections with your computer. You
+								can decide which ports and IPs you want to allow or deny access
+								to your computer. <br />
+								Zentrox uses{" "}
+								<a
+									href="https://launchpad.net/ufw"
+									target="_blank"
+									className="contents text-blue-400 underline"
+								>
+									UFW
+								</a>
+								for the firewall.
+							</>
+						}
+					/>
+				</div>
+				<div className="w-64">
+					<div>
+						<Dialog>
+							<DialogTrigger>
+								<Button className="mr-1">
+									<Plus className="h-6 w-6 inline" />
+									New Rule
+								</Button>
+							</DialogTrigger>
+							<DialogContent>
+								<DialogHeader>
+									<DialogTitle>New Firewall Rule</DialogTitle>
+									<DialogDescription>
+										You can create a new rule that applies to your firewall.
+									</DialogDescription>
+									<label htmlFor="ruleTo">
+										<ArrowUpFromDot className="w-4 h-4 inline" /> To
+									</label>
+									<Input id="ruleTo" placeholder="Port" ref={newRuleTo} />
+									<label htmlFor="ruleFrom">
+										<ArrowDownToDot className="w-4 h-4 inline" /> From
+									</label>
+									<Input
+										id="ruleFrom"
+										placeholder="IP Adress"
+										ref={newRuleFrom}
+									/>
+									<label htmlFor="ruleAction">
+										<Shield className="w-4 h-4 inline" /> Action
+									</label>
+									<Select
+										value={newRuleAction}
+										onValueChange={() => {
+											if (newRuleAction === "allow") setNewRuleAction("deny");
+											if (newRuleAction === "deny") setNewRuleAction("allow");
+										}}
+									>
+										<SelectTrigger className="w-[180px]">
+											<SelectValue placeholder="Select an action" />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectGroup>
+												<SelectItem value="allow">
+													<CircleCheck className="w-4 h-4 inline mr-1 text-green-500" />{" "}
+													Allow
+												</SelectItem>
+												<SelectItem value="deny">
+													<Ban className="w-4 h-4 inline mr-1 text-red-500" />{" "}
+													Deny
+												</SelectItem>
+											</SelectGroup>
+										</SelectContent>
+									</Select>
+									<DialogFooter>
+										<DialogClose asChild>
+											<Button
+												onClick={() => {
+													if (
+														newRuleFrom.current.value.length === 0 ||
+														newRuleTo.current.value.length === 0 ||
+														typeof newRuleTo.current.value === "undefined" ||
+														typeof newRuleFrom.current.value === "undefined"
+													) {
+														toast({
+															title: "Invalid rule",
+															description:
+																"Zentrox can not create a rule with these values",
+														});
+														return;
+													}
+													fetch(
+														fetchURLPrefix +
+															"/api/newFireWallRule/" +
+															encodeURIComponent(newRuleFrom.current.value) +
+															encodeURIComponent(newRuleTo.current.value) +
+															encodeURIComponent(newRuleAction),
+													).then((res) => {
+														if (res.ok) {
+															fetchFireWallInformation();
+														} else {
+															res.json().then((json) => {
+																if (json["msg"] !== undefined) {
+																	toast({
+																		title: "Failed to create new rule",
+																		description:
+																			"Zentrox failed to create new rule with the UFW: " +
+																			json["msg"],
+																	});
+																} else {
+																	toast({
+																		title: "Failed to create new rule",
+																		description:
+																			"Zentrox failed to create new rule with the UFW",
+																	});
+																}
+															});
+														}
+													});
+												}}
+											>
+												Create
+											</Button>
+										</DialogClose>
+									</DialogFooter>
+								</DialogHeader>
+							</DialogContent>
+						</Dialog>
+						<Switch
+							onClick={(e) => {
+								fetch(
+									fetchURLPrefix + "/api/switchUFW/" + !fireWallEnabled,
+								).then((res) => {
 									setFireWallEnabled(!fireWallEnabled);
-									setFireWallToggleSpinner(false)
-								e.target.disabled = false;
-								fetchFireWallInformation();
-							},
-						);
-
-					}
-				} className="w-auto">
-					{
-						toggleCaption
-					}
-				</Button>
-				<RuleView />
-			</div>
-		</Page>
+									setFireWallToggleSpinner(false);
+									fetchFireWallInformation();
+								});
+							}}
+							title="Enable Firewall"
+							className="ml-1"
+						/>
+					</div>
+					<RuleView />
+				</div>
+			</Page>
+		</>
 	);
 }
 

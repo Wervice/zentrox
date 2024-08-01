@@ -188,7 +188,7 @@
 		"zip-stream": "^2.1.3"
 	},
 	"scripts": {
-		"run": "node index.js"
+		"dev": "node index.js"
 	},
 	"repository": {
 		"type": "git",
