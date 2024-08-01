@@ -18,8 +18,8 @@ import Image from "@/components/ui/Image.jsx";
 import { useEffect, useState } from "react";
 import { KeyIcon, LockKeyholeIcon, User } from "lucide-react";
 
-// const fetchURLPrefix = "";
-const fetchURLPrefix = "https://localhost:3000";
+const fetchURLPrefix = "";
+// const fetchURLPrefix = "https://localhost:3000";
 
 if (fetchURLPrefix.length > 0) {
 	console.error("Fetch URL Prefix is enabled");

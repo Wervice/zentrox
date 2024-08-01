@@ -28,28 +28,28 @@ module.exports = {
 					foreground: "#000000"
 				},
 				secondary: {
-					DEFAULT: "hsl(var(--secondary))",
-					foreground: "hsl(var(--secondary-foreground))",
+					DEFAULT: "#777",
+					foreground: "#fff",
 				},
 				destructive: {
-					DEFAULT: "hsl(var(--destructive))",
-					foreground: "hsl(var(--destructive-foreground))",
+					DEFAULT: "rgb(153 27 27)",
+					foreground: "#000",
 				},
 				muted: {
 					DEFAULT: "#333",
 					foreground: "#555",
 				},
 				accent: {
-					DEFAULT: "hsl(var(--accent))",
-					foreground: "hsl(var(--accent-foreground))",
+					DEFAULT: "rgb(22 78 99)",
+					foreground: "#fff",
 				},
 				popover: {
-					DEFAULT: "hsl(var(--popover))",
-					foreground: "hsl(var(--popover-foreground))",
+					DEFAULT: "#222",
+					foreground: "#fff",
 				},
 				card: {
-					DEFAULT: "hsl(var(--card))",
-					foreground: "hsl(var(--card-foreground))",
+					DEFAULT: "#222",
+					foreground: "#fff",
 				},
 			},
 			keyframes: {

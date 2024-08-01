@@ -216,6 +216,10 @@ fi
 
 echo "✅ The UFW is installed"
 
+if ! sudo /usr/sbin/ufw allow from any to any port 3000 > /dev/null; then
+	echo "❌ Failed to add UFW rule for Zentrox"
+fi
+
 openssl genrsa -out selfsigned.key 2048
 openssl req -new -key selfsigned.key -out selfsigned.pem
 openssl x509 -req -days 365 -in selfsigned.pem -signkey selfsigned.key -out selfsigned.crt

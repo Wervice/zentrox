@@ -80,8 +80,8 @@ import {
 
 import { Description } from "@radix-ui/react-toast";
 
-// const fetchURLPrefix = "";
-const fetchURLPrefix = "https://localhost:3000";
+const fetchURLPrefix = "";
+// const fetchURLPrefix = "https://localhost:3000";
 
 if (fetchURLPrefix.length > 0) {
 	console.error("Fetch URL Prefix is enabled");
@@ -696,14 +696,8 @@ function Packages() {
 }
 
 function Security() {
-	const [rules, setRules] = useState([
-		{
-			from: "1.1.1.1",
-			to: "222",
-			action: "DENY",
-		},
-	]);
-	const [fireWallEnabled, setFireWallEnabled] = useState(true);
+	const [rules, setRules] = useState([]);
+	const [fireWallEnabled, setFireWallEnabled] = useState(false);
 	const [newRuleAction, setNewRuleAction] = useState("allow");
 	var newRuleTo = useRef("");
 	var newRuleFrom = useRef("");
@@ -918,8 +912,8 @@ function Security() {
 													fetch(
 														fetchURLPrefix +
 															"/api/newFireWallRule/" +
-															encodeURIComponent(newRuleFrom.current.value) +
-															encodeURIComponent(newRuleTo.current.value) +
+															encodeURIComponent(newRuleFrom.current.value) + "/" + 
+															encodeURIComponent(newRuleTo.current.value) + "/" + 
 															encodeURIComponent(newRuleAction),
 													).then((res) => {
 														if (res.ok) {
@@ -958,7 +952,6 @@ function Security() {
 									fetchURLPrefix + "/api/switchUFW/" + !fireWallEnabled,
 								).then((res) => {
 									setFireWallEnabled(!fireWallEnabled);
-									setFireWallToggleSpinner(false);
 									fetchFireWallInformation();
 								});
 							}}

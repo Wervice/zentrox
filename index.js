@@ -41,8 +41,8 @@ const cookieParser = require("cookie-parser");
 const session = require("express-session");
 const express = require("express"); // Using Express framework
 
-// const devDisAuth = false;
-const devDisAuth = true;
+const devDisAuth = false;
+// const devDisAuth = true;
 
 const MemoryStore = require("memorystore")(session);
 const Worker = require("node:worker_threads").Worker; // For package cache worker
@@ -1375,7 +1375,7 @@ app.get("/api/deleteFireWallRule/:index", isAdminMw, async (req, res) => {
 app.get(
 	"/api/newFireWallRule/:from/:to/:action",
 	isAdminMw,
-	async (req) => {
+	async (req, res) => {
 		var ruleFrom = decodeURIComponent(req.params.from);
 		var ruleTo = decodeURIComponent(req.params.to);
 		var ruleAction = decodeURIComponent(req.params.action);
