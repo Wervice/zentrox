@@ -133,3 +133,8 @@ dist
 selfsigned.crt
 selfsigned.key
 vsftpd.c
+
+# Rust
+backend/target/
+backend/debug/
+backend/Cargo.lock/
