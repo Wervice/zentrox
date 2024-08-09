@@ -1,8 +1,6 @@
-<h1 align="center">Zentrox</h1>
+# Zentrox
 
-<div align=center>
-<img src="static/zentrox_light.svg" width="100">
-</div>
+<img src="static/banner.png">
 <br>
 <div align="center">
 <img src="static/readme_preview.png" alt="Preview of Zentrox" width="500">
@@ -15,7 +13,7 @@
 [![Post on X](https://img.shields.io/badge/Post%20on%20X-white.svg?style=for-the-badge&logo=x&logoColor=white&color=black)](https://x.com/intent/post?text=https%3A%2F%2Fgithub.com%2Fwervice%2Fzentrox)
 
 > [!IMPORTANT]
-> ⚠️ Zentrox is a work in progress and not done. It may still change before the first release.
+> ⚠️  Zentrox is a work in progress and not done. It may still change before the first release.
 
 ## 💡 Which problems does Zentrox solve?
 
@@ -25,8 +23,6 @@ The installation is very fast and doesn't require great background knowledge.
 
 ## 🎯 Features
 
-Zentrox will offer many features for different purposes:
-
 - _File Sharing Protocols_ (Supports FTP)
 - Package manager (Install and remove packages)
 - _Vault_ (Host your own encrypted file store)
@@ -34,8 +30,6 @@ Zentrox will offer many features for different purposes:
 - _Web Shell_ (Remote control the system using a shell)
 - File Manager (Remove, rename and download files)
 - TLS encrypted (Uses HTTP**S** with self signed certificates)
-
-###### _Italic_ means, that the feature is not fully implemented yet.
 
 ## 🛠️ Installation
 
