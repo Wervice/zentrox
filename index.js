@@ -33,7 +33,6 @@ const os = require("os");
 const fs = require("fs");
 const crypto = require("crypto");
 const https = require("https");
-const http = require("http");
 const cors = require("cors");
 const chpr = require("child_process");
 const compression = require("compression"); // Compressing conenction
@@ -41,8 +40,8 @@ const cookieParser = require("cookie-parser");
 const session = require("express-session");
 const express = require("express"); // Using Express framework
 
-const devDisAuth = false;
-// const devDisAuth = true;
+// const devDisAuth = false;
+const devDisAuth = true;
 
 const MemoryStore = require("memorystore")(session);
 const Worker = require("node:worker_threads").Worker; // For package cache worker
@@ -57,7 +56,7 @@ const {
 	listInstalledPackages,
 	listPackages,
 	listAutoRemove,
-	autoRemove
+	autoRemove,
 } = require("./libs/packages.js");
 const {
 	decryptAESGCM256,
@@ -430,14 +429,18 @@ app.get("/api/driveList", isAdminMw, async (req, res) => {
 });
 
 app.get("/api/callFile/:file", isAdminMw, async (req, res) => {
-	var file = req.params.file;
-	res
-		.set({
-			"Content-Disposition": `attachment; filename=${path.basename(
-				atob(file),
-			)}`,
-		})
-		.sendFile(atob(file));
+	var file = decodeURIComponent(req.params.file);
+	console.log(file);
+	try {
+		res
+			.set({
+				"Content-Disposition": `attachment; filename=${path.basename(file)}`,
+			})
+			.sendFile(file);
+	} catch (err) {
+		zlog(err, "error");
+		res.status(500).send("Failed to access file");
+	}
 });
 
 app.get("/api/deleteUser/:username", isAdminMw, async (req, res) => {
@@ -483,78 +486,42 @@ app.get("/api/userList", isAdminMw, async (req, res) => {
 	});
 });
 
-app.get(
-	"/api/filesRender/:path/:showHiddenFiles",
-	isAdminMw,
-	async (req, res) => {
-		var filePath = decodeURIComponent(req.params.path);
-		if (!filePath) {
-			res.status(400).send();
-			return;
-		}
-		var filesHTML = "";
-		var fileN;
-		try {
-			for (fileN of fs.readdirSync(filePath)) {
-				if (fileN[0] == ".") {
-					if (
-						req.params.showHiddenFiles == true ||
-						req.params.showHiddenFiles == "on"
-					) {
-						try {
-							if (fs.statSync(path.join(filePath, fileN)).isFile()) {
-								var fileIcon = "file.png";
-								var funcToUse = "downloadFile";
-							} else {
-								var fileIcon = "folder.png";
-								var funcToUse = "navigateFolder";
-							}
-						} catch {
-							var fileIcon = "adminfile.png";
-							var funcToUse = "alert";
-						}
-						var filesHTML =
-							filesHTML +
-							`<button class='fileButtons' onclick="${funcToUse}('${fileN}')" oncontextmenu="contextMenuF('${fileN}')" title="${fileN}"><img src="${fileIcon}"><br>${fileN
-								.replaceAll("<", "&lt;")
-								.replaceAll(">", "&gt;")}</button>`;
-					}
-				} else {
-					try {
-						if (fs.statSync(path.join(filePath, fileN)).isFile()) {
-							var fileIcon = "file.png";
-							var funcToUse = "downloadFile";
-						} else {
-							var fileIcon = "folder.png";
-							var funcToUse = "navigateFolder";
-						}
-					} catch {
-						var fileIcon = "adminfile.png";
-						var funcToUse = "alert";
-					}
-					var filesHTML =
-						filesHTML +
-						`<button class='fileButtons' onclick="${funcToUse}('${fileN}')" oncontextmenu="contextMenuF('${fileN}')" title="${fileN}">
-								<img src="${fileIcon}"><br>${fileN
-									.replaceAll("<", "&lt;")
-									.replaceAll(">", "&gt;")}</button>`;
+app.get("/api/filesList/:path", isAdminMw, async (req, res) => {
+	var filePath = decodeURIComponent(req.params.path);
+	if (!filePath) {
+		res.status(400).send();
+		return;
+	}
+	var pathContentsArray = [];
+	try {
+		var pathContents = fs.readdirSync(filePath);
+		for (entry of pathContents) {
+			try {
+				var stats = fs.statSync(path.join(filePath, entry));
+				if (stats.isFile()) {
+					pathContentsArray.push([entry, "f"]);
+				} else if (stats.isDirectory()) {
+					pathContentsArray.push([entry, "d"]);
 				}
+			} catch (err) {
+				zlog(err, "error");
+				pathContentsArray.push([entry, "a"]);
 			}
-		} catch (e) {
-			zlog(e, "error");
-			res.send({
-				message: "no_permissions",
-			});
-			return;
 		}
-		res.send({
-			content: filesHTML,
+	} catch (e) {
+		zlog(e, "error");
+		res.status(403).send({
+			message: "no_permissions",
 		});
-	},
-);
+		return;
+	}
+	res.send({
+		content: pathContentsArray,
+	});
+});
 
-app.get("/api/deleteFile/*", isAdminMw, async (req, res) => {
-	var filePath = req.params[0];
+app.get("/api/deleteFile/:filePath", isAdminMw, async (req, res) => {
+	var filePath = decodeURIComponent(req.params.filePath);
 	if (!filePath) {
 		res.status(400).send();
 		return;
@@ -564,9 +531,11 @@ app.get("/api/deleteFile/*", isAdminMw, async (req, res) => {
 		res.send({
 			status: "s",
 		});
+		return;
 	} catch (err) {
 		console.warn("Error: " + err);
 		res.status(500).send("Internal server error");
+		return;
 	}
 });
 
@@ -585,6 +554,25 @@ app.get("/api/renameFile/:oldPath/:newName", isAdminMw, async (req, res) => {
 	} catch (err) {
 		console.warn("Error: " + err);
 		res.status(500).send({});
+		return;
+	}
+});
+
+app.get("/api/burnFile/:burnFile", isAdminMw, async (req, res) => {
+	var filePath = decodeURIComponent(req.params.burnFile);
+	if (!filePath) {
+		res.status(400).send();
+		return;
+	}
+	try {
+		var fileSize = fs.statSync(filePath).size;
+		fs.writeFileSync(filePath, crypto.randomBytes(fileSize));
+		fs.unlinkSync(filePath);
+		res.send({});
+	} catch (err) {
+		console.warn("Error: " + err);
+		res.status(500).send({});
+		return;
 	}
 });
 
@@ -670,11 +658,11 @@ app.get("/api/packageDatabaseAutoremove", isAdminMw, async (req, res) => {
 });
 
 app.get("/api/clearAutoRemove", isAdminMw, async (req, res) => {
-	var autoRemoveReturn = await autoRemove(req.session.zentroxPassword)
+	var autoRemoveReturn = await autoRemove(req.session.zentroxPassword);
 	var packagesForAutoremove = listAutoRemove();
 	if (!autoRemoveReturn) {
-		res.status(400).send({})
-		return 
+		res.status(400).send({});
+		return;
 	}
 	res.send({
 		packages: packagesForAutoremove,
@@ -685,7 +673,7 @@ app.get("/api/removePackage/:packageName", isAdminMw, async (req, res) => {
 	// ? Remove package from the system using apt, dnf, pacman
 
 	var packageName = decodeURIComponent(req.params.packageName);
-	var zentroxUserPassword = req.session.zentroxPassword
+	var zentroxUserPassword = req.session.zentroxPassword;
 	if (!packageName) {
 		res.status(400).send();
 		return;
@@ -704,7 +692,7 @@ app.get("/api/installPackage/:packageName", isAdminMw, async (req, res) => {
 	//? Install a package on the system
 
 	var packageName = decodeURIComponent(req.params.packageName);
-	var zentroxUserPassword = req.session.zentroxPassword
+	var zentroxUserPassword = req.session.zentroxPassword;
 	if (!packageName) {
 		res.status(400).send();
 		return;
@@ -752,13 +740,11 @@ app.post("/api/updateFTPConfig", isAdminMw, async (req, res) => {
 					"ftp_pid",
 				);
 				if (ftpServerPid == "") {
-					res.send({})
+					res.send({});
 					return;
 				}
 				setTimeout(async () => {
-					await killShell.write(
-						`sudo kill ${ftpServerPid}\n`,
-					);
+					await killShell.write(`sudo kill ${ftpServerPid}\n`);
 					killShell.kill();
 				}, killDelay);
 			} catch (e) {
@@ -1009,7 +995,7 @@ app.post("/api/vaultConfigure", isAdminMw, async (req, res) => {
 				res.send({});
 			});
 	} else {
-		if (typeof req.body.new_key === "undefined") {
+		if (typeof req.body.newKey === "undefined") {
 			res.send({
 				code: "no_decrypt_key",
 			});
@@ -1033,22 +1019,30 @@ app.post("/api/vaultConfigure", isAdminMw, async (req, res) => {
 			try {
 				waitForVaultUnlock().then(() => {
 					lockFile(vaultFilePath);
-					decryptAESGCM256(
-						path.join(zentroxInstallationPath, "vault.vlt"),
-						oldKey,
-					);
-					encryptAESGCM256(
-						path.join(zentroxInstallationPath, "vault.vlt"),
-						newKey,
-					);
-					unlockFile(vaultFilePath);
+					try {
+						decryptAESGCM256(
+							path.join(zentroxInstallationPath, "vault.vlt"),
+							oldKey,
+						);
+						encryptAESGCM256(
+							path.join(zentroxInstallationPath, "vault.vlt"),
+							newKey,
+						);
+					} catch (e) {
+						zlog(e, "error");
+						res.status(403).send({
+							message: "auth_failed",
+						});
+						unlockFile(vaultFilePath);
+						return;
+					}
 					res.send({
 						message: "success",
 					});
 				});
 			} catch (e) {
 				zlog(e, "error");
-				res.send({
+				res.status(403).send({
 					message: "auth_failed",
 				});
 			}
@@ -1288,7 +1282,9 @@ app.get("/api/fireWallInformation", isAdminMw, async (req, res) => {
 		false,
 	);
 	try {
-		var ufwStatusReturnData = await informationShell.write("/usr/sbin/ufw status\n");
+		var ufwStatusReturnData = await informationShell.write(
+			"/usr/sbin/ufw status\n",
+		);
 	} catch (err) {
 		zlog(err, "error");
 		res.status(500).send({
@@ -1335,8 +1331,8 @@ app.get("/api/switchUFW/:enable", isAdminMw, async (req, res) => {
 		}
 	} catch (err) {
 		zlog(err, "error");
-		res.status(400).send({})
-		return
+		res.status(400).send({});
+		return;
 	}
 	ufwShell.kill();
 	res.send({});

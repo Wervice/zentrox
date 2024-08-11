@@ -33,7 +33,15 @@ import {
 	ArrowUpFromDot,
 	ArrowDownToDot,
 	Shield,
-	DeleteIcon,
+	RepeatIcon,
+	LayoutPanelTopIcon,
+	TagIcon,
+	MapPinIcon,
+	WeightIcon,
+	UserIcon,
+	MountainIcon,
+	PieChartIcon,
+	KeyIcon,
 } from "lucide-react";
 import { useEffect, useState, useRef } from "react";
 import { Label } from "@/components/ui/label";
@@ -41,11 +49,12 @@ import { SideWayBarChart } from "@/components/ui/Charts.jsx";
 import { useInterval } from "usehooks-ts";
 import { table, tr, td, tbody } from "react-table";
 import "./table.css";
+import "./scroll.css";
 import Spinner from "@/components/ui/Spinner.jsx";
 import StatCard from "@/components/ui/StatCard.jsx";
 import { Input } from "@/components/ui/input";
 import { Toaster } from "@/components/ui/toaster";
-import { useToast } from "@/components/ui/use-toast";
+import { toast, useToast } from "@/components/ui/use-toast";
 import InfoButton from "@/components/ui/InfoButton.jsx";
 import {
 	Dialog,
@@ -77,14 +86,21 @@ import {
 	AlertDialogTitle,
 	AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import FileView from "@/components/ui/fileview";
 
-import { Description } from "@radix-ui/react-toast";
-
-const fetchURLPrefix = "";
-// const fetchURLPrefix = "https://localhost:3000";
+// const fetchURLPrefix = "";
+const fetchURLPrefix = "https://localhost:3000";
 
 if (fetchURLPrefix.length > 0) {
 	console.error("Fetch URL Prefix is enabled");
+}
+
+/**
+ * @param {string} value to check
+ * @description Returns the string or "N/A" when the string is not defined*/
+function na(value) {
+	if (typeof value === "undefined" || value === null) return "N/A";
+	return value;
 }
 
 function TopBar({ children }) {
@@ -236,19 +252,19 @@ function Overview() {
 						<PieChart className="inline-block h-6 pr-1" /> Resources
 					</Label>
 					<br />
-					<Label className="text-muted-foreground">
+					<Label className="text-neutral-700">
 						<CpuIcon className="inline-block h-6 pb-1 pr-1" />
 						Processor
 					</Label>
 					<br />
 					<SideWayBarChart percentage={cpuUssagePercent} />
-					<Label className="text-muted-foreground">
+					<Label className="text-neutral-700">
 						<MemoryStickIcon className="inline-block h-6 pb-1 pr-1" />
 						Memory
 					</Label>
 					<br />
 					<SideWayBarChart percentage={ramUssagePercent} />
-					<Label className="text-muted-foreground">
+					<Label className="text-neutral-700">
 						<Disc2 className="inline-block h-6 pb-1 pr-1" />
 						Disk
 					</Label>
@@ -369,8 +385,7 @@ function Overview() {
 						}}
 					/>
 					<label htmlFor="ftpEnabled">
-						<Share2 className="inline-block h-4 w-4 ml-1" />{" "}
-						FTP Server
+						<Share2 className="inline-block h-4 w-4 ml-1" /> FTP Server
 					</label>
 				</div>
 			</div>
@@ -531,7 +546,6 @@ function Packages() {
 		if (clearAutoRemoveButtonState === "default") {
 			return (
 				<Button
-					variant="secondary"
 					className="inline"
 					onClick={() => {
 						setClearAutoRemoveButtonState("working");
@@ -551,7 +565,6 @@ function Packages() {
 		} else {
 			return (
 				<Button
-					variant="secondary"
 					className="inline"
 					onClick={() => {
 						setClearAutoRemoveButtonState("working");
@@ -695,10 +708,11 @@ function Packages() {
 	}
 }
 
-function Security() {
+function Firewall() {
 	const [rules, setRules] = useState([]);
 	const [fireWallEnabled, setFireWallEnabled] = useState(false);
 	const [newRuleAction, setNewRuleAction] = useState("allow");
+	const [preventRefetch, setPreventRefetch] = useState(false);
 	var newRuleTo = useRef("");
 	var newRuleFrom = useRef("");
 	const { toast } = useToast();
@@ -711,97 +725,112 @@ function Security() {
 		}).then((res) => {
 			if (res.ok) {
 				res.json().then((json) => {
-					// setRules(json["rules"]);
-					// setFireWallEnabled(json["enabled"]);
+					setRules(json["rules"]);
+					setFireWallEnabled(json["enabled"]);
 				});
 			}
 		});
 	}
 
 	useEffect(() => {
-		fetchFireWallInformation();
+		if (!preventRefetch) fetchFireWallInformation();
 	}, []);
 
 	function RuleView() {
 		if (fireWallEnabled) {
 			return (
-				<table className="pt-2 fireWall block">
-					<tbody>
-						<tr>
-							<td>
-								<ArrowUpFromDot className="w-4 h-4 pb-0.5 inline" /> To
-							</td>
-							<td>
-								<ArrowDownToDot className="w-4 h-4 pb-0.5 inline" /> From
-							</td>
-							<td>
-								<Shield className="w-4 h-4 pb-0.5 inline" /> Action
-							</td>
-							<td></td>
-						</tr>
-						{rules.map((rule, i) => {
-							return (
-								<tr key={i} className="w-fit">
-									<td>{rule.to.replaceAll("(v6)", "IPv6")}</td>
-									<td>{rule.from.replaceAll("(v6)", "IPv6")}</td>
-									<td>
-										{rule.action === "DENY" ? (
-											<>
-												<Ban className="h-4 w-4 inline-block text-red-500 pr-1" />
-												Deny
-											</>
-										) : (
-											<>
-												<CircleCheck className="h-4 w-4 inline-block text-green-500 pr-1" />
-												Allow
-											</>
-										)}
-									</td>
-									<td>
-										<AlertDialog>
-											<AlertDialogTrigger asChild>
-												<Button className="bg-transparent text-white p-0 m-0 hover:bg-red-500/20 active:bg-red-500/30 w-12">
-													<TrashIcon />
-												</Button>
-											</AlertDialogTrigger>
-											<AlertDialogContent>
-												<AlertDialogHeader>
-													<AlertDialogTitle>Delete Rule</AlertDialogTitle>
-													<AlertDialogDescription>
-														Do you really want to remove this rule? This action
-														can not be undone.
-													</AlertDialogDescription>
-												</AlertDialogHeader>
-												<AlertDialogFooter>
-													<AlertDialogCancel>Cancel</AlertDialogCancel>
-													<AlertDialogAction
-														onClick={() => {
-															fetch(
-																fetchURLPrefix +
-																	"/deleteFireWallRule/" +
-																	rule.index,
-															).then((res) => {
-																if (!res.ok) {
-																	toast({
-																		title: "Failed to delete rule",
-																		description:
-																			"Zentrox failed to delete this rule.",
-																	});
-																}
-															});
-														}}
-													>
-														Continue
-													</AlertDialogAction>
-												</AlertDialogFooter>
-											</AlertDialogContent>
-										</AlertDialog>
-									</td>
-								</tr>
-							);
-						})}
-					</tbody>
-				</table>
+				<div className="max-h-64 overflow-y-scroll overflow-x-hidden w-fit no-scroll">
+					<table className="pt-2 fireWall block">
+						<tbody>
+							<tr
+								className="w-fit animate-fadein"
+								style={{
+									animationDuration: `100ms`,
+								}}
+							>
+								<td>
+									<ArrowUpFromDot className="w-4 h-4 pb-0.5 inline" /> To
+								</td>
+								<td>
+									<ArrowDownToDot className="w-4 h-4 pb-0.5 inline" /> From
+								</td>
+								<td>
+									<Shield className="w-4 h-4 pb-0.5 inline" /> Action
+								</td>
+								<td></td>
+							</tr>
+							{rules.map((rule, i) => {
+								return (
+									<tr
+										key={i}
+										className="w-fit animate-fadein"
+										style={{
+											animationDuration: `${i > 6 ? 600 : i * 100}ms`,
+										}}
+									>
+										<td>{rule.to.replaceAll("(v6)", "IPv6")}</td>
+										<td>{rule.from.replaceAll("(v6)", "IPv6")}</td>
+										<td>
+											{rule.action === "DENY" ? (
+												<>
+													<Ban className="h-4 w-4 inline-block text-red-500 pr-1" />
+													Deny
+												</>
+											) : (
+												<>
+													<CircleCheck className="h-4 w-4 inline-block text-green-500 pr-1" />
+													Allow
+												</>
+											)}
+										</td>
+										<td>
+											<AlertDialog>
+												<AlertDialogTrigger asChild>
+													<Button className="bg-transparent text-white p-0 m-0 hover:bg-red-500/20 active:bg-red-500/30 w-12">
+														<TrashIcon />
+													</Button>
+												</AlertDialogTrigger>
+												<AlertDialogContent>
+													<AlertDialogHeader>
+														<AlertDialogTitle>Delete Rule</AlertDialogTitle>
+														<AlertDialogDescription>
+															Do you really want to remove this rule? This
+															action can not be undone.
+														</AlertDialogDescription>
+													</AlertDialogHeader>
+													<AlertDialogFooter>
+														<AlertDialogCancel>Cancel</AlertDialogCancel>
+														<AlertDialogAction
+															onClick={() => {
+																fetch(
+																	fetchURLPrefix +
+																		"/api/deleteFireWallRule/" +
+																		rule.index,
+																).then((res) => {
+																	if (!res.ok) {
+																		toast({
+																			title: "Failed to delete rule",
+																			description:
+																				"Zentrox failed to delete this rule.",
+																		});
+																	} else {
+																		fetchFireWallInformation();
+																	}
+																});
+															}}
+														>
+															Continue
+														</AlertDialogAction>
+													</AlertDialogFooter>
+												</AlertDialogContent>
+											</AlertDialog>
+										</td>
+									</tr>
+								);
+							})}
+						</tbody>
+					</table>
+				</div>
 			);
 		} else {
 			return (
@@ -816,29 +845,7 @@ function Security() {
 	return (
 		<>
 			<Toaster />
-			<Page name="Security">
-				<div className="font-semibold pb-1 align-middle">
-					Firewall{" "}
-					<InfoButton
-						title="Firewall"
-						info={
-							<>
-								A firewall blocks certain connections with your computer. You
-								can decide which ports and IPs you want to allow or deny access
-								to your computer. <br />
-								Zentrox uses{" "}
-								<a
-									href="https://launchpad.net/ufw"
-									target="_blank"
-									className="contents text-blue-400 underline"
-								>
-									UFW
-								</a>
-								for the firewall.
-							</>
-						}
-					/>
-				</div>
+			<Page name="Firewall">
 				<div className="w-64">
 					<div>
 						<Dialog>
@@ -871,9 +878,9 @@ function Security() {
 									</label>
 									<Select
 										value={newRuleAction}
-										onValueChange={() => {
-											if (newRuleAction === "allow") setNewRuleAction("deny");
-											if (newRuleAction === "deny") setNewRuleAction("allow");
+										onValueChange={(e) => {
+											setPreventRefetch(true);
+											setNewRuleAction(e);
 										}}
 									>
 										<SelectTrigger className="w-[180px]">
@@ -896,6 +903,7 @@ function Security() {
 										<DialogClose asChild>
 											<Button
 												onClick={() => {
+													setPreventRefetch(false);
 													if (
 														newRuleFrom.current.value.length === 0 ||
 														newRuleTo.current.value.length === 0 ||
@@ -912,8 +920,10 @@ function Security() {
 													fetch(
 														fetchURLPrefix +
 															"/api/newFireWallRule/" +
-															encodeURIComponent(newRuleFrom.current.value) + "/" + 
-															encodeURIComponent(newRuleTo.current.value) + "/" + 
+															encodeURIComponent(newRuleFrom.current.value) +
+															"/" +
+															encodeURIComponent(newRuleTo.current.value) +
+															"/" +
 															encodeURIComponent(newRuleAction),
 													).then((res) => {
 														if (res.ok) {
@@ -948,13 +958,17 @@ function Security() {
 						</Dialog>
 						<Switch
 							onClick={(e) => {
+								e.target.disabled = true;
 								fetch(
 									fetchURLPrefix + "/api/switchUFW/" + !fireWallEnabled,
 								).then((res) => {
 									setFireWallEnabled(!fireWallEnabled);
+									e.target.disabled = false;
 									fetchFireWallInformation();
 								});
 							}}
+							value={fireWallEnabled ? "on" : "off"}
+							checked={fireWallEnabled}
 							title="Enable Firewall"
 							className="ml-1"
 						/>
@@ -966,6 +980,343 @@ function Security() {
 	);
 }
 
+function Files() {
+	return (
+		<>
+			<Page name="Files">
+				<FileView className=""></FileView>
+			</Page>
+		</>
+	);
+}
+
+function Storage() {
+	const { toast } = useToast();
+	const [drivesList, setDrivesList] = useState([]);
+	const [driveInformation, setDriveInformation] = useState({
+		drives: {
+			model: "N/A",
+			path: "N/A",
+			owner: "N/A",
+			mountpoint: "",
+			size: 0,
+		},
+		ussage: [],
+	});
+	const [currentDrive, setCurrentDrive] = useState([]);
+	const [driveInformationDialogOpen, setDriveInformationDialogOpen] =
+		useState(false);
+
+	useEffect(() => {
+		fetchDrivesList();
+	}, []);
+
+	function fetchDrivesList() {
+		fetch(fetchURLPrefix + "/api/driveList").then((res) => {
+			if (res.ok) {
+				res.json().then((json) => {
+					setDrivesList(json["drives"]);
+				});
+			} else {
+				toast({
+					title: "Failed to fetch drives list",
+					description:
+						"Zentrox failed to fetch a list of all connected storage mediums.",
+				});
+			}
+		});
+	}
+
+	function showDriveDetails(driveName) {
+		setDriveInformationDialogOpen(true);
+		setCurrentDrive(driveName);
+		fetch(
+			fetchURLPrefix + "/api/driveInformation/" + encodeURIComponent(driveName),
+		).then((res) => {
+			if (res.ok) {
+				res.json().then((json) => {
+					setDriveInformation(json);
+				});
+			} else {
+				toast({
+					title: "Failed to fetch drive informaiton",
+					description: "Zentrox failed to fetch drive details",
+				});
+			}
+		});
+	}
+
+	function DriveEntry({ entry, inset = 0 }) {
+		var children = <></>;
+		if (entry.children != null) {
+			children = entry.children.map((entry) => {
+				return <DriveEntry entry={entry} inset={inset + 1} />;
+			});
+		}
+
+		return (
+			<>
+				{" "}
+				<span
+					className="w-full p-4 bg-transparent border border-neutral-800 border-x-transparent block cursor-default select-none hover:bg-neutral-800 hover:transition-bg hover:duration-400 duration-200 animate-fadein focus:bg-neutral-800 focus:duration-50"
+					style={{
+						paddingLeft: 16 + inset * 10,
+					}}
+					onClick={() => {
+						showDriveDetails(entry.name);
+					}}
+				>
+					{(function (entry) {
+						if (entry.name.startsWith("loop")) {
+							return (
+								<RepeatIcon className="inline-block h-6 w-6 pr-1 text-neutral-700" />
+							);
+						} else if (inset != 0) {
+							return (
+								<LayoutPanelTopIcon className="inline-block h-6 w-6 pr-1" />
+							);
+						} else {
+							return <HardDriveIcon className="inline-block h-6 w-6 pr-1" />;
+						}
+					})(entry)}{" "}
+					{entry.name}
+				</span>
+				{children}
+			</>
+		);
+	}
+
+	/**
+	 * @param {number} bytes
+	 * @description Converts the unit Bytes into a higher unit and add a unit symbol*
+	 * @returns {string} */
+	function bytesUnitToOther(bytes) {
+		if (bytes >= 1024 * 1024 * 1024) {
+			return Math.round(bytes / (1024 * 1024 * 1024)) + " GB";
+		} else if (bytes >= 1024 * 1024) {
+			return Math.round(bytes / (1024 * 1024)) + " MB";
+		} else if (bytes >= 1024) {
+			return Math.round(bytes / 1024) + " KB";
+		} else {
+			return bytes + " B";
+		}
+	}
+
+	var driveCapacity = "N/A";
+	var drive;
+	for (drive of driveInformation.ussage) {
+		if (drive.mounted === driveInformation.drives.mountpoint) {
+			driveCapacity = drive.capacity;
+		}
+	}
+
+	return (
+		<>
+			<Toaster />
+			<Dialog
+				open={driveInformationDialogOpen}
+				onOpenChange={setDriveInformationDialogOpen}
+			>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>{currentDrive}</DialogTitle>
+					</DialogHeader>
+					<DialogDescription className="text-white">
+						<b className="block mb-1">
+							<TagIcon className="w-4 h-4 inline" /> Model
+						</b>
+						{na(driveInformation.drives.model)}
+						<br />
+						<b className="block mb-1">
+							<MapPinIcon className="w-4 h-4 inline" /> Path
+						</b>
+						{na(driveInformation.drives.path)} <br />
+						<b className="block mb-1">
+							<WeightIcon className="w-4 h-4 inline" /> Size
+						</b>
+						{na(bytesUnitToOther(driveInformation.drives.size))} <br />
+						<b className="block mb-1">
+							<UserIcon className="w-4 h-4 inline" /> Owner
+						</b>
+						{na(driveInformation.drives.owner)} <br />
+						<b className="block mb-1">
+							<MountainIcon className="w-4 h-4 inline" /> Mountpoint
+						</b>
+						{na(driveInformation.drives.mountpoint)}
+						<b className="block mb-1">
+							<PieChartIcon className="w-4 h-4 inline" /> Ussage (Capacity)
+						</b>
+						{na(driveCapacity)}
+					</DialogDescription>
+					<DialogFooter>
+						<DialogClose>
+							<Button>Close</Button>
+						</DialogClose>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
+			<Page name="Storage">
+				<div
+					className="rounded-xl m-2 overflow-hidden overflow-y-scroll border-2 border-neutral-800"
+					style={{ maxHeight: "calc(100vh - 180px)" }}
+				>
+					{drivesList
+						.sort((a) => {
+							if (a.name.includes("loop")) return 1;
+							return -1;
+						})
+						.map((entry) => {
+							return <DriveEntry entry={entry} />;
+						})}
+				</div>
+			</Page>
+		</>
+	);
+}
+
+function Vault() {
+	var vaultEncryptionKey = useRef();
+	var vaultKeyDecryptModal = useRef();
+	const { toast } = useToast();
+	const [ decryptKeyModalVisible, setDecryptKeyModalVisibility ] = useState(false)
+
+	function noDecryptKeyModal() {
+		setDecryptKeyModalVisibility(true)
+	}
+
+	return (
+		<Page name="Vault">
+			<Toaster />
+			
+			<Dialog open={decryptKeyModalVisible} onOpenChange={setDecryptKeyModalVisibility}>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Decrypt Vault</DialogTitle>
+					</DialogHeader>
+					<DialogDescription className="text-white">
+						Please enter your current vault key to change it.
+						<Input placeholder="Current key" ref={vaultKeyDecryptModal} />
+					</DialogDescription>
+					<DialogFooter>
+						<DialogClose>
+							<Button onClick={
+									() => {fetch(fetchURLPrefix + "/api/vaultConfigure", {
+										method: "POST",
+										headers: {
+											"Content-Type": "application/json"
+										},
+										body: JSON.stringify({
+											newKey: vaultKeyDecryptModal.current.value,
+											oldKey: vaultEncryptionKey.current.value
+										})
+									}).then((res) => {
+										if (res.ok) {
+											toast({
+												title: "Changed Key",
+												description: "The vault key was changed successfully"
+											})
+										} else {
+											toast({
+												title: "Auth Failed",
+												description: "Vault was unable to validate your key"
+											})
+										}
+									})}
+								}>
+								<KeyIcon className="w-4 h-4 pr-1" /> Decrypt & Change
+							</Button>
+						</DialogClose>
+					</DialogFooter>		
+			</DialogContent>
+			</Dialog>
+
+			<label htmlFor="vaultEncryptionKey">
+				Vault Encryption Key{" "}
+				<InfoButton
+					title="Vault Encryption Key"
+					info={
+						<>
+							This key is used to encrypt and decrypt the vault.
+							<br />
+							If you have not yet used the vault, you can set the key now and
+							the vault will be configured.
+							<br />
+							In case that you already have configured a key, you can change it
+							by entering a new key. This requires the old key.
+							<br />
+							You should choose a strong key.
+							<br />
+							<strong>
+								If the key gets lost, the vault can not be decrypted.
+							</strong>
+						</>
+					}
+				/>{" "}
+			</label>
+			<br />
+			<Input
+				type="password"
+				id="vaultEncryptionKey"
+				ref={vaultEncryptionKey}
+				placeholder="Key"
+				className="inline"
+			/>{" "}
+			<Button
+				variant="destructive"
+				className="inline-block ml-1"
+				onClick={() => {
+					/** @type {string}*/
+					var key = vaultEncryptionKey.current.value;
+					if (key.length == 0) {
+						toast({
+							title: "No key",
+							description: "You need to enter a new key"
+						})
+						return;
+					}
+					fetch(fetchURLPrefix + "/api/vaultConfigure", {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+						},
+						body: JSON.stringify({
+							key: key,
+						}),
+					}).then((res) => {
+						console.log("hy");
+						if (res.ok) {
+							res.json().then((json) => {
+								if (json.code === "no_decrypt_key") {
+									noDecryptKeyModal()
+								} else {
+									toast({
+										title: "Vault is configured",
+										description: "A vault file was created"
+									})
+								}
+							})
+						} else {
+							if (res.status === 400) {
+								toast({
+									title: "Bad Request",
+									description: "The data you provided was incorrect",
+								});
+							} else {
+								toast({
+									title: "Error",
+									description: "An error occured",
+								});
+							}
+						}
+					});
+				}}
+			>
+				<KeyIcon className="w-4 h-4 inline" /> Change
+			</Button>
+		</Page>
+	);
+}
+
 export default function Dashboard() {
 	const [activeTab, setActiveTab] = useState("Overview");
 
@@ -974,8 +1325,14 @@ export default function Dashboard() {
 			return Overview();
 		} else if (activeTab == "Packages") {
 			return Packages();
-		} else if (activeTab == "Security") {
-			return Security();
+		} else if (activeTab == "Firewall") {
+			return Firewall();
+		} else if (activeTab == "Files") {
+			return Files();
+		} else if (activeTab == "Storage") {
+			return Storage();
+		} else if (activeTab == "Vault") {
+			return Vault();
 		}
 	}
 
@@ -989,7 +1346,11 @@ export default function Dashboard() {
 						window.open("https://github.com/wervice/zentrox");
 					}}
 				>
-					<img src="zentrox_dark.svg" className="inline-block pb-0.5 w-5 h-5" />{" "}
+					<img
+						src="zentrox_dark.svg"
+						className="inline-block pb-0.5 w-5 h-5"
+						alt="Zentrox Logo"
+					/>{" "}
 					Zentrox
 				</span>{" "}
 				<TabButton
@@ -1012,12 +1373,39 @@ export default function Dashboard() {
 				</TabButton>
 				<TabButton
 					onClick={() => {
-						setActiveTab("Security");
+						setActiveTab("Firewall");
 					}}
 					isDefault={false}
-					isActive={activeTab == "Security"}
+					isActive={activeTab == "Firewall"}
 				>
-					Security
+					Firewall
+				</TabButton>
+				<TabButton
+					onClick={() => {
+						setActiveTab("Files");
+					}}
+					isDefault={false}
+					isActive={activeTab == "Files"}
+				>
+					Files
+				</TabButton>
+				<TabButton
+					onClick={() => {
+						setActiveTab("Storage");
+					}}
+					isDefault={false}
+					isActive={activeTab == "Storage"}
+				>
+					Storage
+				</TabButton>
+				<TabButton
+					onClick={() => {
+						setActiveTab("Vault");
+					}}
+					isDefault={false}
+					isActive={activeTab == "Vault"}
+				>
+					Vault
 				</TabButton>
 				<Button
 					variant="link"

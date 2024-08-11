@@ -1,6 +1,3 @@
-# Zentrox
-
-<img src="static/banner.png">
 <br>
 <div align="center">
 <img src="static/readme_preview.png" alt="Preview of Zentrox" width="500">

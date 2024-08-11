@@ -21,8 +21,8 @@ module.exports = {
 				border: "hsl(var(--border))",
 				input: "hsl(var(--input))",
 				ring: "hsl(var(--ring))",
-				background: "hsl(var(--background))",
-				foreground: "hsl(var(--foreground))",
+				background: "#000",
+				foreground: "#fff",
 				primary: {
 					DEFAULT: "#ffffff",
 					foreground: "#000000"
@@ -64,11 +64,20 @@ module.exports = {
 					from: { height: "var(--radix-accordion-content-height)" },
 					to: { height: "0" },
 				},
+				"fade-in": {
+                    "0%": {
+                        opacity: 0
+                    },
+                    "100%": {
+                        opacity: 1
+                    },
+                },
 			},
 			animation: {
 				"expand-width": "expand-width 0.75s ease-in-out",
 				"accordion-down": "accordion-down 0.2s ease-out",
 				"accordion-up": "accordion-up 0.2s ease-out",
+				"fadein": 'fade-in ease-in-out',
 			},
 			borderRadius: {
 				lg: "var(--radius)",
