@@ -6,7 +6,7 @@
 
 npm_failed() {
 	echo -ne "❌ NPM failed while trying to install various NPM packages.\nDo you want to re-start the installation and ignore warnings? [y/N] "
-	read
+	read -r
 	if [[ $REPLY == "y" ]]; then
 		npm -q install express body-parser cookie-parser express-session node-os-utils ejs compression
 	else
@@ -17,7 +17,7 @@ npm_failed() {
 
 python_failed() {
 	echo -ne "❌ The installer for Python modules failed. Do you want to ignore & restart pip3, use an alternative to pip3 or stop the program? [ignore/packageManager/N] "
-	read
+	read -r
 	if [[ $REPLY == "ignore" ]]; then
 		sudo pip3 -q install pyftpdlib PyOpenSSL --break-system-packages &> /dev/null
 	elif [[ $REPLY == "packageManager" ]]; then
@@ -42,8 +42,8 @@ python_failed() {
 }
 
 ufw_fail() {
-	echo -ne "❌ The UFW is used to manage the firewall on your system.\nDo you want to install it now? It is required for the Firewall section under security.\nYou can also skip it for now, and install it later if you need it. [install/skip] "
-	read
+	echo -ne "❌ The UFW is used to manage the firewall on your system.\nDo you want to install it now? [install/ignore] "
+	read -r
 	if [[ $REPLY == "install" ]]; then
 		echo "❓ Please enter the name of your package manager [apt/dnf/pacman/zypper]"
 		read UFW_PACKAGE_MANAGER
@@ -128,7 +128,7 @@ else
 	exit -1
 fi
 
-mkdir $ZENTROX_DATA_PATH &> /dev/null || true
+mkdir -p $ZENTROX_DATA_PATH &> /dev/null || true
 
 if [[ $ZENTROX_PATH == "/" || $ZENTROX_PATH == $HOME || $ZENTROX_PATH == "$HOME/" ]] ; then
 	echo "⚠️ Critical problem detected: $ZENTROX_PATH equal to protected folder"
@@ -136,7 +136,7 @@ fi
 
 echo -n "❓ Remove (rm -rf) $ZENTROX_PATH to make sure no old versions of Zentrox are left [Y/n] "
 
-read
+read -r
 
 if [[ $REPLY == "Y" || $REPLY == "" ]]; then
 	rm -rf $ZENTROX_PATH
@@ -191,7 +191,7 @@ fi
 echo "✅ Installed Python packages"
 
 echo "⌛ Compiling C programs"
-if ! gcc ./libs/crypt_c.c -o ./libs/crypt_c -lcrypt; then
+if ! gcc ./libs/crypt_c.c -o ./libs/crypt_c -lcrypt &> /dev/null; then
 	echo "❌ Compiling using GCC failed"
 fi
 
@@ -209,7 +209,7 @@ echo "ℹ️ If you do not want to enter real information, you do not have to bu
 
 echo ""
 
-if ! ufw -v &> /dev/null; then
+if ! /sbin/ufw -v &> /dev/null; then
 	echo "❌ UFW (Uncomplicated firewall) is not installed"
 	ufw_fail
 fi
@@ -246,15 +246,15 @@ $(echo $(echo $USER_PASSWORD | openssl aes-256-cbc -a -A -pbkdf2 -salt -pass pas
 
 # Sets up all folders and files for Zentrox
 echo "📁 Creating file structure"
-touch "$ZENTROX_DATA_PATH/admin.txt"
-touch "$ZENTROX_DATA_PATH/setupDone.txt"
-touch "$ZENTROX_DATA_PATH/users.txt"
-mkdir "$ZENTROX_DATA_PATH/users" &> /dev/null
-mkdir "$ZENTROX_DATA_PATH/users/$(echo $ADMIN_USERNAME | base64)" &> /dev/null
-mkdir "$ZENTROX_DATA_PATH/upload_vault"
-mkdir "$ZENTROX_DATA_PATH/vault_extract"
-touch "$ZENTROX_DATA_PATH/zentrox.txt"
-touch "$ZENTROX_DATA_PATH/vault.vlt"
+touch "$ZENTROX_DATA_PATH/admin.txt" &> /dev/null
+touch "$ZENTROX_DATA_PATH/setupDone.txt" &> /dev/null
+touch "$ZENTROX_DATA_PATH/users.txt" &> /dev/null
+mkdir -p "$ZENTROX_DATA_PATH/users" &> /dev/null
+mkdir -p "$ZENTROX_DATA_PATH/users/$(echo $ADMIN_USERNAME | base64)" &> /dev/null
+mkdir -p "$ZENTROX_DATA_PATH/upload_vault" &> /dev/null
+mkdir -p "$ZENTROX_DATA_PATH/vault_extract" &> /dev/null
+touch "$ZENTROX_DATA_PATH/zentrox.txt" &> /dev/null
+touch "$ZENTROX_DATA_PATH/vault.vlt" &> /dev/null
 openssl rand -base64 64 > "$ZENTROX_DATA_PATH/sessionSecret.txt"
 
 touch $ZENTROX_DATA_PATH/config.db
@@ -263,7 +263,10 @@ touch $ZENTROX_DATA_PATH/locked.db
 # Compile, setup and configure mapbase
 cd $ZENTROX_PATH/libs/mapbase/
 
-go build mapbase.go
+if ! go build mapbase.go &> /dev/null; then
+	echo "❌ Failed to compile Mapbase (Go)"
+	exit -1;
+fi
 
 cd
 
