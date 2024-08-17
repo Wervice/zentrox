@@ -6,7 +6,7 @@ const os = require("os");
 
 function sanitizeString(input) {
 	var string = String(input);
-	string = string.replace(/[^a-zA-Z0-9áéíóúñü\_\-\ \.,\"\'\`\;\,]/gm, "");
+	string = string.replace(/[^a-zA-Z0-9áéíóúñü_\-\ \.,\"\'\`\;\,\/]/gm, "");
 	return string.trim();
 }
 

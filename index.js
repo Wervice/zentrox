@@ -40,8 +40,8 @@ const cookieParser = require("cookie-parser");
 const session = require("express-session");
 const express = require("express"); // Using Express framework
 
-// const devDisAuth = false;
-const devDisAuth = true;
+const devDisAuth = false;
+// const devDisAuth = true;
 
 const MemoryStore = require("memorystore")(session);
 const Worker = require("node:worker_threads").Worker; // For package cache worker
@@ -155,8 +155,8 @@ app.use(
 );
 app.use(
 	cors({
-		credentials: true,
-		origin: "http://localhost:3001", // DO NOT USE THIS IN RELEASE -> Use https://locahost
+	//	credentials: true,
+	//	origin: "" // Not for release
 	}),
 );
 
@@ -796,16 +796,16 @@ app.post("/api/updateFTPConfig", isAdminMw, async (req, res) => {
 	}
 
 	// Write changes to ftp.txt
-	if (typeof enableDisable === "undefined") {
+	if (!enableDisable) {
 		var ftpUserPassword = req.body.ftpUserPassword;
 		var ftpUserUsername = req.body.ftpUserUsername;
 		var ftpLocalRoot = req.body.ftpLocalRoot;
-		if (!ftpUserUsername || !ftpUserPassword || !ftpLocalRoot) {
+		if (typeof ftpUserUsername === "undefined" || typeof ftpUserPassword === "undefined" || typeof ftpLocalRoot === "undefined") {
 			res.status(400).send();
 			return;
 		}
 		if (ftpUserPassword.length != 0) {
-			new_ftp_password = hash512(ftpUserPassword);
+			new_ftp_password = crypto.createHash("sha512").update(ftpUserPassword).digest("hex");
 			writeDatabase(
 				path.join(zentroxInstallationPath, "config.db"),
 				"ftp_password",
@@ -934,8 +934,8 @@ app.get("/api/deviceInformation", isAdminMw, async (req, res) => {
 });
 
 app.get("/api/powerOff", isAdminMw, async (req, res) => {
-	var zentroxUserPassword = req.session.zentroxUserPassword;
-	if (!zentroxUserPassword) {
+	var zentroxUserPassword = req.session.zentroxPassword;
+	if (typeof zentroxUserPassword === "undefined") {
 		res.status(400).send();
 		return;
 	}
@@ -952,6 +952,9 @@ app.get("/api/powerOff", isAdminMw, async (req, res) => {
 });
 
 app.post("/api/vaultConfigure", isAdminMw, async (req, res) => {
+	console.log(
+		req.body
+	)
 	if (
 		readDatabase(
 			path.join(zentroxInstallationPath, "config.db"),
@@ -1036,6 +1039,7 @@ app.post("/api/vaultConfigure", isAdminMw, async (req, res) => {
 						unlockFile(vaultFilePath);
 						return;
 					}
+					unlockFile(vaultFilePath);
 					res.send({
 						message: "success",
 					});
@@ -1073,7 +1077,7 @@ app.post("/api/vaultTree", isAdminMw, async (req, res) => {
 		} catch (e) {
 			zlog(e, "error");
 			unlockFile(vaultFilePath);
-			res.send({ message: "auth_failed" });
+			res.status(403).send({ message: "auth_failed" });
 			return;
 		}
 
@@ -1149,7 +1153,7 @@ app.post("/api/vaultFileDownload", isAdminMw, async (req, res) => {
 		deleteFilesRecursively(path.join(zentroxInstallationPath, "vault_extract"));
 		res.writeHead(200, {
 			"Content-Type": "application/binary",
-			"Content-disposition": "attachment;filename=" + path.basename(fpath),
+			"Content-disposition": "attachment;filename=" + encodeURIComponent(path.basename(fpath)),
 			"Content-Length": data.length,
 		});
 		res.end(Buffer.from(data, "binary"));

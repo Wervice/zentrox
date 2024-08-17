@@ -58,8 +58,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import Label from "./ShortLabel";
 
-// const fetchURLPrefix = "";
-const fetchURLPrefix = "https://localhost:3000";
+const fetchURLPrefix = require("@/lib/fetchPrefix");
 
 export default function FileView({ className }) {
 	const [currentPath, setCurrentPath] = useState("/");

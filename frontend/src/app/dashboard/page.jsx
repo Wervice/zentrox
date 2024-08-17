@@ -42,6 +42,17 @@ import {
 	MountainIcon,
 	PieChartIcon,
 	KeyIcon,
+	LockIcon,
+	LockOpenIcon,
+	FolderIcon,
+	UploadIcon,
+	FileIcon,
+	ArrowUp,
+	LoaderIcon,
+	DeleteIcon,
+	PenLineIcon,
+	DownloadIcon,
+	PowerOffIcon,
 } from "lucide-react";
 import { useEffect, useState, useRef } from "react";
 import { Label } from "@/components/ui/label";
@@ -87,9 +98,15 @@ import {
 	AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import FileView from "@/components/ui/fileview";
-
+import "./scroll.css";
+import {
+	ContextMenu,
+	ContextMenuContent,
+	ContextMenuItem,
+	ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 // const fetchURLPrefix = "";
-const fetchURLPrefix = "https://localhost:3000";
+const fetchURLPrefix = require("@/lib/fetchPrefix");
 
 if (fetchURLPrefix.length > 0) {
 	console.error("Fetch URL Prefix is enabled");
@@ -1177,141 +1194,756 @@ function Storage() {
 function Vault() {
 	var vaultEncryptionKey = useRef();
 	var vaultKeyDecryptModal = useRef();
+	var uploadInput = useRef();
+	var newDirectoryInput = useRef();
+	var renamingModalInput = useRef();
+
 	const { toast } = useToast();
-	const [ decryptKeyModalVisible, setDecryptKeyModalVisibility ] = useState(false)
+	const [decryptKeyModalVisible, setDecryptKeyModalVisibility] =
+		useState(false);
+	const [decryptModalCallback, setDecryptModalCallback] = useState(() => {});
+	const [currentVaultPath, setCurrentVaultPath] = useState("");
+	const [currentVaultContents, setCurrentVaultContents] = useState([]);
+	const [vaultViewVisible, setVaultViewVisible] = useState(false);
+	const [vaultViewFadeOut, setVaultViewFadeOut] = useState(false);
+	const [vaultSessionKey, setVaultSessionKey] = useState("");
+	const [uploadButton, setUploadButton] = useState("default");
+	const [downloadBackupButton, setDownloadBackupButton] = useState("default");
+	const [deletionModalVisible, setDeletionModalVisible] = useState(false);
+	const [renamingModalVisible, setRenamingModalVisible] = useState(false);
+	const [currentVaultFileRename, setCurrentVaultFileRename] = useState("");
+	const [currentVaultFileDelete, setCurrentVaultFileDelete] = useState("");
+
+	function parentDir(path) {
+		if (!path.endsWith("/")) path += "/";
+		var parsedPath = path.split("/");
+		parsedPath.pop();
+		parsedPath.pop();
+		var parentPath = parsedPath.join("/") + "/";
+		if (parentPath === "/") parentPath = "";
+		return parentPath;
+	}
+
+	function vaultTree(key = "") {
+		var vaultKey;
+		if (key === "") vaultKey = vaultKeyDecryptModal.current.value;
+		else vaultKey = key;
+		fetch(fetchURLPrefix + "/api/vaultTree", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				key: vaultKey,
+			}),
+		}).then((res) => {
+			if (res.ok) {
+				res.json().then((json) => {
+					setCurrentVaultContents(json.fs);
+					setVaultViewVisible(true);
+					setVaultSessionKey(vaultKey);
+				});
+			} else {
+				if (res.status === 403) {
+					toast({
+						title: "Auth Failed",
+						description: "Zentrox was unable to validate your key",
+					});
+				}
+			}
+		});
+	}
 
 	function noDecryptKeyModal() {
-		setDecryptKeyModalVisibility(true)
+		setDecryptKeyModalVisibility(true);
+		var newCallback = function () {
+			fetch(fetchURLPrefix + "/api/vaultConfigure", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					newKey: vaultEncryptionKey.current.value,
+					oldKey: vaultKeyDecryptModal.current.value,
+				}),
+			}).then((res) => {
+				if (res.ok) {
+					toast({
+						title: "Changed Key",
+						description: "The vault key was changed successfully",
+					});
+				} else {
+					toast({
+						title: "Auth Failed",
+						description: "Vault was unable to validate your key",
+					});
+				}
+			});
+		};
+		setDecryptModalCallback(() => newCallback);
+	}
+
+	function requestRename() {
+		setRenamingModalVisible(true);
+	}
+
+	function requestDeletion() {
+		setDeletionModalVisible(true);
 	}
 
 	return (
 		<Page name="Vault">
 			<Toaster />
-			
-			<Dialog open={decryptKeyModalVisible} onOpenChange={setDecryptKeyModalVisibility}>
+			<Dialog
+				open={decryptKeyModalVisible}
+				onOpenChange={setDecryptKeyModalVisibility}
+			>
 				<DialogContent>
 					<DialogHeader>
-						<DialogTitle>Decrypt Vault</DialogTitle>
+						<DialogTitle>Unlock Vault</DialogTitle>
+						<DialogDescription>
+							Please enter your current vault key to proceed.
+						</DialogDescription>
 					</DialogHeader>
-					<DialogDescription className="text-white">
-						Please enter your current vault key to change it.
-						<Input placeholder="Current key" ref={vaultKeyDecryptModal} />
-					</DialogDescription>
+					<Input
+						type="password"
+						placeholder="Current key"
+						ref={vaultKeyDecryptModal}
+					/>
 					<DialogFooter>
 						<DialogClose>
-							<Button onClick={
-									() => {fetch(fetchURLPrefix + "/api/vaultConfigure", {
-										method: "POST",
-										headers: {
-											"Content-Type": "application/json"
-										},
-										body: JSON.stringify({
-											newKey: vaultKeyDecryptModal.current.value,
-											oldKey: vaultEncryptionKey.current.value
-										})
-									}).then((res) => {
-										if (res.ok) {
-											toast({
-												title: "Changed Key",
-												description: "The vault key was changed successfully"
-											})
-										} else {
-											toast({
-												title: "Auth Failed",
-												description: "Vault was unable to validate your key"
-											})
-										}
-									})}
-								}>
-								<KeyIcon className="w-4 h-4 pr-1" /> Decrypt & Change
+							<Button
+								onClick={() => {
+									decryptModalCallback();
+									var newCallback = function () {};
+									setDecryptModalCallback(() => newCallback);
+								}}
+							>
+								<KeyIcon className="w-4 h-4 pr-1" /> Proceed
 							</Button>
 						</DialogClose>
-					</DialogFooter>		
-			</DialogContent>
+					</DialogFooter>
+				</DialogContent>
 			</Dialog>
+			<div hidden={vaultViewVisible}>
+				<label htmlFor="vaultEncryptionKey">
+					Vault Encryption Key{" "}
+					<InfoButton
+						title="Vault Encryption Key"
+						info={
+							<>
+								This key is used to encrypt and decrypt the vault.
+								<br />
+								If you have not yet used the vault, you can set the key now and
+								the vault will be configured.
+								<br />
+								In case that you already have configured a key, you can change
+								it by entering a new key. This requires the old key.
+								<br />
+								You should choose a strong key.
+								<br />
+								<strong>
+									If the key gets lost, the vault can not be decrypted.
+								</strong>
+							</>
+						}
+					/>{" "}
+				</label>
+				<br />
+				<Input
+					type="password"
+					id="vaultEncryptionKey"
+					ref={vaultEncryptionKey}
+					placeholder="Key"
+					className="inline"
+				/>{" "}
+				<Button
+					variant="destructive"
+					className="inline-block mb-1"
+					onClick={() => {
+						/** @type {string}*/
+						var key = vaultEncryptionKey.current.value;
+						if (key.length === 0) {
+							toast({
+								title: "No key",
+								description: "You need to enter a new key",
+							});
+							return;
+						}
+						fetch(fetchURLPrefix + "/api/vaultConfigure", {
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+							},
+							body: JSON.stringify({
+								key: key,
+							}),
+						}).then((res) => {
+							if (res.ok) {
+								res.json().then((json) => {
+									if (json.code === "no_decrypt_key") {
+										noDecryptKeyModal();
+									} else {
+										toast({
+											title: "Vault is configured",
+											description: "A vault file was created",
+										});
+									}
+								});
+							} else {
+								if (res.status === 400) {
+									toast({
+										title: "Bad Request",
+										description: "The data you provided was incorrect",
+									});
+								} else {
+									toast({
+										title: "Error",
+										description: "An error occured",
+									});
+								}
+							}
+						});
+					}}
+				>
+					<KeyIcon className="w-4 h-4 inline" /> Change
+				</Button>
+				<br />
+				<Button
+					className="inline mr-1"
+					onClick={() => {
+						setDecryptKeyModalVisibility(true);
+						var vaultUnlockForView = function () {
+							var vaultKey = vaultKeyDecryptModal.current.value;
+							if (vaultKey.length === 0) {
+								toast({
+									title: "No Key",
+									description: "You did not provide a key for decryption",
+								});
+								return;
+							}
+							vaultTree();
+						};
+						setDecryptModalCallback(() => vaultUnlockForView);
+					}}
+				>
+					<LockOpenIcon className="w-4 h-4 inline" /> Open Vault
+				</Button>
+				<Button
+					variant="secondary"
+					className="inline mr-1"
+					onClick={() => {
+						setDownloadBackupButton("loading");
+						fetch(fetchURLPrefix + "/api/vaultBackup").then((res) => {
+							if (res.ok) {
+								res.blob().then((blob) => {
+									setDownloadBackupButton("default");
+									var url = window.URL.createObjectURL(blob);
+									var a = document.createElement("a");
+									a.href = url;
+									a.download = "vault.tar";
+									document.body.appendChild(a); // we need to append the element to the dom -> otherwise it will not work in firefox
+									a.click();
+									a.remove();
+								});
+							} else {
+								toast({
+									title: "Failed to fetch",
+								});
+							}
+						});
+					}}
+				>
+					{downloadBackupButton === "default" ? (
+						<DownloadIcon className="w-4 h-4 inline mr-1" />
+					) : (
+						<LoaderIcon className="animate-spin h-4 w-4 inline mr-1" />
+					)}{" "}
+					Download Vault
+				</Button>
+			</div>
+			<div
+				hidden={!vaultViewVisible}
+				className={vaultViewFadeOut ? "animate-fadeout duration-300" : ""}
+			>
+				<Button
+					onClick={() => {
+						setVaultViewFadeOut(true);
+						setTimeout(() => {
+							setCurrentVaultContents([]);
+							setCurrentVaultPath("");
+							setVaultViewVisible(false);
+							setVaultSessionKey("");
+						}, 290);
+					}}
+					className="mr-1"
+					variant="destructive"
+				>
+					<LockIcon className="w-4 h-4 inline-block mr-1" /> Exit
+				</Button>
+				<Dialog>
+					<DialogTrigger>
+						<Button className="mr-1">
+							<FolderIcon className="w-4 h-4 inline-block mr-1" /> New Directory
+						</Button>
+					</DialogTrigger>
+					<DialogContent>
+						<DialogHeader>
+							<DialogTitle>New Directory</DialogTitle>
+							<DialogDescription>Create a new directory.</DialogDescription>
+						</DialogHeader>
+						<Input type="text" ref={newDirectoryInput} placeholder="Name" />
+						<DialogFooter>
+							<DialogClose>
+								<Button
+									onClick={() => {
+										if (
+											newDirectoryInput.current.value.includes("/") ||
+											newDirectoryInput.current.value.includes(" ")
+										) {
+											toast({
+												title: "Illegal name",
+											});
+											return;
+										}
+										fetch(fetchURLPrefix + "/api/vaultNewFolder", {
+											method: "POST",
+											headers: {
+												"Content-Type": "application/json",
+											},
+											body: JSON.stringify({
+												key: vaultSessionKey,
+												folder_name:
+													currentVaultPath +
+													"/" +
+													newDirectoryInput.current.value,
+											}),
+										}).then((res) => {
+											if (res.ok) {
+												vaultTree(vaultSessionKey);
+											} else {
+												toast({
+													title: "Can't create folder",
+													description: `Vault could not create a directory ${newDirectoryInput.current.value} in ${currentVaultPath}`,
+												});
+											}
+										});
+									}}
+								>
+									<FolderIcon className="w-4 h-4 inline-block mr-1" /> Create
+								</Button>
+							</DialogClose>
+						</DialogFooter>
+					</DialogContent>
+				</Dialog>
+				<Dialog
+					open={renamingModalVisible}
+					onOpenChange={setRenamingModalVisible}
+				>
+					<DialogContent>
+						<DialogHeader>
+							<DialogTitle>Rename File</DialogTitle>
+							<DialogDescription>Rename a file</DialogDescription>
+						</DialogHeader>
+						<Input
+							type="text"
+							ref={renamingModalInput}
+							placeholder="New Name"
+						/>
+						<DialogFooter>
+							<DialogClose asChild>
+								<Button
+									onClick={() => {
+										fetch(fetchURLPrefix + "/api/renameVaultFile", {
+											method: "POST",
+											headers: {
+												"Content-Type": "application/json",
+											},
+											body: JSON.stringify({
+												key: vaultSessionKey,
+												path: currentVaultPath + "/" + currentVaultFileRename,
+												newName:
+													currentVaultPath +
+													"/" +
+													renamingModalInput.current.value,
+											}),
+										}).then((res) => {
+											if (res.ok) vaultTree(vaultSessionKey);
+											else toast({ title: "Failed to rename file" });
+										});
+									}}
+								>
+									<PenLineIcon className="w-4 h-4 inline-block mr-1" /> Rename
+								</Button>
+							</DialogClose>
+						</DialogFooter>
+					</DialogContent>
+				</Dialog>
+				<AlertDialog
+					open={deletionModalVisible}
+					onOpenChange={setDeletionModalVisible}
+				>
+					<AlertDialogContent>
+						<AlertDialogTitle>Delete File</AlertDialogTitle>
+						<AlertDialogDescription>
+							Do you really want to delete {currentVaultFileDelete}?<br />
+							This action can not be undone.
+						</AlertDialogDescription>
+						<AlertDialogFooter>
+							<AlertDialogAction
+								onClick={() => {
+									fetch(fetchURLPrefix + "/api/deleteVaultFile", {
+										method: "POST",
+										headers: {
+											"Content-Type": "application/json",
+										},
+										body: JSON.stringify({
+											key: vaultSessionKey,
+											deletePath:
+												currentVaultPath + "/" + currentVaultFileDelete,
+										}),
+									}).then((res) => {
+										if (res.ok) vaultTree(vaultSessionKey);
+										else toast({ title: "Failed to delete file" });
+									});
+								}}
+							>
+								Delete
+							</AlertDialogAction>
+						</AlertDialogFooter>
+					</AlertDialogContent>
+				</AlertDialog>
+				<Button
+					className="mr-1"
+					onClick={() => {
+						uploadInput.current.click();
+					}}
+				>
+					{uploadButton === "default" ? (
+						<UploadIcon className="w-4 h-4 inline-block mr-1" />
+					) : (
+						<LoaderIcon className="animate-spin h-4 w-4 inline mr-1" />
+					)}{" "}
+					Upload File
+				</Button>
+				<input
+					type="file"
+					ref={uploadInput}
+					onChange={() => {
+						setUploadButton("loading");
+						var fileForSubmit = uploadInput.current.files[0];
+						if (fileForSubmit.size >= 1024 * 1024 * 1024 * 2) {
+							toast({
+								title: "File to big",
+								description: "The file you provided was larger than 2GB",
+							});
+						}
+						var formData = new FormData();
+						formData.append("file", fileForSubmit);
+						formData.append("path", currentVaultPath);
+						formData.append("key", vaultSessionKey);
+						fetch(fetchURLPrefix + "/upload/vault", {
+							method: "POST",
+							body: formData,
+						}).then((res) => {
+							if (res.ok) {
+								vaultTree(vaultSessionKey);
+								setUploadButton("default");
+							} else {
+								toast({
+									title: "File upload error",
+								});
+							}
+						});
+					}}
+					hidden
+				/>
+				<Button
+					className="mr-1"
+					onClick={() => {
+						setCurrentVaultPath(parentDir(currentVaultPath));
+					}}
+				>
+					<ArrowUp className="w-4 h-4 inline-block mr-1" /> Up
+				</Button>
+			</div>
+			<div
+				className={`no-scroll overflow-scroll ${
+					vaultViewFadeOut ? "animate-fadeout duration-300" : ""
+				} h-fit rounded-xl mt-2 overflow-hidden overflow-y-scroll border-2 border-neutral-800 no-scroll`}
+				style={{
+					minHeight: "fit-content",
+					maxHeight: "calc(100vh - 220px)",
+				}}
+				hidden={!vaultViewVisible}
+			>
+				{
+					/*
+					 * @param {string} entry*/
+					currentVaultContents
+						.filter((entry) => {
+							if (
+								entry.startsWith(currentVaultPath) &&
+								entry.replace(currentVaultPath).split("/").length <= 2 &&
+								entry != currentVaultPath
+							)
+								return true;
+							return false;
+						})
+						.map((entry) => {
+							var type = "";
+							if (entry.endsWith("/")) {
+								type = "folder";
+							} else {
+								type = "file";
+							}
+							return (
+								<ContextMenu>
+									<ContextMenuContent>
+										<ContextMenuItem
+											onClick={() => {
+												setCurrentVaultFileDelete(entry);
+												requestDeletion(entry);
+											}}
+										>
+											<DeleteIcon className="w-4 h-4 inline-block mr-1" />{" "}
+											Delete
+										</ContextMenuItem>
+										<ContextMenuItem
+											onClick={() => {
+												setCurrentVaultFileRename(entry);
+												requestRename(entry);
+											}}
+										>
+											<PenLineIcon className="w-4 h-4 inline-block mr-1" />{" "}
+											Rename
+										</ContextMenuItem>
+									</ContextMenuContent>
+									<ContextMenuTrigger>
+										<span
+											className="w-full p-4 bg-transparent border border-neutral-800 border-x-transparent block cursor-default select-none hover:bg-neutral-800 hover:transition-bg hover:duration-400 duration-200 animate-fadein focus:bg-neutral-800 focus:duration-50"
+											onClick={
+												type === "folder"
+													? () => {
+															setCurrentVaultPath(entry);
+														}
+													: (e) => {
+															e.target.classList.add("animate-pulse");
+															e.target.classList.add("duration-300");
 
-			<label htmlFor="vaultEncryptionKey">
-				Vault Encryption Key{" "}
+															e.target.classList.remove("duration-200");
+															fetch(fetchURLPrefix + "/api/vaultFileDownload", {
+																method: "POST",
+																headers: {
+																	"Content-Type": "application/json",
+																},
+																body: JSON.stringify({
+																	key: vaultSessionKey,
+																	path: currentVaultPath + entry,
+																}),
+															}).then((res) => {
+																e.target.classList.remove("animate-pulse");
+																e.target.classList.remove("duration-300");
+
+																e.target.classList.add("duration-200");
+																if (res.ok) {
+																	res.blob().then((blob) => {
+																		var url = window.URL.createObjectURL(blob);
+																		var a = document.createElement("a");
+																		a.href = url;
+																		a.download = entry;
+																		document.body.appendChild(a); // we need to append the element to the dom -> otherwise it will not work in firefox
+																		a.click();
+																		a.remove();
+																	});
+																} else {
+																	toast({
+																		title: "File download error",
+																	});
+																}
+															});
+														}
+											}
+										>
+											{type === "folder" ? (
+												<FolderIcon
+													className="w-6 h-6 inline-block mr-1"
+													fill="white"
+												/>
+											) : (
+												<FileIcon className="w-6 h-6 inline-block mr-1" />
+											)}{" "}
+											{type === "folder"
+												? entry.split("/").at(-2)
+												: entry.split("/").at(-1)}
+										</span>
+									</ContextMenuTrigger>
+								</ContextMenu>
+							);
+						})
+				}
+			</div>
+		</Page>
+	);
+}
+
+function Servers() {
+	var ftpUserNameInput = useRef();
+	var ftpPassWordInput = useRef();
+	var ftpRootInput = useRef();
+	var ftpUserEnabledCheckBox = useRef();
+
+	const [ftpConfig, setFtpConfig] = useState({
+		enabled: false,
+		ftpUserName: "",
+		ftpLocalRoot: "",
+	});
+	const [ftpCheckBoxChecked, setFtpCheckBoxChecked] = useState(false);
+
+	const fetchFtpConfig = () => {
+		fetch(fetchURLPrefix + "/api/fetchFTPconfig").then((res) => {
+			if (res.ok) {
+				res.json().then((json) => {
+					setFtpConfig(json);
+					setFtpCheckBoxChecked(json.enabled);
+					ftpUserNameInput.current.value = json.ftpUserUsername;
+					ftpRootInput.current.value = json.ftpLocalRoot;
+				});
+			} else {
+				toast({
+					title: "Failed to fetch FTP config",
+				});
+			}
+		});
+	};
+
+	useEffect(fetchFtpConfig, []);
+
+	return (
+		<Page name="Servers">
+			<h1 className="text-xl">General</h1>
+			Certificates{" "}
+			<InfoButton
+				title={"Certificates"}
+				info={
+					<>
+						Zentrox automatically generates self signed certificates to provide
+						an encrypted connection.
+						<br />
+						This connection is not protected from Man-In-The-Middle attacks,
+						which is why it is recommended to use a SSL certificate by a
+						Certificate Authority.
+					</>
+				}
+			/>
+			<h1 className="text-xl">
+				FTP{" "}
 				<InfoButton
-					title="Vault Encryption Key"
+					title={"File Transfer Protocol"}
 					info={
 						<>
-							This key is used to encrypt and decrypt the vault.
+							The FTP Protocol is used to transfer files. <br />
+							Zentrox automatically encrypts the trafic using the provided
+							certificates.
 							<br />
-							If you have not yet used the vault, you can set the key now and
-							the vault will be configured.
-							<br />
-							In case that you already have configured a key, you can change it
-							by entering a new key. This requires the old key.
-							<br />
-							You should choose a strong key.
-							<br />
-							<strong>
-								If the key gets lost, the vault can not be decrypted.
-							</strong>
 						</>
 					}
-				/>{" "}
-			</label>
+				/>
+			</h1>
+			<Checkbox
+				onClick={() => {
+					setFtpCheckBoxChecked(!ftpCheckBoxChecked);
+					console.log(ftpCheckBoxChecked);
+				}}
+				id="ftpUserEnabledCheckBox"
+				className="ml-1"
+				checked={ftpCheckBoxChecked}
+			/>{" "}
+			<label htmlFor="ftpUserEnabledCheckBox">Enabled</label>
 			<br />
+			<Label className="block p-1">Username</Label>
+			<Input
+				type="text"
+				ref={ftpUserNameInput}
+				placeholder="Username"
+				className="inline-block mb-1"
+			/>{" "}
+			<InfoButton
+				title={"FTP Username"}
+				info={
+					<>
+						The FTP username is the username that is used to connect to your FTP
+						server. By Default it is: <code>ftp_zentrox</code>
+					</>
+				}
+			/>
+			<br />
+			<Label className="block p-1">Password</Label>
 			<Input
 				type="password"
-				id="vaultEncryptionKey"
-				ref={vaultEncryptionKey}
-				placeholder="Key"
-				className="inline"
+				ref={ftpPassWordInput}
+				placeholder="Password"
+				className="inline-block mb-1"
 			/>{" "}
+			<InfoButton
+				title={"FTP Password"}
+				info={
+					<>
+						The FTP password is the password that is used to connect to your FTP
+						server. <br />
+						You should change it to prevent getting hacked.
+						<br />
+						By Default it is: <code>change_me</code>
+					</>
+				}
+			/>
+			<br />
+			<Label className="block p-1">Root Directory</Label>
+			<Input
+				type="text"
+				ref={ftpRootInput}
+				placeholder="FTP Root Directory"
+				className="inline-block mb-1"
+			/>{" "}
+			<InfoButton
+				title={"FTP Root"}
+				info={
+					<>
+						The FTP root directory is the directory that a connected FTP user
+						can access. By Default it is: <code>/</code>
+					</>
+				}
+			/>
+			<br />
 			<Button
-				variant="destructive"
-				className="inline-block ml-1"
 				onClick={() => {
-					/** @type {string}*/
-					var key = vaultEncryptionKey.current.value;
-					if (key.length == 0) {
-						toast({
-							title: "No key",
-							description: "You need to enter a new key"
-						})
-						return;
-					}
-					fetch(fetchURLPrefix + "/api/vaultConfigure", {
+					fetch(fetchURLPrefix + "/api/updateFTPConfig", {
 						method: "POST",
 						headers: {
 							"Content-Type": "application/json",
 						},
 						body: JSON.stringify({
-							key: key,
+							enableDisable: false,
+							enableFTP: ftpCheckBoxChecked,
+							ftpUserUsername: ftpUserNameInput.current.value,
+							ftpLocalRoot: ftpRootInput.current.value,
+							ftpUserPassword: ftpPassWordInput.current.value,
 						}),
 					}).then((res) => {
-						console.log("hy");
 						if (res.ok) {
-							res.json().then((json) => {
-								if (json.code === "no_decrypt_key") {
-									noDecryptKeyModal()
-								} else {
-									toast({
-										title: "Vault is configured",
-										description: "A vault file was created"
-									})
-								}
-							})
+							toast({
+								title: "FTP server updated",
+							});
 						} else {
-							if (res.status === 400) {
-								toast({
-									title: "Bad Request",
-									description: "The data you provided was incorrect",
-								});
-							} else {
-								toast({
-									title: "Error",
-									description: "An error occured",
-								});
-							}
+							toast({
+								title: "FTP server error",
+								description: "Failed to update FTP server config",
+							});
 						}
 					});
 				}}
 			>
-				<KeyIcon className="w-4 h-4 inline" /> Change
+				Apply
 			</Button>
 		</Page>
 	);
@@ -1333,6 +1965,8 @@ export default function Dashboard() {
 			return Storage();
 		} else if (activeTab == "Vault") {
 			return Vault();
+		} else if (activeTab == "Servers") {
+			return Servers();
 		}
 	}
 
@@ -1407,6 +2041,47 @@ export default function Dashboard() {
 				>
 					Vault
 				</TabButton>
+				<TabButton
+					onClick={() => {
+						setActiveTab("Servers");
+					}}
+					isDefault={false}
+					isActive={activeTab == "Servers"}
+				>
+					Servers
+				</TabButton>
+				<AlertDialog>
+					<AlertDialogTrigger asChild>
+						<Button variant="link" className="text-white p-2 m-0 float-right">
+							<PowerOffIcon className="h-16 p-1 text-red-500" /> Power Off
+						</Button>
+					</AlertDialogTrigger>
+					<AlertDialogContent>
+						<AlertDialogHeader>
+							<AlertDialogTitle>Power Off</AlertDialogTitle>
+							<AlertDialogDescription>
+								Do you really want to power off your machine?
+								<br />
+								Zentrox can not reboot it automatically.
+							</AlertDialogDescription>
+						</AlertDialogHeader>
+						<AlertDialogFooter>
+							<AlertDialogAction
+								onClick={() => {
+									fetch(fetchURLPrefix + "/api/powerOff").then((res) => {
+										if (!res.ok) {
+											toast({
+												title: "Power Off failed",
+											});
+										}
+									});
+								}}
+							>
+								Power Off
+							</AlertDialogAction>
+						</AlertDialogFooter>
+					</AlertDialogContent>
+				</AlertDialog>
 				<Button
 					variant="link"
 					className="text-white p-2 m-0 float-right"
