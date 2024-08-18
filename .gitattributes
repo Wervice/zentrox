@@ -1,8 +1,8 @@
 # Auto detect text files and perform LF normalization
 * text=auto
-*.css linguist-vendored=true
-frontend/out/* linguist-vendored=true
-backend/static/* linguist-vendored=true
-backend/target/* linguist-vendored=true
+*.css linguist-vendored
+frontend/out/* linguist-vendored
+backend/static/* linguist-vendored
+backend/target/* linguist-vendored
 # The following files are just kept around as a reference point and will not be involved in the actual project anymore:
-backend/libs_js/* linguist-vendored=true
+backend/libs_js/* linguist-vendored
