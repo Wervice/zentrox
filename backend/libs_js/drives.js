@@ -5,6 +5,8 @@ function deviceList() {
 	return JSON.parse(lsblkOutput)["blockdevices"];
 }
 
+console.log(deviceList())
+
 function deviceInformation(deviceName) {
 	const lsblkOutput = chpr.execSync("lsblk -O --bytes --json");
 	const jsonOutput = JSON.parse(lsblkOutput)["blockdevices"];
