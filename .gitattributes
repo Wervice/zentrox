@@ -5,5 +5,5 @@ frontend/out/* linguist-vendored=true
 backend/static/* linguist-vendored=true
 backend/target/* linguist-vendored=true
 # The following files are just kept around as a reference point and will not be involved in the actual project anymore:
-index.js
-backend/libs_js/*
+index.js linguist-vendored=true
+backend/libs_js/* linguist-vendored=true
