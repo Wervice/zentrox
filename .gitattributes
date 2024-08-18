@@ -1,3 +1,6 @@
 # Auto detect text files and perform LF normalization
 * text=auto
-# *.css linguist-vendored=true
+*.css linguist-vendored=true
+frontend/out/* linguist-vendored=true
+backend/static/* linguist-vendored=true
+backend/target/* linguist-vendored=true
