@@ -4,6 +4,27 @@
 # wervice@proton.me 
 # github.com/wervice/zentrox | Please 🌟 on GitHub
 
+update_toml() {
+    local key=$1
+    local value=$2
+    local toml_file="$HOME/zentrox_data/config.toml"
+
+    # Check if the file exists
+    if [[ ! -f "$toml_file" ]]; then
+        echo "Error: $toml_file not found!"
+        return 1
+    fi
+
+    # Check if the key exists in the file
+    if grep -q "^$key[[:space:]]*=" "$toml_file"; then
+        # Update the existing key with the new value
+        sed -i.bak "s|^$key[[:space:]]*=.*|$key = \"$value\"|" "$toml_file"
+    else
+        # Add the key-value pair if the key does not exist
+        echo "$key = \"$value\"" >> "$toml_file"
+    fi
+}
+
 npm_failed() {
 	echo -ne "❌ NPM failed while trying to install various NPM packages.\nDo you want to re-start the installation and ignore warnings? [y/N] "
 	read -r
@@ -209,12 +230,12 @@ echo "ℹ️ If you do not want to enter real information, you do not have to bu
 
 echo ""
 
-if ! /sbin/ufw -v &> /dev/null; then
+if ! /sbin/ufw --version &> /dev/null; then
 	echo "❌ UFW (Uncomplicated firewall) is not installed"
 	ufw_fail
+else
+	echo "✅ The UFW is installed"
 fi
-
-echo "✅ The UFW is installed"
 
 if ! sudo /usr/sbin/ufw allow from any to any port 3000 > /dev/null; then
 	echo "❌ Failed to add UFW rule for Zentrox"
@@ -260,31 +281,21 @@ openssl rand -base64 64 > "$ZENTROX_DATA_PATH/sessionSecret.txt"
 touch $ZENTROX_DATA_PATH/config.db
 touch $ZENTROX_DATA_PATH/locked.db
 
-# Compile, setup and configure mapbase
-cd $ZENTROX_PATH/libs/mapbase/
-
-if ! go build mapbase.go &> /dev/null; then
-	echo "❌ Failed to compile Mapbase (Go)"
-	exit -1;
-fi
-
-cd
-
-$ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db server_name $ZENTROX_SERVER_NAME
-$ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db reg_mode linkInvite
-$ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db server_name $ZENTROX_SERVER_NAME
-$ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db ftp_pid 0000
-$ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db ftp_running 0
-$ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db ftp_username ftp_zentrox
-$ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db ftp_password $(echo -n "change_me" | sha512sum | cut -d ' ' -f 1)
-$ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db ftp_root /
-$ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db zentrox_user_password $(echo $USER_PASSWORD | openssl aes-256-cbc -a -A -pbkdf2 -salt -pass pass:$ADMIN_PASSWORD)
-$ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db vault_enabled "0"
-$ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db knowsOtpSecret "0"
+update_toml "server_name" "$ZENTROX_SERVER_NAME"
+update_toml "reg_mode" "linkInvite"
+update_toml "server_name" "$ZENTROX_SERVER_NAME"
+update_toml "ftp_pid" "0000"
+update_toml "ftp_running" "0"
+update_toml "ftp_username" "ftp_zentrox"
+update_toml "ftp_password" "$(echo -n 'change_me' | sha512sum | cut -d ' ' -f 1)"
+update_toml "ftp_local_root" "/"
+update_toml "zentrox_admin_password" "$(echo $USER_PASSWORD | openssl aes-256-cbc -a -A -pbkdf2 -salt -pass pass:$ADMIN_PASSWORD)"
+update_toml "vault_enabled" "0"
+update_toml "knows_otp_secret" "0"
 
 # Enable 2FA
 if [[ $ENABLE_2FA == "Y" || $ENABLE_2FA == "" ]]; then
-	$ZENTROX_PATH/libs/mapbase/mapbase write $ZENTROX_DATA_PATH/config.db useOtp 1
+	toml_update "use_otp" "1"
 	echo "ℹ️ You can read the OTP secret in Zentrox' log when you first start the server.'"
 	echo "ℹ️ The secret is also stored in ~/zentrox_data/config.db"
 	echo "ℹ️ Please copy it and store it in a dedicated app for OTP management."
