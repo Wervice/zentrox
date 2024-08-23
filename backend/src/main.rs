@@ -423,17 +423,6 @@ async fn update_ftp_config(session: Session, json: web::Json<JsonRequest>) -> Ht
         return HttpResponse::Forbidden().finish();
     };
 
-    sudo::switchedUserCommand::new(
-        "zentrox".to_string(),
-        session
-            .get::<String>("zentrox_admin_password")
-            .unwrap()
-            .expect("Failed to get admin password"),
-        "touch".to_string(),
-    )
-    .arg("/home/constantin/te".to_string())
-    .spawn();
-
     if !json.enableFTP.expect("Failed to get enableFTP") {
         // Kill FTP server
         let ftp_server_pid = config_file::read("ftp_pid");
