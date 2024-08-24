@@ -1,5 +1,5 @@
 use crate::config_file;
-use std::io::{Read, Write};
+use std::io::{Error, Read, Write};
 use std::process::Command;
 use std::process::Stdio;
 use std::str;
@@ -36,32 +36,7 @@ fn decrypt_aes_256_cbc(password: &String, ciphertext: String) -> String {
 pub fn admin_password(decryption_key: &String) -> String {
     let decrypted =
         decrypt_aes_256_cbc(decryption_key, config_file::read("zentrox_admin_password"));
-    println!("{}", decrypted);
     decrypted
-}
-
-pub fn spawn(username: String, password: String, command: String) -> () {
-    std::thread::spawn(move || {
-        let mut child = Command::new("su")
-            .arg(username)
-            .stdin(Stdio::piped())
-            .spawn()
-            .expect("Failed to spawn child process");
-
-        let mut stdin = child.stdin.take().expect("Failed to open stdin");
-        std::thread::spawn(move || {
-            stdin
-                .write_all(format!("{}\n", password).as_bytes())
-                .expect("Failed to write to stdin");
-            std::thread::sleep(std::time::Duration::from_secs(1));
-
-            stdin
-                .write_all(format!("{}\n", command).as_bytes())
-                .expect("Failed to write to stdin");
-        });
-        let output = child.wait_with_output().expect("Failed to read stdout");
-        String::from_utf8_lossy(&output.stdout).to_string()
-    });
 }
 
 pub struct SwitchedUserCommand {
@@ -91,30 +66,28 @@ impl SwitchedUserCommand {
         self
     }
 
-    pub fn spawn(&self) -> () {
-        // Spawn the child process
-        let mut full_command = format!("{} ", String::from(&self.command));
-        for argument in &self.args {
-            full_command = format!("{}{} ", full_command, argument)
-        }
+    pub fn spawn(&self) -> Result<i32, String> {
 
-        let mut handle = Command::new("su")
-            .arg(&self.username)
-            .arg(format!("--command=\"{}\"", full_command))
+        let mut handle = Command::new("sudo")
+            .arg("-S")
+            .arg("-k")
+            .arg(&self.command)
+            .args(&self.args)
             .stdin(Stdio::piped())
+            // .stderr(Stdio::piped())
+            // .stdout(Stdio::piped())
             .spawn()
             .expect("Failed to spawn process");
 
         let password = self.password.to_string();
-        // Take stdin from the child process
-        let _ = std::thread::Builder::new().spawn(move || {
-            let mut stdinput = handle.stdin.take().unwrap();
-            stdinput
-                .write_all(format!("{}\n", password).as_bytes())
-                .expect("Failed to write to stdin (password)");
-            let mut stderror = handle.stderr.take().unwrap();
-            let mut stderrbuff = String::new();
-            let _ = stderror.read_to_string(&mut stderrbuff);
-        });
+        let mut stdinput = handle.stdin.take().unwrap();
+        stdinput
+            .write_all(format!("{}\n", password).as_bytes())
+            .expect("Failed to write to stdin (password)");
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        match handle.wait().unwrap().code() {
+            Some(code) => Ok(code as i32),
+            None => Ok(0)
+        }
     }
 }
