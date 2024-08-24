@@ -160,7 +160,7 @@ echo -n "❓ Remove (rm -rf) $ZENTROX_PATH to make sure no old versions of Zentr
 read -r
 
 if [[ $REPLY == "Y" || $REPLY == "" ]]; then
-	rm -rf $ZENTROX_PATH
+	rm -rf "$ZENTROX_PATH"
 fi
 
 echo "🔽 Cloning Zentrox to $ZENTROX_PATH"
