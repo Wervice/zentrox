@@ -4,6 +4,23 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+actix-cors = "0.7.0"
 actix-files = "0.6.6"
 actix-session = { version = "0.10.0", features = ["cookie-session"] }
 actix-web = "4.9.0"
+aes-gcm = "0.10.3"
+atoi = "2.0.0"
+base32 = "0.5.1"
+base64 = "0.22.1"
+dirs = "5.0.1"
+futures = "0.3.30"
+hex = "0.4.3"
+hmac-sha512 = "1.1.5"
+rand = "0.8.5"
+serde = { version = "1.0.208", features = ["derive"] }
+sysinfo = "0.31.2"
+systemstat = "0.2.3"
+toml = "0.8.19"
+toml_edit = "0.22.20"
+totp-rs = "5.6.0"
+whoami = "1.5.1"
