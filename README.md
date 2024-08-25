@@ -10,7 +10,7 @@
 [![Post on X](https://img.shields.io/badge/Post%20on%20X-white.svg?style=for-the-badge&logo=x&logoColor=white&color=black)](https://x.com/intent/post?text=https%3A%2F%2Fgithub.com%2Fwervice%2Fzentrox)
 
 > [!IMPORTANT]
-> ⚠️  Zentrox is a work in progress and not done. It may still change before the first release.
+> ⚠️  Zentrox is a work in progress !
 
 ## 💡 Which problems does Zentrox solve?
 
@@ -31,45 +31,10 @@ The installation is very fast and doesn't require great background knowledge.
 ## 🛠️ Installation
 
 > [!IMPORTANT]
-> Zentrox is a work in progress.
-> At the time, many parts of the application are not done and properly tested.
-> If you want to see, what the current state is, you can test it using the commands bellow.
-> Please do not ignore any disclaimers, as you may break your system.
-> You can also run it in a VM.
-
-Zentrox only supports Linux at the time.
-You can use the script bellow to install Zentrox on your system.  
-It will auto generate a .key and .crt file for HTTPS support.
-If you already have a .key and .crt, please copy it to the folder and call it selfsigned.crt / selfsigned.key.
-
-### Requirements
-
-- Node.JS (Version 22+)
-- Python (Version 3.11+)
-- NPM
-- Pip3
-- Go
-- Linux (OpenSUSE is not supported at the time)
-- OpenSSL
-
-### Installing
-
-1. Run the following command in your terminal:
-   `curl -fsSL https://raw.githubusercontent.com/Wervice/zentrox/main/install.bash -o zentrox_installer.bash; bash zentrox_installer.bash`
-2. Follow the installer.
-3. Run `cd ~/zentrox; node zentrox.js` to get started.
-4. Go to `https://localhost:3000` and login with your newly configured admin username and password.
-
-## 🗃️ Usage
-
-After rebooting the server or closing Zentrox, you can restart it using:
-
-```bash
-cd ~/zentrox # Go to Zentrox code folder
-node index.js # Start zentrox
-```
-
-You can now login to Zentrox using your admin credentials.
+> Zentrox does not have any up-to-date instructions on how to install it.
+> The project is currently undergoing a full backend re-write from JavaScript to Rust.
+> The code is largely un-tested and may not work as expected.
+> You are very welcome to give feedback, but please do not treat the current code as the final result.
 
 ## 🗑️ Removing
 
