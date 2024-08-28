@@ -4,64 +4,73 @@ use actix_session::{storage::CookieSessionStore, Session, SessionMiddleware};
 use actix_web::cookie::Key;
 use actix_web::{get, http::StatusCode, middleware, post, web, App, HttpResponse, HttpServer};
 use base64::{engine::general_purpose::STANDARD as b64, Engine as _};
-use hex;
 use hmac_sha512::Hash;
 use serde::{Deserialize, Serialize};
 mod is_admin;
-use is_admin::is_admin;
+use is_admin::is_admin_state;
 mod config_file;
 mod otp;
 mod sudo;
 use actix_cors::Cors;
-use sysinfo::System as SysInfoSystem;
-use systemstat::{Platform, System};
-use whoami;
-
 use std::{
     collections::HashMap,
     fs, path,
     process::Command,
+    sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
+use sysinfo::System as SysInfoSystem;
+use systemstat::{Platform, System};
+mod packages;
 
 #[allow(non_snake_case)]
-
 // General App Code
-
+#[derive(Clone)]
 struct AppState {
-    login_requests: std::sync::Mutex<
-        HashMap<
-            String, /* IP Adress of caller */
-            (
-                u128, /* Unix Timestamp of last request */
-                u64,  /* Number of requests since last reset */
-            ),
+    login_requests: Arc<
+        Mutex<
+            HashMap<
+                String, /* IP Adress of caller */
+                (
+                    u128, /* Unix Timestamp of last request */
+                    u64,  /* Number of requests since last reset */
+                ),
+            >,
         >,
     >,
+    login_token: Arc<Mutex<String>>,
 }
 
-// Page Routes (Routes that lead to the display of a static page)
+impl AppState {
+    fn new() -> Self {
+        AppState {
+            login_requests: Arc::new(Mutex::new(HashMap::new())),
+            login_token: Arc::new(Mutex::new(String::from(""))),
+        }
+    }
+}
+
 #[get("/")]
-async fn index(session: Session) -> HttpResponse {
+async fn index(session: Session, state: web::Data<AppState>) -> HttpResponse {
     // is_admin session value is != true (None or false), the user is served the login screen
     // otherwise, the user is redirected to /
-    if is_admin(&session) {
+    if is_admin_state(&session, state) {
         HttpResponse::Found()
             .append_header(("Location", "/dashboard"))
             .finish()
     } else {
-        return HttpResponse::build(StatusCode::OK)
-            .body(std::fs::read_to_string("static/index.html").expect("Failed to read file"));
+        HttpResponse::build(StatusCode::OK)
+            .body(std::fs::read_to_string("static/index.html").expect("Failed to read file"))
     }
 }
 
 #[get("/dashboard")]
-async fn dashboard(session: Session) -> HttpResponse {
+async fn dashboard(session: Session, state: web::Data<AppState>) -> HttpResponse {
     // is_admin session value is != true (None or false), the user is redirected to /
     // otherwise, the user is served the dashboard.html file
-    if is_admin(&session) {
-        return HttpResponse::build(StatusCode::OK)
-            .body(std::fs::read_to_string("static/dashboard.html").expect("Failed to read file"));
+    if is_admin_state(&session, state) {
+        HttpResponse::build(StatusCode::OK)
+            .body(std::fs::read_to_string("static/dashboard.html").expect("Failed to read file"))
     } else {
         HttpResponse::Found()
             .append_header(("Location", "/"))
@@ -139,8 +148,8 @@ async fn login(
         .unwrap()
         .split("\n")
     {
-        let line_username_entry = line.split(": ").nth(0).expect("Failed to get username");
-        let line_username = String::from_utf8(b64.decode(&line_username_entry).unwrap())
+        let line_username_entry = line.split(": ").next().expect("Failed to get username");
+        let line_username = String::from_utf8(b64.decode(line_username_entry).unwrap())
             .expect("Failed to decode username");
         let mut found_user: bool = false;
         if &line_username == username {
@@ -152,17 +161,23 @@ async fn login(
                 if config_file::read("use_otp") == "1" {
                     let otp_secret = config_file::read("otp_secret");
                     if otp::calculate_current_otp(&otp_secret) == *otp_code {
-                        let _ = session.insert("is_admin", true);
-                        let _ = session
-                            .insert("zentrox_admin_password", sudo::admin_password(&password));
+                        let login_token: Vec<u8> = (0..4).map(|_| rand::random::<u8>()).collect();
+                        let _ =
+                            session.insert("login_token", hex::encode(&login_token).to_string());
+
+                        *state.login_token.lock().unwrap() = hex::encode(&login_token).to_string();
+
                         return HttpResponse::build(StatusCode::OK).json(web::Json(EmptyJson {}));
                     } else {
                         println!("❌ Wrong OTP while authenticating {}", &username);
                     }
                 } else {
-                    let _ = session.insert("is_admin", true);
-                    let _ =
-                        session.insert("zentrox_admin_password", sudo::admin_password(&password));
+                    let login_token: Vec<u8> = (0..16).map(|_| rand::random::<u8>()).collect();
+                    // for hashes
+                    let _ = session.insert("login_token", hex::encode(&login_token).to_string());
+
+                    *state.login_token.lock().unwrap() = hex::encode(&login_token).to_string();
+
                     return HttpResponse::build(StatusCode::OK).json(web::Json(EmptyJson {}));
                 }
             } else {
@@ -181,8 +196,9 @@ async fn login(
 
 // Logout
 #[get("/logout")]
-async fn logout(session: Session) -> HttpResponse {
-    session.remove("is_admin");
+async fn logout(session: Session, _state: web::Data<AppState>) -> HttpResponse {
+    session.remove("login_token");
+    let _ = config_file::write("login_token", "");
     session.remove("zentrox_admin_password");
     HttpResponse::Found()
         .append_header(("Location", "/"))
@@ -191,24 +207,24 @@ async fn logout(session: Session) -> HttpResponse {
 
 // Ask for Otp Secret
 #[get("/login/otpSecret")]
-async fn otp_secret_request() -> HttpResponse {
+async fn otp_secret_request(_state: web::Data<AppState>) -> HttpResponse {
     #[derive(Serialize)]
     struct SecretJsonResponse {
         secret: String,
     }
 
     if "1" != config_file::read("knows_otp_secret") && "0" != config_file::read("use_otp") {
-        config_file::write("knows_otp_secret", "1");
-        return HttpResponse::build(StatusCode::OK).json(SecretJsonResponse {
+        let _ = config_file::write("knows_otp_secret", "1");
+        HttpResponse::build(StatusCode::OK).json(SecretJsonResponse {
             secret: config_file::read("otp_secret"),
-        });
+        })
     } else {
         HttpResponse::Forbidden().finish()
     }
 }
 
 #[get("/login/useOtp")]
-async fn use_otp() -> HttpResponse {
+async fn use_otp(_state: web::Data<AppState>) -> HttpResponse {
     #[derive(Serialize)]
     struct JsonResponse {
         used: bool,
@@ -221,8 +237,8 @@ async fn use_otp() -> HttpResponse {
 
 // Functional Requests
 #[get("/api/cpuPercent")]
-async fn cpu_percent(session: Session) -> HttpResponse {
-    if !is_admin(&session) {
+async fn cpu_percent(session: Session, state: web::Data<AppState>) -> HttpResponse {
+    if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().finish();
     };
 
@@ -248,8 +264,8 @@ async fn cpu_percent(session: Session) -> HttpResponse {
 }
 
 #[get("/api/ramPercent")]
-async fn ram_percent(session: Session) -> HttpResponse {
-    if !is_admin(&session) {
+async fn ram_percent(session: Session, state: web::Data<AppState>) -> HttpResponse {
+    if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().finish();
     };
 
@@ -276,8 +292,8 @@ async fn ram_percent(session: Session) -> HttpResponse {
 }
 
 #[get("/api/diskPercent")]
-async fn disk_percent(session: Session) -> HttpResponse {
-    if !is_admin(&session) {
+async fn disk_percent(session: Session, state: web::Data<AppState>) -> HttpResponse {
+    if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().finish();
     };
 
@@ -303,8 +319,8 @@ async fn disk_percent(session: Session) -> HttpResponse {
 }
 
 #[get("/api/deviceInformation")]
-async fn device_information(session: Session) -> HttpResponse {
-    if !is_admin(&session) {
+async fn device_information(session: Session, state: web::Data<AppState>) -> HttpResponse {
+    if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().finish();
     };
 
@@ -383,8 +399,8 @@ async fn device_information(session: Session) -> HttpResponse {
 
 // FTP Config
 #[get("/api/fetchFTPconfig")]
-async fn fetch_ftp_config(session: Session) -> HttpResponse {
-    if !is_admin(&session) {
+async fn fetch_ftp_config(session: Session, state: web::Data<AppState>) -> HttpResponse {
+    if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().finish();
     };
 
@@ -415,36 +431,42 @@ struct JsonRequest {
     ftpUserUsername: Option<String>,
     ftpUserPassword: Option<String>,
     ftpLocalRoot: Option<String>,
+    sudoPassword: String,
 }
 
 #[post("/api/updateFTPConfig")]
-async fn update_ftp_config(session: Session, json: web::Json<JsonRequest>) -> HttpResponse {
-    if !is_admin(&session) {
+async fn update_ftp_config(
+    session: Session,
+    json: web::Json<JsonRequest>,
+    state: web::Data<AppState>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().finish();
     };
 
     if !json.enableFTP.expect("Failed to get enableFTP") {
         // Kill FTP server
+        let sudo_password = json.sudoPassword.to_string();
         let ftp_server_pid = config_file::read("ftp_pid");
-        sudo::spawn(
-            "zentrox".to_string(),
-            session
-                .get::<String>("zentrox_admin_password")
-                .unwrap()
-                .expect("Failed to get zentrox admin password"),
-            ("kill ".to_string() + &ftp_server_pid.to_string()).to_string(),
-        );
-        config_file::write("ftp_running", "0");
+        if !ftp_server_pid.is_empty() {
+            std::thread::spawn(move || {
+                let _ = sudo::SwitchedUserCommand::new(sudo_password, String::from("kill"))
+                    .arg(ftp_server_pid.to_string())
+                    .spawn();
+            });
+            let _ = config_file::write("ftp_running", "0");
+        }
     } else {
-        config_file::write("ftp_running", "1");
-        let _server = sudo::spawn(
-            "zentrox".to_string(),
-            session
-                .get::<String>("zentrox_admin_password")
-                .unwrap()
-                .expect("Failed to get zentrox admin password"),
-            ("python3 ftp.py ".to_string() + &whoami::username()).to_string(),
-        );
+        let sudo_password = json.sudoPassword.to_string();
+
+        std::thread::spawn(move || {
+            let _ = sudo::SwitchedUserCommand::new(sudo_password, String::from("python3"))
+                .arg("ftp.py".to_string())
+                .arg(whoami::username_os().into_string().unwrap())
+                .spawn();
+        });
+
+        let _ = config_file::write("ftp_running", "1");
     }
 
     if !json.enableDisable.unwrap_or(false) {
@@ -452,31 +474,154 @@ async fn update_ftp_config(session: Session, json: web::Json<JsonRequest>) -> Ht
         let password = json.ftpUserPassword.clone().unwrap_or(String::from(""));
         let local_root = json.ftpLocalRoot.clone().unwrap_or(String::from(""));
 
-        if password != "" && password.len() != 0 {
+        if !password.is_empty() {
             let hasher = &mut Hash::new();
             hasher.update(&password);
             let hashed_password = hex::encode(hasher.finalize());
-            config_file::write("ftp_password", &hashed_password);
+            let _ = config_file::write("ftp_password", &hashed_password);
         }
 
-        if username != "" && username.len() != 0 {
-            config_file::write("ftp_username", &username);
+        if !username.is_empty() {
+            let _ = config_file::write("ftp_username", &username);
         }
 
-        if local_root != "" && local_root.len() != 0 {
-            config_file::write("ftp_local_root", &local_root);
+        if !local_root.is_empty() {
+            let _ = config_file::write("ftp_local_root", &local_root);
         }
     }
 
     HttpResponse::Ok().json(EmptyJson {})
 }
 
+#[derive(Serialize)]
+struct PackageResponseJson {
+    apps: Vec<Vec<std::string::String>>, // Any "package" that has a .desktop file
+    packages: Vec<String>, // Any package the supported package managers (apt, pacman and dnf) say
+    // would be installed on the system (names only)
+    others: Vec<String>, // Not installed and not a .desktop file
+}
+
+#[get("/api/packageDatabase")]
+async fn package_database(session: Session, state: web::Data<AppState>) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().finish();
+    }
+
+    let installed = match packages::list_installed_packages() {
+        Ok(packages) => packages,
+        Err(err) => {
+            eprintln!("❌ Listing installed packages failed: {}", err);
+            Vec::new()
+        }
+    };
+
+    let desktops = match packages::list_desktop_applications() {
+        Ok(v) => v,
+        Err(_) => {
+            return HttpResponse::InternalServerError().body("Failed to list desktop applications")
+        }
+    };
+
+    let desktops_clear = {
+        let mut clear: Vec<Vec<String>> = Vec::new();
+
+        for entry in desktops {
+            clear.push(vec![entry.name, entry.exec_name]);
+        }
+
+        clear
+    };
+
+    let available = packages::list_available_packages().unwrap();
+
+    HttpResponse::Ok().json(PackageResponseJson {
+        apps: desktops_clear, // Placeholder
+        packages: installed,
+        others: available, // Placeholder
+    })
+}
+
+// Packages that would be affected by an autoremove
+
+#[derive(Serialize)]
+struct PackageDatabaseAutoremoveJson {
+    packages: Vec<String>,
+}
+
+#[get("/api/packageDatabaseAutoremove")]
+async fn package_database_autoremove(session: Session, state: web::Data<AppState>) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().finish();
+    }
+
+    let packages = packages::list_autoremoveable_packages().unwrap();
+
+    HttpResponse::Ok().json(PackageDatabaseAutoremoveJson { packages })
+}
+
+
+#[derive(Deserialize)]
+#[allow(non_snake_case)]
+struct PackageActionRequest {
+    packageName: String,
+    sudoPassword: String
+}
+
+#[post("/api/installPackage")]
+async fn install_package(session: Session, json: web::Json<PackageActionRequest>, state: web::Data<AppState>) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().finish()
+    }
+
+    let package_mame = &json.packageName;
+    let sudo_password = &json.sudoPassword;
+
+    match packages::install_package(package_mame.to_string(), sudo_password.to_string()) {
+        Ok(_) => HttpResponse::Ok().finish(),
+        Err(_) => HttpResponse::InternalServerError().finish()
+    }
+}
+
+#[post("/api/removePackage")]
+async fn remove_package(session: Session, json: web::Json<PackageActionRequest>, state: web::Data<AppState>) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().finish()
+    }
+
+    let package_mame = &json.packageName;
+    let sudo_password = &json.sudoPassword;
+
+    match packages::remove_package(package_mame.to_string(), sudo_password.to_string()) {
+        Ok(_) => HttpResponse::Ok().finish(),
+        Err(_) => HttpResponse::InternalServerError().finish()
+    }
+}
+
+#[derive(Deserialize)]
+struct AutoRemoveRequest {
+    sudoPassword: String
+}
+
+#[post("/api/clearAutoRemove")]
+async fn clear_auto_remove(session: Session, json: web::Json<AutoRemoveRequest>, state: web::Data<AppState>) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().finish()
+    }
+
+    let sudo_password = &json.sudoPassword;
+
+    match packages::auto_remove(sudo_password.to_string()) {
+        Ok(_) => HttpResponse::Ok().finish(),
+        Err(_) => HttpResponse::InternalServerError().finish()
+    }
+}
+
 // ======================================================================
 // Blocks (Used to prevent users from accessing certain static resources)
 
 #[get("/dashboard.html")]
-async fn dashboard_asset_block(session: Session) -> HttpResponse {
-    if !is_admin(&session) {
+async fn dashboard_asset_block(session: Session, state: web::Data<AppState>) -> HttpResponse {
+    if !is_admin_state(&session, state) {
         HttpResponse::build(StatusCode::FORBIDDEN).finish()
     } else {
         HttpResponse::build(StatusCode::OK)
@@ -489,19 +634,24 @@ async fn main() -> std::io::Result<()> {
     println!("🚀 Serving Zentrox on Port 8080");
 
     // Resetting variables to default state
-    config_file::write("ftp_pid", "");
-    config_file::write("ftp_running", "0");
+    let _ = config_file::write("ftp_pid", "");
+    let _ = config_file::write("ftp_running", "0");
 
     let secret_session_key = Key::try_generate().unwrap();
-    let app_state = web::Data::new(AppState {
-        login_requests: std::sync::Mutex::new(HashMap::new()),
-    });
+    let app_state = web::Data::new(AppState::new());
 
-    if config_file::read("otp_secret") == "" && config_file::read("use_otp") == "1" {
+    if config_file::read("otp_secret").is_empty() && config_file::read("use_otp") == "1" {
         let new_otp_secret = otp::generate_otp_secret();
-        config_file::write("otp_secret", &new_otp_secret);
-        println!("🔒 Your One-Time-Pad Secret is: {}\n🔒 Store this in a secure location and add it to your 2FA app.\n🔒 If you lose this key, you will need physical access to this device.\n🔒 From there, you can find it in ~/zentrox_data/config.toml", new_otp_secret)
+        let _ = config_file::write("otp_secret", &new_otp_secret);
+        println!(
+           "🔒 Your One-Time-Pad Secret is: {}
+            🔒 Store this in a secure location and add it to your 2FA app.
+            🔒 If you lose this key, you will need physical access to this device.
+            🔒 From there, you can find it in ~/zentrox_data/config.toml",
+            new_otp_secret
+        )
     }
+
     HttpServer::new(move || {
         App::new()
             .app_data(app_state.clone())
@@ -511,6 +661,7 @@ async fn main() -> std::io::Result<()> {
                     secret_session_key.clone(),
                 )
                 .cookie_secure(false)
+                .cookie_name("session".to_string())
                 .build(),
             )
             .wrap(Cors::permissive())
@@ -533,6 +684,12 @@ async fn main() -> std::io::Result<()> {
             // API FTP
             .service(fetch_ftp_config)
             .service(update_ftp_config)
+            // API Packages
+            .service(package_database)
+            .service(package_database_autoremove)
+            .service(install_package)
+            .service(remove_package)
+            .service(clear_auto_remove)
             // General services and blocks
             .service(dashboard_asset_block)
             .service(afs::Files::new("/", "static/"))

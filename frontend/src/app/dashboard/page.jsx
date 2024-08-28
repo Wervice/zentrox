@@ -109,7 +109,9 @@ import {
 const fetchURLPrefix = require("@/lib/fetchPrefix");
 
 if (fetchURLPrefix.length > 0) {
-	console.error("Fetch URL Prefix is enabled");
+	console.warn(
+		"Fetch URL Prefix is enabled\nThis feature is meant for development only and may break the interface if left enabled.\nYou may be running a Non-Release version of Zentrox. Please look at your running Zentrox' log and check if Auth is enabled.\nIf it is not enabled, stop the program.",
+	);
 }
 
 /**
@@ -251,12 +253,14 @@ function Overview() {
 	const [ftpEnabled, setFtpEnabled] = useState(false);
 	const [updatingFTP, setUpdatingFTP] = useState(false);
 	const [ftpEnableSpinner, setFtpEnableSpinner] = useState(false);
-	useInterval(() => overviewFetch(), 2500);
+	var enableFtpSudoPasswordInput = useRef("");
+
+	useInterval(() => overviewFetch(), 5000);
 	useInterval(() => {
 		if (!updatingFTP) {
 			ftpStatusFetch();
 		}
-	}, 5000);
+	}, 2500);
 	useEffect(() => {
 		overviewFetch();
 		ftpStatusFetch();
@@ -374,33 +378,58 @@ function Overview() {
 				<div className="inline-block align-top w-48 h-full p-4 rounded-2xl border border-neutral-700 m-2">
 					<Label className="text-lg">Servers</Label>
 					<br />
-					<Checkbox
-						checked={ftpEnabled}
-						id="ftpEnabled"
-						onClick={(e) => {
-							setFtpEnabled(!ftpEnabled);
-							setFtpEnableSpinner(true);
-							setUpdatingFTP(true);
-							e.target.disabled = true;
-							fetch(fetchURLPrefix + "/api/updateFTPConfig", {
-								method: "POST",
-								headers: {
-									"Content-Type": "application/json",
-								},
-								body: JSON.stringify({
-									enableFTP: !ftpEnabled,
-									enableDisable: true,
-								}),
-							}).then((res) => {
-								setTimeout(() => {
-									ftpStatusFetch();
-									setUpdatingFTP(false);
-									setFtpEnableSpinner(false);
-									e.target.disabled = false;
-								}, 2000);
-							});
-						}}
-					/>
+					<Dialog>
+						<DialogTrigger asChild>
+							<Checkbox
+								checked={ftpEnabled}
+								id="ftpEnabled"
+								onClick={(e) => {
+									setFtpEnableSpinner(true);
+									setUpdatingFTP(true);
+									e.target.disabled = true;
+									setTimeout(() => {
+										e.target.disabled = false;
+									}, 3000);
+								}}
+							/>
+						</DialogTrigger>
+						<DialogContent>
+							<DialogHeader>
+								<DialogTitle>Elevated privileges</DialogTitle>
+								<DialogDescription>
+									Zentrox requires your sudo password for this action.
+								</DialogDescription>
+							</DialogHeader>
+							<Input
+								type="password"
+								ref={enableFtpSudoPasswordInput}
+								placeholder="Password"
+							/>
+							<DialogFooter>
+								<DialogClose asChild>
+									<Button
+										onClick={() => {
+											setFtpEnabled(!ftpEnabled);
+											fetch(fetchURLPrefix + "/api/updateFTPConfig", {
+												method: "POST",
+												headers: {
+													"Content-Type": "application/json",
+												},
+												body: JSON.stringify({
+													enableFTP: !ftpEnabled,
+													enableDisable: true,
+													sudoPassword:
+														enableFtpSudoPasswordInput.current.value,
+												}),
+											});
+										}}
+									>
+										<KeyIcon className="w-4 h-4 inline mr-1" /> Proceed
+									</Button>
+								</DialogClose>
+							</DialogFooter>
+						</DialogContent>
+					</Dialog>
 					<label htmlFor="ftpEnabled">
 						<Share2 className="inline-block h-4 w-4 ml-1" /> FTP Server
 					</label>
@@ -412,6 +441,24 @@ function Overview() {
 
 function Packages() {
 	const { toast } = useToast();
+	const [packagePopUpConfig, setPackagePopUp] = useState({
+		visible: false,
+		mode: "",
+		packageName: "",
+	});
+	var packageSudoPasswordInput = useRef();
+	const [installedPackages, setInstalledPackages] = useState([]);
+	const [installedApps, setInstalledApps] = useState([]);
+	const [otherPackages, setOtherPackages] = useState([]);
+	const [autoRemovePackages, setAutoRemovePackages] = useState([]);
+	const [visible, setVisibility] = useState(false);
+	const [packageSearchValue, setPackageSearchValue] = useState("");
+	const [clearAutoRemoveButtonState, setClearAutoRemoveButtonState] =
+		useState("default");
+	useEffect(() => fetchPackageList(), []);
+	const [packagePopUpButtonState, setPackagePopUpButtonState] =
+		useState("default");
+
 	function fetchPackageList() {
 		if (
 			installedPackages.length + installedApps.length + otherPackages.length !==
@@ -425,10 +472,9 @@ function Packages() {
 		}).then((res) => {
 			if (res.ok) {
 				res.json().then((json) => {
-					var content = JSON.parse(json["content"]);
-					setInstalledPackages(Array.from(content["packages"]));
-					setInstalledApps(Array.from(content["apps"]));
-					setOtherPackages(Array.from(content["others"]));
+					setInstalledPackages(Array.from(json["packages"]));
+					setInstalledApps(Array.from(json["apps"]));
+					setOtherPackages(Array.from(json["others"]));
 					setVisibility(true);
 				});
 			} else {
@@ -459,15 +505,29 @@ function Packages() {
 		});
 	}
 
-	function installPackage(packageName, stateFn) {
-		stateFn("working");
-		fetch(
-			fetchURLPrefix + "/api/installPackage/" + encodeURIComponent(packageName),
-		).then((res) => {
+	function installPackage(packageName) {
+		fetch(fetchURLPrefix + "/api/installPackage", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				packageName: packageName,
+				sudoPassword: packageSudoPasswordInput.current.value,
+			}),
+		}).then((res) => {
+			setPackagePopUp({
+				visible: false,
+				packageName: "",
+				mode: "install",
+			});
+			setPackagePopUpButtonState("default");
 			if (!res.ok) {
-				stateFn("failed");
+				toast({
+					title: "Failed to install package",
+					description: "Zentrox failed to install a package on your system.",
+				});
 			} else {
-				stateFn("done");
 				setOtherPackages(
 					otherPackages.filter((entry) => {
 						if (entry.split(".")[0] === packageName) return false;
@@ -479,15 +539,29 @@ function Packages() {
 		});
 	}
 
-	function removePackage(packageName, stateFn) {
-		stateFn("working");
-		fetch(
-			fetchURLPrefix + "/api/removePackage/" + encodeURIComponent(packageName),
-		).then((res) => {
+	function removePackage(packageName) {
+		fetch(fetchURLPrefix + "/api/removePackage", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				packageName: packageName,
+				sudoPassword: packageSudoPasswordInput.current.value,
+			}),
+		}).then((res) => {
+			setPackagePopUp({
+				visible: false,
+				packageName: "",
+				mode: "remove",
+			});
+			setPackagePopUpButtonState("default");
 			if (!res.ok) {
-				stateFn("failed");
+				toast({
+					title: "Failed to remove package",
+					description: "Zentrox failed to remove a package from your system.",
+				});
 			} else {
-				stateFn("done");
 				setInstalledPackages(
 					installedPackages.filter((entry) => {
 						if (entry.split(".")[0] === packageName) return false;
@@ -499,8 +573,22 @@ function Packages() {
 		});
 	}
 
-	function PackageBox({ packageName, task, key }) {
-		const [buttonState, setButtonState] = useState("default");
+	/**
+	 * @param {string} mode
+	 * @param {function} stateFn
+	 * @param {string} packageName */
+	function packageActionPopUp(packageName, mode) {
+		setPackagePopUp({
+			visible: true,
+			mode: mode,
+			packageName,
+		});
+		setPackagePopUpButtonState("default");
+	}
+
+	function PackageBox({ packageName, task }) {
+		const [buttonState, _] = useState("default");
+
 		return (
 			<div
 				className="inline-block p-4 m-2 w-72 h-24 border border-neutral-600 md:w-52 text-white rounded-sm align-top relative"
@@ -514,17 +602,9 @@ function Packages() {
 				<Button
 					className="block right-2 bottom-2 absolute"
 					variant={task == "remove" ? "destructive" : "default"}
-					onClick={(function () {
-						if (task === "remove") {
-							return () => {
-								removePackage(packageName, setButtonState);
-							};
-						} else if (task === "install") {
-							return () => {
-								installPackage(packageName, setButtonState);
-							};
-						}
-					})()}
+					onClick={() => {
+						packageActionPopUp(packageName, task);
+					}}
 				>
 					{(function () {
 						if (task === "remove" && buttonState === "default") {
@@ -560,24 +640,65 @@ function Packages() {
 	}
 
 	function AutoRemoveButon() {
+		var sudoPasswordInput = useRef();
 		if (clearAutoRemoveButtonState === "default") {
 			return (
-				<Button
-					className="inline"
-					onClick={() => {
-						setClearAutoRemoveButtonState("working");
-						fetch("/api/clearAutoRemove").then((res) => {
-							if (res.ok) {
-								res.json().then((json) => {
-									setAutoRemovePackages(json["packages"]);
-								});
-							}
-							setClearAutoRemoveButtonState("default");
-						});
-					}}
-				>
-					<Paintbrush2 className="h-4 w-4 inline-block" /> Autoremove
-				</Button>
+				<Dialog>
+					<DialogTrigger asChild>
+						<Button className="inline">
+							<Paintbrush2 className="h-4 w-4 inline-block" /> Autoremove
+						</Button>
+					</DialogTrigger>
+					<DialogContent>
+						<DialogHeader>
+							<DialogTitle>Autoremove Packages</DialogTitle>
+							<DialogDescription>
+								Autoremove removes packages that are not requried by the system
+								anymore according to your package manager.
+								<br />
+								It requires your sudo password.
+							</DialogDescription>
+						</DialogHeader>
+						<Input
+							type="password"
+							title="Sudo password"
+							ref={sudoPasswordInput}
+						/>
+						<DialogFooter>
+							<DialogClose asChild>
+								<Button
+									onClick={() => {
+										setClearAutoRemoveButtonState("working");
+										fetch("/api/clearAutoRemove", {
+											method: "POST",
+											headers: {
+												"Content-Type": "application/json",
+											},
+											body: JSON.stringify({
+												sudoPassword: sudoPasswordInput.current.value,
+											}),
+										}).then((res) => {
+											if (res.ok) {
+												res.json().then((json) => {
+													setAutoRemovePackages(json["packages"]);
+												});
+											} else {
+												toast({
+													title: "Failed to autoremove packages",
+													description:
+														"Zentrox failed to remove not needed packages from your system.",
+												});
+											}
+											setClearAutoRemoveButtonState("default");
+										});
+									}}
+								>
+									Proceed
+								</Button>
+							</DialogClose>
+						</DialogFooter>
+					</DialogContent>
+				</Dialog>
 			);
 		} else {
 			return (
@@ -600,16 +721,6 @@ function Packages() {
 			);
 		}
 	}
-
-	const [installedPackages, setInstalledPackages] = useState([]);
-	const [installedApps, setInstalledApps] = useState([]);
-	const [otherPackages, setOtherPackages] = useState([]);
-	const [autoRemovePackages, setAutoRemovePackages] = useState([]);
-	const [visible, setVisibility] = useState(false);
-	const [packageSearchValue, setPackageSearchValue] = useState("");
-	const [clearAutoRemoveButtonState, setClearAutoRemoveButtonState] =
-		useState("default");
-	useEffect(() => fetchPackageList(), []);
 
 	if (visible) {
 		if (packageSearchValue.length > 2) {
@@ -676,6 +787,60 @@ function Packages() {
 		}
 		return (
 			<Page name="Packages">
+				<Dialog
+					open={packagePopUpConfig.visible}
+					onOpenChange={setPackagePopUp}
+				>
+					<DialogContent>
+						<DialogHeader>
+							<DialogTitle>
+								{packagePopUpConfig.mode == "install" ? "Install" : "Remove"}{" "}
+								package?
+							</DialogTitle>
+							<DialogDescription>
+								Do you really want to remove {packagePopUpConfig.packageName}?
+								<br />
+								Please enter your sudo password to proceed.
+							</DialogDescription>
+						</DialogHeader>
+						<Input
+							type="password"
+							placeholder="Password"
+							ref={packageSudoPasswordInput}
+						/>
+						<DialogFooter>
+							<Button
+								variant={
+									packagePopUpConfig.mode == "install"
+										? "default"
+										: "destructive"
+								}
+								onClick={(e) => {
+									setPackagePopUpButtonState("working");
+									if (packagePopUpConfig.mode == "install") {
+										installPackage(packagePopUpConfig.packageName);
+									} else {
+										removePackage(packagePopUpConfig.packageName);
+									}
+								}}
+							>
+								{packagePopUpButtonState == "default" ? (
+									<></>
+								) : (
+									<Spinner visible={true} />
+								)}
+								{packagePopUpConfig.mode == "install"
+									? packagePopUpButtonState == "default"
+										? "Install Package"
+										: "Installing Package"
+									: packagePopUpButtonState == "default"
+										? "Remove Package"
+										: "Removing Package"}
+							</Button>
+						</DialogFooter>
+					</DialogContent>
+				</Dialog>
+
 				<StatCard
 					name="Installed Packages"
 					value={installedPackages.length}
@@ -826,9 +991,8 @@ function Firewall() {
 																).then((res) => {
 																	if (!res.ok) {
 																		toast({
-																			title: "Failed to delete rule",
-																			description:
-																				"Zentrox failed to delete this rule.",
+																			title: "Failed to delete firewall rule",
+																			description: `Zentrox failed to delete rule ${rule.index}.`,
 																		});
 																	} else {
 																		fetchFireWallInformation();
@@ -836,7 +1000,7 @@ function Firewall() {
 																});
 															}}
 														>
-															Continue
+															Proceed
 														</AlertDialogAction>
 													</AlertDialogFooter>
 												</AlertDialogContent>
@@ -928,9 +1092,9 @@ function Firewall() {
 														typeof newRuleFrom.current.value === "undefined"
 													) {
 														toast({
-															title: "Invalid rule",
+															title: "Can not create firewall rule",
 															description:
-																"Zentrox can not create a rule with these values",
+																"Zentrox can not create a rule with the provided details.",
 														});
 														return;
 													}
@@ -951,14 +1115,14 @@ function Firewall() {
 																	toast({
 																		title: "Failed to create new rule",
 																		description:
-																			"Zentrox failed to create new rule with the UFW: " +
+																			"Zentrox failed to create new firewall rule: " +
 																			json["msg"],
 																	});
 																} else {
 																	toast({
 																		title: "Failed to create new rule",
 																		description:
-																			"Zentrox failed to create new rule with the UFW",
+																			"Zentrox failed to create a new firewall rule",
 																	});
 																}
 															});
@@ -1166,7 +1330,7 @@ function Storage() {
 						{na(driveCapacity)}
 					</DialogDescription>
 					<DialogFooter>
-						<DialogClose>
+						<DialogClose asChild>
 							<Button>Close</Button>
 						</DialogClose>
 					</DialogFooter>
@@ -1246,7 +1410,7 @@ function Vault() {
 			} else {
 				if (res.status === 403) {
 					toast({
-						title: "Auth Failed",
+						title: "Failed to authenticate",
 						description: "Zentrox was unable to validate your key",
 					});
 				}
@@ -1269,13 +1433,13 @@ function Vault() {
 			}).then((res) => {
 				if (res.ok) {
 					toast({
-						title: "Changed Key",
+						title: "Finished changing key",
 						description: "The vault key was changed successfully",
 					});
 				} else {
 					toast({
 						title: "Auth Failed",
-						description: "Vault was unable to validate your key",
+						description: "Zentrox Vault failed to validate your key",
 					});
 				}
 			});
@@ -1311,7 +1475,7 @@ function Vault() {
 						ref={vaultKeyDecryptModal}
 					/>
 					<DialogFooter>
-						<DialogClose>
+						<DialogClose asChild>
 							<Button
 								onClick={() => {
 									decryptModalCallback();
@@ -1365,8 +1529,8 @@ function Vault() {
 						var key = vaultEncryptionKey.current.value;
 						if (key.length === 0) {
 							toast({
-								title: "No key",
-								description: "You need to enter a new key",
+								title: "Missing new key",
+								description: "You need to input a new vault key",
 							});
 							return;
 						}
@@ -1385,8 +1549,8 @@ function Vault() {
 										noDecryptKeyModal();
 									} else {
 										toast({
-											title: "Vault is configured",
-											description: "A vault file was created",
+											title: "Finished Vault configuration",
+											description: "A new Vault file was created",
 										});
 									}
 								});
@@ -1394,12 +1558,15 @@ function Vault() {
 								if (res.status === 400) {
 									toast({
 										title: "Bad Request",
-										description: "The data you provided was incorrect",
+										description:
+											"The data you provided was incorrect. The server responded with error 400.",
 									});
 								} else {
 									toast({
-										title: "Error",
-										description: "An error occured",
+										title: "Server Error " + res.status,
+										description:
+											"The server responded with an HTTP error of " +
+											res.status * ".",
 									});
 								}
 							}
@@ -1417,7 +1584,7 @@ function Vault() {
 							var vaultKey = vaultKeyDecryptModal.current.value;
 							if (vaultKey.length === 0) {
 								toast({
-									title: "No Key",
+									title: "Missing Key",
 									description: "You did not provide a key for decryption",
 								});
 								return;
@@ -1494,7 +1661,7 @@ function Vault() {
 						</DialogHeader>
 						<Input type="text" ref={newDirectoryInput} placeholder="Name" />
 						<DialogFooter>
-							<DialogClose>
+							<DialogClose asChild>
 								<Button
 									onClick={() => {
 										if (
@@ -1503,6 +1670,8 @@ function Vault() {
 										) {
 											toast({
 												title: "Illegal name",
+												description:
+													"A file name may not include slashes or spaces.",
 											});
 											return;
 										}
@@ -1523,8 +1692,8 @@ function Vault() {
 												vaultTree(vaultSessionKey);
 											} else {
 												toast({
-													title: "Can't create folder",
-													description: `Vault could not create a directory ${newDirectoryInput.current.value} in ${currentVaultPath}`,
+													title: "Failed to create new directory",
+													description: `Vault could not create a new directory ${newDirectoryInput.current.value} in ${currentVaultPath}`,
 												});
 											}
 										});
@@ -1569,7 +1738,11 @@ function Vault() {
 											}),
 										}).then((res) => {
 											if (res.ok) vaultTree(vaultSessionKey);
-											else toast({ title: "Failed to rename file" });
+											else
+												toast({
+													title: "Failed to rename file",
+													description: "Zentrox failed to rename a file.",
+												});
 										});
 									}}
 								>
@@ -1604,7 +1777,11 @@ function Vault() {
 										}),
 									}).then((res) => {
 										if (res.ok) vaultTree(vaultSessionKey);
-										else toast({ title: "Failed to delete file" });
+										else
+											toast({
+												title: "Failed to delete file",
+												description: "Zentrox failed to delete a file.",
+											});
 									});
 								}}
 							>
@@ -1651,7 +1828,8 @@ function Vault() {
 								setUploadButton("default");
 							} else {
 								toast({
-									title: "File upload error",
+									title: "Failed to upload file",
+									description: "Zentrox failed to upload the file you provided",
 								});
 							}
 						});
@@ -1791,7 +1969,7 @@ function Servers() {
 	var ftpUserNameInput = useRef();
 	var ftpPassWordInput = useRef();
 	var ftpRootInput = useRef();
-	var ftpUserEnabledCheckBox = useRef();
+	var ftpApplySudoPasswordInput = useRef();
 
 	const [ftpConfig, setFtpConfig] = useState({
 		enabled: false,
@@ -1811,7 +1989,8 @@ function Servers() {
 				});
 			} else {
 				toast({
-					title: "Failed to fetch FTP config",
+					title: "Failed to fetch FTP configuration",
+					description: "Zentrox failed to fetch the current FTP configuration",
 				});
 			}
 		});
@@ -1915,36 +2094,63 @@ function Servers() {
 				}
 			/>
 			<br />
-			<Button
-				onClick={() => {
-					fetch(fetchURLPrefix + "/api/updateFTPConfig", {
-						method: "POST",
-						headers: {
-							"Content-Type": "application/json",
-						},
-						body: JSON.stringify({
-							enableDisable: false,
-							enableFTP: ftpCheckBoxChecked,
-							ftpUserUsername: ftpUserNameInput.current.value,
-							ftpLocalRoot: ftpRootInput.current.value,
-							ftpUserPassword: ftpPassWordInput.current.value,
-						}),
-					}).then((res) => {
-						if (res.ok) {
-							toast({
-								title: "FTP server updated",
-							});
-						} else {
-							toast({
-								title: "FTP server error",
-								description: "Failed to update FTP server config",
-							});
-						}
-					});
-				}}
-			>
-				Apply
-			</Button>
+			<Dialog>
+				<DialogTrigger>
+					<Button>Apply</Button>
+				</DialogTrigger>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Elevated privileges</DialogTitle>
+						<DialogDescription>
+							Zentrox requires your sudo password for this action.
+						</DialogDescription>
+					</DialogHeader>
+					<Input
+						type="password"
+						ref={ftpApplySudoPasswordInput}
+						placeholder="Password"
+					/>
+					<DialogFooter>
+						<DialogClose
+							onClick={() => {
+								fetch(fetchURLPrefix + "/api/updateFTPConfig", {
+									method: "POST",
+									headers: {
+										"Content-Type": "application/json",
+									},
+									body: JSON.stringify({
+										enableDisable: false,
+										enableFTP: ftpCheckBoxChecked,
+										ftpUserUsername: ftpUserNameInput.current.value,
+										ftpLocalRoot: ftpRootInput.current.value,
+										ftpUserPassword: ftpPassWordInput.current.value,
+										sudoPassword: ftpApplySudoPasswordInput.current.value,
+									}),
+								}).then((res) => {
+									if (res.ok) {
+										toast({
+											title: "FTP server updated",
+											description:
+												"Zentrox updated your FTP server configuration",
+										});
+									} else {
+										toast({
+											title: "FTP server error",
+											description: "Failed to update FTP server configuration",
+										});
+									}
+								});
+							}}
+							asChild
+						>
+							<Button>
+								<KeyIcon className="w-4 h-4 inline-block mr-1" />
+								Proceed
+							</Button>
+						</DialogClose>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 		</Page>
 	);
 }
