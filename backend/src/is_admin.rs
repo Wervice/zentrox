@@ -7,7 +7,7 @@ use crate::AppState;
 /// The function requires two arguments:
 /// * `session` - The current session from the handler
 /// * `state` - The current server state in form of the AppState struct.
-/// 
+///
 /// The function willthen compare the states login token to the token provided by the session.
 /// In case no token is provided by the sessions, false is returned as default.
 ///
@@ -17,16 +17,17 @@ use crate::AppState;
 /// string "✅ Auth enabled" is shown for every function call.
 pub fn is_admin_state(session: &Session, state: web::Data<AppState>) -> bool {
     let disable_auth_for_development = false; // 🚨 DO NOT LEAVE THIS ON DURING RELEASE / PROD
-
     if disable_auth_for_development {
-        println!("
+        println!(
+            "
             ⚠️ AUTH IS DISABLED
             ----------------------------------------------------------------
             🛑 Auth is disabled for development.
             🛑 Stop the program immediately if you are running this in prod!
             🛑 This is intended for development only!
             ----------------------------------------------------------------
-            ");
+            "
+        );
         return true;
     } else {
         println!("✅ Auth enabled")

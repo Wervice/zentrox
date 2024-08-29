@@ -10,9 +10,10 @@ pub struct SwitchedUserCommand {
 }
 
 /// SudoOutput used with .output()
+#[allow(dead_code)]
 pub struct SudoOuput {
-    stdout: String,
-    stderr: String,
+    pub stdout: String,
+    pub stderr: String,
 }
 
 impl SwitchedUserCommand {
@@ -26,7 +27,7 @@ impl SwitchedUserCommand {
             args: vec![],
         }
     }
-    
+
     /// Adds an argument to an exisiting SwitchedUserCommand
     /// * `argument` - The argument that will be added
     pub fn arg(&mut self, argument: String) -> &mut Self {
@@ -53,38 +54,39 @@ impl SwitchedUserCommand {
         // Prepare vaiables
         let args = self.args.clone();
         let password = self.password.clone();
-        let command = self.command.clone();    
+        let command = self.command.clone();
 
         // Command Thread, handles the actual command
         let thread_handle = thread::spawn(move || {
             let mut command_handle = Command::new("sudo")
-            .arg("-S")
-            .arg("-k")
-            .args(command.clone().split(" "))
-            .args(args)
-            .stdin(Stdio::piped())
-            // .stderr(Stdio::piped())
-            // .stdout(Stdio::piped())
-            .spawn()
-            .expect("Failed to spawn process");
+                .arg("-S")
+                .arg("-k")
+                .args(command.clone().split(" "))
+                .args(args)
+                .stdin(Stdio::piped())
+                // .stderr(Stdio::piped())
+                // .stdout(Stdio::piped())
+                .spawn()
+                .expect("Failed to spawn process");
 
-        let password = password;
-        let mut stdinput = command_handle.stdin.take().unwrap();
-        stdinput
-            .write_all(format!("{}\n", password).as_bytes())
-            .expect("Failed to write to stdin (password)");
-        std::thread::sleep(std::time::Duration::from_millis(500));
-        match command_handle.wait().unwrap().code() {
-            Some(code) => Ok(code),
-            None => Ok(0),
-        }
-    
+            let password = password;
+            let mut stdinput = command_handle.stdin.take().unwrap();
+            stdinput
+                .write_all(format!("{}\n", password).as_bytes())
+                .expect("Failed to write to stdin (password)");
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            match command_handle.wait().unwrap().code() {
+                Some(code) => Ok(code),
+                None => Ok(0),
+            }
         });
-        
-        let out = thread_handle.join().expect("Failed to join command thread with main thread");
-        out    
+
+        thread_handle
+            .join()
+            .expect("Failed to join command thread with main thread")
     }
 
+    #[allow(dead_code)]
     /// Spawns the SwitchedUserCommand with every added argument and the command.
     /// The final `sudo` command looks like this:
     /// `sudo -S -k COMMAND ARGS`
@@ -96,45 +98,54 @@ impl SwitchedUserCommand {
     ///
     /// As a Result a SudoOutput will be returned. This struct contains the stderr and stdout
     /// contents of the spawned command in form of a UTF-8 lossy string.
-    pub fn output(&self) -> SudoOuput {
-        let mut handle = Command::new("sudo")
-            .arg("-S")
-            .arg("-k")
-            .arg(&self.command)
-            .args(&self.args)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .expect("Failed to spawn process");
+    pub fn output(&self) -> Result<SudoOuput, String> {
+        // Prepare vaiables
+        let args = self.args.clone();
+        let password = self.password.clone();
+        let command = self.command.clone();
 
-        let password = self.password.to_string();
-        let mut stdinput = handle.stdin.take().unwrap();
-        stdinput
-            .write_all(format!("{}\n", password).as_bytes())
-            .expect("Failed to write to stdin (password)");
-        std::thread::sleep(std::time::Duration::from_millis(500));
+        // Command Thread, handles the actual command
+        let thread_handle = thread::spawn(move || {
+            let mut command_handle = Command::new("sudo")
+                .arg("-S")
+                .arg("-k")
+                .args(command.clone().split(" "))
+                .args(args)
+                .stdin(Stdio::piped())
+                .stderr(Stdio::piped())
+                .stdout(Stdio::piped())
+                .spawn()
+                .expect("Failed to spawn process");
 
-        let out_bytes = handle.stdout.take().unwrap().bytes();
-        let err_bytes = handle.stderr.take().unwrap().bytes();
+            let password = password;
+            let mut stdinput = command_handle.stdin.take().unwrap();
+            stdinput
+                .write_all(format!("{}\n", password).as_bytes())
+                .expect("Failed to write to stdin (password)");
+            std::thread::sleep(std::time::Duration::from_millis(500));
 
-        let mut out_bytes_unwraped = Vec::<u8>::new();
-        let mut err_bytes_unwraped = Vec::<u8>::new();
+            let out_bytes = command_handle.stdout.take().unwrap().bytes();
+            let err_bytes = command_handle.stderr.take().unwrap().bytes();
 
-        for byte in out_bytes {
-            out_bytes_unwraped.push(byte.unwrap_or(0_u8))
-        }
+            let mut out_bytes_unwraped = Vec::<u8>::new();
+            let mut err_bytes_unwraped = Vec::<u8>::new();
 
-        for byte in err_bytes {
-            err_bytes_unwraped.push(match byte {
-                Ok(b) => b,
-                Err(_) => 0_u8,
-            })
-        }
+            for byte in out_bytes {
+                out_bytes_unwraped.push(byte.unwrap_or(0_u8))
+            }
 
-        SudoOuput {
-            stdout: String::from_utf8_lossy(&out_bytes_unwraped).to_string(),
-            stderr: String::from_utf8_lossy(&err_bytes_unwraped).to_string(),
-        }
+            for byte in err_bytes {
+                err_bytes_unwraped.push(byte.unwrap_or(0_u8))
+            }
+
+            SudoOuput {
+                stdout: String::from_utf8_lossy(&out_bytes_unwraped).to_string(),
+                stderr: String::from_utf8_lossy(&err_bytes_unwraped).to_string(),
+            }
+        });
+
+        Ok(thread_handle
+            .join()
+            .expect("Failed to join command thread with main thread"))
     }
 }

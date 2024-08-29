@@ -105,6 +105,8 @@ import {
 	ContextMenuItem,
 	ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import JSXStyle from "styled-jsx/style";
+import { Julius_Sans_One } from "next/font/google";
 // const fetchURLPrefix = "";
 const fetchURLPrefix = require("@/lib/fetchPrefix");
 
@@ -895,8 +897,10 @@ function Firewall() {
 	const [fireWallEnabled, setFireWallEnabled] = useState(false);
 	const [newRuleAction, setNewRuleAction] = useState("allow");
 	const [preventRefetch, setPreventRefetch] = useState(false);
+	const [sudoPassword, setSudoPassword] = useState("");
 	var newRuleTo = useRef("");
 	var newRuleFrom = useRef("");
+	var sudoPasswordInput = useRef("");
 	const { toast } = useToast();
 
 	function fetchFireWallInformation() {
@@ -904,6 +908,10 @@ function Firewall() {
 			headers: {
 				"Content-Type": "application/json",
 			},
+			method: "POST",
+			body: JSON.stringify({
+				sudoPassword: sudoPassword,
+			}),
 		}).then((res) => {
 			if (res.ok) {
 				res.json().then((json) => {
@@ -913,10 +921,6 @@ function Firewall() {
 			}
 		});
 	}
-
-	useEffect(() => {
-		if (!preventRefetch) fetchFireWallInformation();
-	}, []);
 
 	function RuleView() {
 		if (fireWallEnabled) {
@@ -988,6 +992,15 @@ function Firewall() {
 																	fetchURLPrefix +
 																		"/api/deleteFireWallRule/" +
 																		rule.index,
+																	{
+																		method: "POST",
+																		headers: {
+																			"Content-Type": "application/json"
+																		},
+																		body: JSON.stringify({
+																			sudoPassword: sudoPassword
+																		})
+																	}
 																).then((res) => {
 																	if (!res.ok) {
 																		toast({
@@ -1025,6 +1038,34 @@ function Firewall() {
 
 	return (
 		<>
+			<Dialog open={sudoPassword == ""}>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Sudo Password</DialogTitle>
+						<DialogDescription className="text-white">
+							To view the current state of your firewall, please enter your sudo
+							password. The password will be saved as long as you are viewing
+							the firewall tab. You will have to re-input it again if you leave
+							the the firewall tab.
+						</DialogDescription>
+					</DialogHeader>
+					<Input
+						type="password"
+						placeholder="Sudo password"
+						ref={sudoPasswordInput}
+					/>
+					<DialogFooter>
+						<DialogClose asChild>
+							<Button
+								onClick={() => {
+									setSudoPassword(sudoPasswordInput.current.value);
+									fetchFireWallInformation();
+								}}
+							>Proceed</Button>
+						</DialogClose>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 			<Toaster />
 			<Page name="Firewall">
 				<div className="w-64">
@@ -1106,6 +1147,15 @@ function Firewall() {
 															encodeURIComponent(newRuleTo.current.value) +
 															"/" +
 															encodeURIComponent(newRuleAction),
+														{
+															method: "POST",
+															headers: {
+																"Content-Type": "application/json"
+															},
+															body: JSON.stringify({
+																sudoPassword: sudoPassword
+															})
+														}
 													).then((res) => {
 														if (res.ok) {
 															fetchFireWallInformation();
@@ -1141,9 +1191,25 @@ function Firewall() {
 							onClick={(e) => {
 								e.target.disabled = true;
 								fetch(
-									fetchURLPrefix + "/api/switchUFW/" + !fireWallEnabled,
+									fetchURLPrefix + "/api/switchUfw/"+!fireWallEnabled,
+									{
+										method: "POST",
+										headers: {
+											"Content-Type": "application/json"
+										},
+										body: JSON.stringify({
+											sudoPassword: sudoPassword
+										})
+									}
 								).then((res) => {
-									setFireWallEnabled(!fireWallEnabled);
+									if (res.ok) {
+										setFireWallEnabled(!fireWallEnabled);
+									} else {
+										toast({
+											title: "Failed to apply firewall configuration",
+											description: "Zentrox failed to change the state of the firewall."
+										})
+									}
 									e.target.disabled = false;
 									fetchFireWallInformation();
 								});

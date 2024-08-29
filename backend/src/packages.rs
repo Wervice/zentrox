@@ -1,3 +1,5 @@
+/// APT, DNF, PacMan bindings to
+/// install packages, remove package, list installed/available/unnecessary packages
 use crate::sudo::SwitchedUserCommand;
 use std::collections::HashMap;
 use std::{fs, process::Command};
@@ -69,7 +71,7 @@ pub fn auto_remove(password: String) -> Result<(), String> {
     } else if package_mamager == "pacman" {
         command = "pacman -R $(pacman -Qdtq)";
     } else {
-        return Err("Unknow package manager".to_string())
+        return Err("Unknow package manager".to_string());
     }
 
     let _ = SwitchedUserCommand::new(password, command.to_string()).spawn();
@@ -102,7 +104,6 @@ pub fn install_package(name: String, password: String) -> Result<(), String> {
 
     Ok(())
 }
-
 
 /// Removes package from the system.
 /// This only works on apt, dnf and pacman based systems.
@@ -138,7 +139,7 @@ pub fn remove_package(name: String, password: String) -> Result<(), String> {
 ///
 /// # Example
 /// ```
-/// packages::list_installed_packages().unwrap() 
+/// packages::list_installed_packages().unwrap()
 /// // Returns vector of the names of all installed packages
 ///
 /// ```
@@ -194,7 +195,6 @@ pub fn list_installed_packages() -> Result<Vec<String>, String> {
                     collection[0].to_string()
                 }
             })
-
             .skip_while(|x| x != "Skip")
             .filter(|x| !x.is_empty())
             .collect::<Vec<String>>();
@@ -214,7 +214,6 @@ pub fn list_installed_packages() -> Result<Vec<String>, String> {
                     collection[1].to_string()
                 }
             })
-
             .filter(|x| !x.is_empty())
             .collect::<Vec<String>>();
         Ok(vector.to_vec())
@@ -227,7 +226,7 @@ pub fn list_installed_packages() -> Result<Vec<String>, String> {
 /// This function only supports apt, dnf and pacman.
 /// If a the function is called on a system that uses another package manager,
 /// an error will be returned.
-/// 
+///
 /// The function works the following:
 /// ## APT
 /// 1. `apt list` is called without root permissions.
@@ -252,18 +251,16 @@ pub fn list_installed_packages() -> Result<Vec<String>, String> {
 pub fn list_available_packages() -> Result<Vec<String>, String> {
     let package_manager = get_package_manager().unwrap();
     if package_manager == "apt" {
-        let command = Command::new("apt")
-            .arg("list")
-            .output()
-            .unwrap();
+        let command = Command::new("apt").arg("list").output().unwrap();
         let output = String::from_utf8_lossy(&command.stdout).to_string();
-        let lines = &output
-            .lines().filter(|x| !x.is_empty());
+        let lines = &output.lines().filter(|x| !x.is_empty());
         let mut installed = Vec::new();
         let mut names = Vec::new();
         lines.clone().for_each(|l| {
             let line_s = l.split("/").collect::<Vec<&str>>();
-            if line_s.len() != 2 {return};
+            if line_s.len() != 2 {
+                return;
+            };
             if line_s[1].contains("[installed") {
                 installed.push(line_s[0]);
             } else {
@@ -276,12 +273,17 @@ pub fn list_available_packages() -> Result<Vec<String>, String> {
         installed.sort();
 
         for e in names {
-            if !installed.binary_search(&e).is_ok() {
+            if installed.binary_search(&e).is_err() {
                 vector.push(e.to_string());
             }
         }
-        
-        Ok(vector.to_vec().into_iter().collect::<std::collections::HashSet<_>>().into_iter().collect::<Vec<String>>())
+
+        Ok(vector
+            .iter()
+            .cloned()
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect::<Vec<String>>())
     } else if package_manager == "dnf" {
         let command = Command::new("dnf")
             .arg("list")
@@ -335,7 +337,7 @@ pub fn list_available_packages() -> Result<Vec<String>, String> {
 /// This function only support apt, dnf and pacman.
 /// If the function is called on a system that use a package manager that is not supported,
 /// an error is returned.
-/// 
+///
 /// For APT --dry-run is used.
 pub fn list_autoremoveable_packages() -> Result<Vec<String>, String> {
     let package_manager = get_package_manager().unwrap();
@@ -459,7 +461,6 @@ pub fn list_desktop_applications() -> Result<Vec<DesktopApplication>, String> {
                     exec_name: entry_contents_hashmap
                         .get("Exec")
                         .unwrap_or(&"")
-                        .to_string()
                         .split(" ")
                         .collect::<Vec<&str>>()[0]
                         .to_string(),

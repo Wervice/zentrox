@@ -140,7 +140,7 @@ else
 	USERNAME_PATH="/root"
 fi
 
-if [ -d $USERNAME_PATH ]; then
+if [ -d "$USERNAME_PATH" ]; then
 	echo "✅ Using $USERNAME_PATH/zentrox and $USERNAME_PATH/zentrox_data to install and run zentrox"
 	ZENTROX_PATH="$USERNAME_PATH/zentrox"
 	ZENTROX_DATA_PATH="$USERNAME_PATH/zentrox_data"
@@ -149,9 +149,9 @@ else
 	exit -1
 fi
 
-mkdir -p $ZENTROX_DATA_PATH &> /dev/null || true
+mkdir -p "$ZENTROX_DATA_PATH" &> /dev/null || true
 
-if [[ $ZENTROX_PATH == "/" || $ZENTROX_PATH == $HOME || $ZENTROX_PATH == "$HOME/" ]] ; then
+if [[ $ZENTROX_PATH == "/" || $ZENTROX_PATH == "$HOME" || $ZENTROX_PATH == "$HOME/" ]] ; then
 	echo "⚠️ Critical problem detected: $ZENTROX_PATH equal to protected folder"
 fi
 
@@ -165,9 +165,9 @@ fi
 
 echo "🔽 Cloning Zentrox to $ZENTROX_PATH"
 
-git clone https://github.com/Wervice/zentrox/ $ZENTROX_PATH&> /dev/null # Clones Codelink repo to current folder
+git clone https://github.com/Wervice/zentrox/ "$ZENTROX_PATH"&> /dev/null # Clones Codelink repo to current folder
 
-cd $ZENTROX_PATH # Got to zentrox_server folder
+cd "$ZENTROX_PATH || exit" # Got to zentrox_server folder
 
 echo "✅ Download finished"
 
@@ -252,16 +252,6 @@ cat selfsigned.crt selfsigned.key > selfsigned.pem
 
 echo "✅ Generated .key, .crt and .pem file"
 
-echo "🤵 Creating user 'zentrox'"
-
-elevate
-sudo useradd -m -s /bin/bash -ou 0 -g 0 "zentrox" &> /dev/null
-USER_PASSWORD=$(openssl rand -base64 48)
-echo "ℹ️  Changed Zentrox user password to $USER_PASSWORD"
-echo "zentrox:$USER_PASSWORD" | sudo chpasswd
-
-$(echo $(echo $USER_PASSWORD | openssl aes-256-cbc -a -A -pbkdf2 -salt -pass pass:$ADMIN_PASSWORD 2> /dev/null) > "$ZENTROX_DATA_PATH/zentrox_user_password.txt") &> /dev/null
-
 # The zentrox user password has to be stored somewhere for Zentrox to retrieve it. Instead of storing it as an ENV variable or in a plain file, it is encrypted with the admin password
 # thus granting some level of protection.
 
@@ -271,15 +261,14 @@ touch "$ZENTROX_DATA_PATH/admin.txt" &> /dev/null
 touch "$ZENTROX_DATA_PATH/setupDone.txt" &> /dev/null
 touch "$ZENTROX_DATA_PATH/users.txt" &> /dev/null
 mkdir -p "$ZENTROX_DATA_PATH/users" &> /dev/null
-mkdir -p "$ZENTROX_DATA_PATH/users/$(echo $ADMIN_USERNAME | base64)" &> /dev/null
+mkdir -p "$ZENTROX_DATA_PATH/users/$(echo "$ADMIN_USERNAME" | base64)" &> /dev/null
 mkdir -p "$ZENTROX_DATA_PATH/upload_vault" &> /dev/null
 mkdir -p "$ZENTROX_DATA_PATH/vault_extract" &> /dev/null
 touch "$ZENTROX_DATA_PATH/zentrox.txt" &> /dev/null
 touch "$ZENTROX_DATA_PATH/vault.vlt" &> /dev/null
 openssl rand -base64 64 > "$ZENTROX_DATA_PATH/sessionSecret.txt"
 
-touch $ZENTROX_DATA_PATH/config.db
-touch $ZENTROX_DATA_PATH/locked.db
+touch "$ZENTROX_DATA_PATH"/locked.db
 
 update_toml "server_name" "$ZENTROX_SERVER_NAME"
 update_toml "reg_mode" "linkInvite"
@@ -289,7 +278,6 @@ update_toml "ftp_running" "0"
 update_toml "ftp_username" "ftp_zentrox"
 update_toml "ftp_password" "$(echo -n 'change_me' | sha512sum | cut -d ' ' -f 1)"
 update_toml "ftp_local_root" "/"
-update_toml "zentrox_admin_password" "$(echo $USER_PASSWORD | openssl aes-256-cbc -a -A -pbkdf2 -salt -pass pass:$ADMIN_PASSWORD)"
 update_toml "vault_enabled" "0"
 update_toml "knows_otp_secret" "0"
 
@@ -305,7 +293,8 @@ fi
 echo -n "$ADMIN_USERNAME" > "$ZENTROX_DATA_PATH/admin.txt"
 echo -n "true" > "$ZENTROX_DATA_PATH/setupDone.txt"
 
-echo -n "$(echo -n $ADMIN_USERNAME | base64): $(echo -n "$ADMIN_PASSWORD" | sha512sum | cut -d ' ' -f 1): admin" > "$ZENTROX_DATA_PATH/users.txt"
+echo -n "$(echo -n "$ADMIN_USERNAME" | base64): $(echo -n "$ADMIN_PASSWORD" | sha512sum | cut -d ' ' -f 1): admin" > "$ZENTROX_DATA_PATH/users.txt"
 
 echo "✅ Installation"
 echo "ℹ️  You can now start Zentrox using the command  [ cd $ZENTROX_PATH; node index.js ]"
+

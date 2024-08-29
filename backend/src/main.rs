@@ -22,6 +22,7 @@ use std::{
 use sysinfo::System as SysInfoSystem;
 use systemstat::{Platform, System};
 mod packages;
+mod ufw;
 
 #[allow(non_snake_case)]
 // General App Code
@@ -81,6 +82,12 @@ async fn dashboard(session: Session, state: web::Data<AppState>) -> HttpResponse
 // API (Actuall API calls)
 #[derive(Serialize)]
 struct EmptyJson {}
+
+#[derive(Deserialize)]
+#[allow(non_snake_case)]
+struct SudoPasswordOnlyRequest {
+    sudoPassword: String,
+}
 
 // Login
 
@@ -397,7 +404,7 @@ async fn device_information(session: Session, state: web::Data<AppState>) -> Htt
     })
 }
 
-// FTP Config
+// FTP API
 #[get("/api/fetchFTPconfig")]
 async fn fetch_ftp_config(session: Session, state: web::Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state) {
@@ -493,6 +500,8 @@ async fn update_ftp_config(
     HttpResponse::Ok().json(EmptyJson {})
 }
 
+// Package API
+
 #[derive(Serialize)]
 struct PackageResponseJson {
     apps: Vec<Vec<std::string::String>>, // Any "package" that has a .desktop file
@@ -559,18 +568,21 @@ async fn package_database_autoremove(session: Session, state: web::Data<AppState
     HttpResponse::Ok().json(PackageDatabaseAutoremoveJson { packages })
 }
 
-
 #[derive(Deserialize)]
 #[allow(non_snake_case)]
 struct PackageActionRequest {
     packageName: String,
-    sudoPassword: String
+    sudoPassword: String,
 }
 
 #[post("/api/installPackage")]
-async fn install_package(session: Session, json: web::Json<PackageActionRequest>, state: web::Data<AppState>) -> HttpResponse {
+async fn install_package(
+    session: Session,
+    json: web::Json<PackageActionRequest>,
+    state: web::Data<AppState>,
+) -> HttpResponse {
     if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().finish()
+        return HttpResponse::Forbidden().finish();
     }
 
     let package_mame = &json.packageName;
@@ -578,14 +590,18 @@ async fn install_package(session: Session, json: web::Json<PackageActionRequest>
 
     match packages::install_package(package_mame.to_string(), sudo_password.to_string()) {
         Ok(_) => HttpResponse::Ok().finish(),
-        Err(_) => HttpResponse::InternalServerError().finish()
+        Err(_) => HttpResponse::InternalServerError().finish(),
     }
 }
 
 #[post("/api/removePackage")]
-async fn remove_package(session: Session, json: web::Json<PackageActionRequest>, state: web::Data<AppState>) -> HttpResponse {
+async fn remove_package(
+    session: Session,
+    json: web::Json<PackageActionRequest>,
+    state: web::Data<AppState>,
+) -> HttpResponse {
     if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().finish()
+        return HttpResponse::Forbidden().finish();
     }
 
     let package_mame = &json.packageName;
@@ -593,27 +609,169 @@ async fn remove_package(session: Session, json: web::Json<PackageActionRequest>,
 
     match packages::remove_package(package_mame.to_string(), sudo_password.to_string()) {
         Ok(_) => HttpResponse::Ok().finish(),
-        Err(_) => HttpResponse::InternalServerError().finish()
+        Err(_) => HttpResponse::InternalServerError().finish(),
     }
 }
 
-#[derive(Deserialize)]
-struct AutoRemoveRequest {
-    sudoPassword: String
-}
-
 #[post("/api/clearAutoRemove")]
-async fn clear_auto_remove(session: Session, json: web::Json<AutoRemoveRequest>, state: web::Data<AppState>) -> HttpResponse {
+async fn clear_auto_remove(
+    session: Session,
+    json: web::Json<SudoPasswordOnlyRequest>,
+    state: web::Data<AppState>,
+) -> HttpResponse {
     if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().finish()
+        return HttpResponse::Forbidden().finish();
     }
 
     let sudo_password = &json.sudoPassword;
 
     match packages::auto_remove(sudo_password.to_string()) {
         Ok(_) => HttpResponse::Ok().finish(),
-        Err(_) => HttpResponse::InternalServerError().finish()
+        Err(_) => HttpResponse::InternalServerError().finish(),
     }
+}
+
+// Firewall API
+
+#[derive(Serialize)]
+struct FireWallInformationResponseJson {
+    enabled: bool,
+    rules: Vec<ufw::UfwRule>,
+}
+
+#[post("/api/fireWallInformation")]
+async fn firewall_information(
+    session: Session,
+    state: web::Data<AppState>,
+    json: web::Json<SudoPasswordOnlyRequest>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().finish();
+    }
+
+    let password = &json.sudoPassword;
+
+    let ufw_stauts = ufw::ufw_status(password.to_string());
+
+    let enabled = ufw_stauts.0;
+    let rules = ufw_stauts.1;
+
+    HttpResponse::Ok().json(FireWallInformationResponseJson { enabled, rules })
+}
+
+#[post("/api/switchUfw/{value}")]
+async fn switch_ufw(
+    session: Session,
+    state: web::Data<AppState>,
+    path: web::Path<String>,
+    json: web::Json<SudoPasswordOnlyRequest>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().finish();
+    }
+
+    let v: String = path.into_inner();
+
+    if v == "true".to_string() {
+        let password = &json.sudoPassword;
+        match sudo::SwitchedUserCommand::new(
+            password.to_string(),
+            "/usr/sbin/ufw --force enable".to_string(),
+        )
+        .spawn()
+        {
+            Ok(status) => {
+                if status == 0 {
+                    println!("✅ Started UFW");
+                    return HttpResponse::Ok().finish();
+                } else {
+                    println!("❌ Failed to start UFW (Status != 0)");
+                    return HttpResponse::InternalServerError().finish();
+                }
+            }
+            Err(_) => {
+                println!("❌ Failed to start UFW (Err)");
+                return HttpResponse::InternalServerError().finish();
+            }
+        }
+    } else if v == "false".to_string() {
+        let password = &json.sudoPassword;
+        match sudo::SwitchedUserCommand::new(
+            password.to_string(),
+            "/usr/sbin/ufw --force disable".to_string(),
+        )
+        .spawn()
+        {
+            Ok(status) => {
+                if status == 0 {
+                    println!("✅ Stopped UFW");
+                    return HttpResponse::Ok().finish();
+                } else {
+                    println!("❌ Failed to stop UFW (Status != 0)");
+                    return HttpResponse::InternalServerError().finish();
+                }
+            }
+            Err(_) => {
+                println!("❌ Failed to stop UFW (Err)");
+                return HttpResponse::InternalServerError().finish();
+            }
+        }
+    }
+
+    return HttpResponse::Ok().finish();
+}
+
+#[post("/api/newFireWallRule/{from}/{to}/{action}")]
+async fn new_firewall_rule(
+    session: Session,
+    state: web::Data<AppState>,
+    json: web::Json<SudoPasswordOnlyRequest>,
+    path: web::Path<(String, String, String)>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().finish();
+    }
+
+    let password = &json.sudoPassword;
+    let (mut from, mut to, action) = path.into_inner();
+
+    if action.is_empty() {
+        println!("❌ User provided insufficent firewall rule settings");
+        return HttpResponse::BadRequest().finish();
+    }
+
+    if from.is_empty() {
+        from = "any".to_string()
+    }
+
+    if to.is_empty() {
+        to = "any".to_string()
+    }
+
+    match ufw::new_rule(String::from(password), from, to, action) {
+        Ok(_) => return HttpResponse::Ok().finish(),
+        Err(_) => return HttpResponse::InternalServerError().finish(),
+    };
+}
+
+#[post("/api/deleteFireWallRule/{index}")]
+async fn delete_firewall_rule(
+    session: Session,
+    state: web::Data<AppState>,
+    json: web::Json<SudoPasswordOnlyRequest>,
+    path: web::Path<i32>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().finish();
+    }
+
+    let i = path.into_inner();
+    let password = &json.sudoPassword;
+
+    match ufw::delete_rule(password.to_string(), i as u32) {
+        Ok(_) => return HttpResponse::Ok().finish(),
+        Err(_) => return HttpResponse::InternalServerError().finish(),
+    };
 }
 
 // ======================================================================
@@ -644,7 +802,7 @@ async fn main() -> std::io::Result<()> {
         let new_otp_secret = otp::generate_otp_secret();
         let _ = config_file::write("otp_secret", &new_otp_secret);
         println!(
-           "🔒 Your One-Time-Pad Secret is: {}
+            "🔒 Your One-Time-Pad Secret is: {}
             🔒 Store this in a secure location and add it to your 2FA app.
             🔒 If you lose this key, you will need physical access to this device.
             🔒 From there, you can find it in ~/zentrox_data/config.toml",
@@ -690,6 +848,11 @@ async fn main() -> std::io::Result<()> {
             .service(install_package)
             .service(remove_package)
             .service(clear_auto_remove)
+            // API Firewall
+            .service(firewall_information)
+            .service(switch_ufw)
+            .service(new_firewall_rule)
+            .service(delete_firewall_rule)
             // General services and blocks
             .service(dashboard_asset_block)
             .service(afs::Files::new("/", "static/"))
