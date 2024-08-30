@@ -136,7 +136,7 @@ async fn login(
             ip.to_string(),
             (current_unix_timestamp, current_request_counter + 1),
         );
-        return HttpResponse::build(StatusCode::BAD_REQUEST).finish();
+        return HttpResponse::Forbidden().body("You were rate limited.");
     } else if current_request_counter > 5
         && (current_unix_timestamp - current_request_last_request_time) > 10000
     {
@@ -228,7 +228,7 @@ async fn otp_secret_request(_state: web::Data<AppState>) -> HttpResponse {
             secret: config_file::read("otp_secret"),
         })
     } else {
-        HttpResponse::Forbidden().finish()
+        HttpResponse::Forbidden().body("You can not access this value anymore.")
     }
 }
 
@@ -248,7 +248,7 @@ async fn use_otp(_state: web::Data<AppState>) -> HttpResponse {
 #[get("/api/cpuPercent")]
 async fn cpu_percent(session: Session, state: web::Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().finish();
+        return HttpResponse::Forbidden().body("This resource is blocked.");
     };
 
     #[derive(Serialize)]
@@ -275,7 +275,7 @@ async fn cpu_percent(session: Session, state: web::Data<AppState>) -> HttpRespon
 #[get("/api/ramPercent")]
 async fn ram_percent(session: Session, state: web::Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().finish();
+        return HttpResponse::Forbidden().body("This resource is blocked.");
     };
 
     #[derive(Serialize)]
@@ -303,7 +303,7 @@ async fn ram_percent(session: Session, state: web::Data<AppState>) -> HttpRespon
 #[get("/api/diskPercent")]
 async fn disk_percent(session: Session, state: web::Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().finish();
+        return HttpResponse::Forbidden().body("This resource is blocked.");
     };
 
     #[derive(Serialize)]
@@ -330,7 +330,7 @@ async fn disk_percent(session: Session, state: web::Data<AppState>) -> HttpRespo
 #[get("/api/deviceInformation")]
 async fn device_information(session: Session, state: web::Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().finish();
+        return HttpResponse::Forbidden().body("This resource is blocked.");
     };
 
     #[derive(Serialize)]
@@ -410,7 +410,7 @@ async fn device_information(session: Session, state: web::Data<AppState>) -> Htt
 #[get("/api/fetchFTPconfig")]
 async fn fetch_ftp_config(session: Session, state: web::Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().finish();
+        return HttpResponse::Forbidden().body("This resource is blocked.");
     };
 
     #[derive(Serialize)]
@@ -450,7 +450,7 @@ async fn update_ftp_config(
     state: web::Data<AppState>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().finish();
+        return HttpResponse::Forbidden().body("This resource is blocked.");
     };
 
     if !json.enableFTP.expect("Failed to get enableFTP") {
@@ -515,7 +515,7 @@ struct PackageResponseJson {
 #[get("/api/packageDatabase")]
 async fn package_database(session: Session, state: web::Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().finish();
+        return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
     let installed = match packages::list_installed_packages() {
@@ -562,7 +562,7 @@ struct PackageDatabaseAutoremoveJson {
 #[get("/api/packageDatabaseAutoremove")]
 async fn package_database_autoremove(session: Session, state: web::Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().finish();
+        return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
     let packages = packages::list_autoremoveable_packages().unwrap();
@@ -584,7 +584,7 @@ async fn install_package(
     state: web::Data<AppState>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().finish();
+        return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
     let package_mame = &json.packageName;
@@ -592,7 +592,7 @@ async fn install_package(
 
     match packages::install_package(package_mame.to_string(), sudo_password.to_string()) {
         Ok(_) => HttpResponse::Ok().finish(),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+        Err(_) => HttpResponse::InternalServerError().body("Failed to install package."),
     }
 }
 
@@ -603,7 +603,7 @@ async fn remove_package(
     state: web::Data<AppState>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().finish();
+        return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
     let package_mame = &json.packageName;
@@ -611,7 +611,7 @@ async fn remove_package(
 
     match packages::remove_package(package_mame.to_string(), sudo_password.to_string()) {
         Ok(_) => HttpResponse::Ok().finish(),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+        Err(_) => HttpResponse::InternalServerError().body("Failed to remove package."),
     }
 }
 
@@ -622,14 +622,14 @@ async fn clear_auto_remove(
     state: web::Data<AppState>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().finish();
+        return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
     let sudo_password = &json.sudoPassword;
 
     match packages::auto_remove(sudo_password.to_string()) {
         Ok(_) => HttpResponse::Ok().finish(),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+        Err(_) => HttpResponse::InternalServerError().body("Failed to autoremove package."),
     }
 }
 
@@ -648,7 +648,7 @@ async fn firewall_information(
     json: web::Json<SudoPasswordOnlyRequest>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().finish();
+        return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
     let password = &json.sudoPassword;
@@ -669,7 +669,7 @@ async fn switch_ufw(
     json: web::Json<SudoPasswordOnlyRequest>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().finish();
+        return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
     let v: String = path.into_inner();
@@ -688,12 +688,12 @@ async fn switch_ufw(
                     return HttpResponse::Ok().finish();
                 } else {
                     println!("❌ Failed to start UFW (Status != 0)");
-                    return HttpResponse::InternalServerError().finish();
+                    return HttpResponse::InternalServerError().body("Failed to start UFW (Return value unequal 0)");
                 }
             }
             Err(_) => {
                 println!("❌ Failed to start UFW (Err)");
-                return HttpResponse::InternalServerError().finish();
+                return HttpResponse::InternalServerError().body("Failed to start UFW because to command error");
             }
         }
     } else if v == *"false" {
@@ -710,12 +710,12 @@ async fn switch_ufw(
                     return HttpResponse::Ok().finish();
                 } else {
                     println!("❌ Failed to stop UFW (Status != 0)");
-                    return HttpResponse::InternalServerError().finish();
+                    return HttpResponse::InternalServerError().body("Failed to stop UFW (Return value unequal 0)");
                 }
             }
             Err(_) => {
                 println!("❌ Failed to stop UFW (Err)");
-                return HttpResponse::InternalServerError().finish();
+                return HttpResponse::InternalServerError().body("Failed to stop UFW because of command error");
             }
         }
     }
@@ -731,7 +731,7 @@ async fn new_firewall_rule(
     path: web::Path<(String, String, String)>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().finish();
+        return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
     let password = &json.sudoPassword;
@@ -739,7 +739,7 @@ async fn new_firewall_rule(
 
     if action.is_empty() {
         println!("❌ User provided insufficent firewall rule settings");
-        return HttpResponse::BadRequest().finish();
+        return HttpResponse::BadRequest().body("The UFW configuration provided by the user was insufficent.");
     }
 
     if from.is_empty() {
@@ -752,7 +752,7 @@ async fn new_firewall_rule(
 
     match ufw::new_rule(String::from(password), from, to, action) {
         Ok(_) => HttpResponse::Ok().finish(),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+        Err(_) => HttpResponse::InternalServerError().body("Failed to create new rule because of command error"),
     }
 }
 
@@ -764,7 +764,7 @@ async fn delete_firewall_rule(
     path: web::Path<i32>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().finish();
+        return HttpResponse::Forbidden().body("This resource is blocked");
     }
 
     let i = path.into_inner();
@@ -772,7 +772,7 @@ async fn delete_firewall_rule(
 
     match ufw::delete_rule(password.to_string(), i as u32) {
         Ok(_) => HttpResponse::Ok().finish(),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+        Err(_) => HttpResponse::InternalServerError().body("Failed to remove rule because of command error"),
     }
 }
 
@@ -784,7 +784,7 @@ async fn call_file(
     path: web::Path<String>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().finish();
+        return HttpResponse::Forbidden().body("This resource is blocked");
     }
 
     let file_path = url_decode::url_decode(&path);
@@ -815,7 +815,7 @@ async fn files_list(
     path: web::Path<String>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().finish();
+        return HttpResponse::Forbidden().body("This resource is blocked");
     }
 
     let dir_path = url_decode::url_decode(&path);
@@ -840,7 +840,7 @@ async fn files_list(
             }
             HttpResponse::Ok().json(FilesListJson { content: result })
         }
-        Err(_) => HttpResponse::InternalServerError().finish(),
+        Err(_) => HttpResponse::InternalServerError().body("Failed to read directory."),
     }
 }
 
@@ -851,7 +851,7 @@ async fn delete_file(
     path: web::Path<String>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().finish();
+        return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
     let file_path = url_decode::url_decode(&path);
@@ -866,12 +866,12 @@ async fn delete_file(
         if (is_file || is_link) && has_permissions {
             match fs::remove_file(&file_path) {
                 Ok(_) => HttpResponse::Ok().finish(),
-                Err(_) => HttpResponse::InternalServerError().finish(),
+                Err(_) => HttpResponse::InternalServerError().body("Failed to delete file."),
             }
         } else if is_dir && has_permissions {
             match fs::remove_dir_all(&file_path) {
                 Ok(_) => HttpResponse::Ok().finish(),
-                Err(_) => HttpResponse::InternalServerError().finish(),
+                Err(_) => HttpResponse::InternalServerError().body("Failed to delete directory."),
             }
         } else {
             HttpResponse::Forbidden().body("Missing file permissions. File is readonly.")
@@ -888,7 +888,7 @@ async fn rename_file(
     path: web::Path<(String, String)>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().finish();
+        return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
     let (old_path_e, new_path_e) = &path.into_inner();
@@ -918,7 +918,7 @@ async fn burn_file(
     path: web::Path<String>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().finish();
+        return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
     let file_path = url_decode::url_decode(&path);
@@ -950,7 +950,7 @@ async fn burn_file(
 #[get("/dashboard.html")]
 async fn dashboard_asset_block(session: Session, state: web::Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state) {
-        HttpResponse::build(StatusCode::FORBIDDEN).finish()
+        HttpResponse::Forbidden().body("This resource is blocked.")
     } else {
         HttpResponse::build(StatusCode::OK)
             .body(std::fs::read_to_string("static/dashboard.html").expect("Failed to read file"))

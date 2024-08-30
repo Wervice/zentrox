@@ -13,8 +13,8 @@ use crate::AppState;
 ///
 /// The variable disable_auth_for_development can be used during development to disable
 /// authentication.
-/// If the function is left enabled a warning will be printend in the terminal. Otherwise the
-/// string "✅ Auth enabled" is shown for every function call.
+/// If the function is left enabled a warning will be printend in the terminal. Otherwise
+/// nothing is shown.
 pub fn is_admin_state(session: &Session, state: web::Data<AppState>) -> bool {
     let disable_auth_for_development = false; // 🚨 DO NOT LEAVE THIS ON DURING RELEASE / PROD
     if disable_auth_for_development {
@@ -29,8 +29,6 @@ pub fn is_admin_state(session: &Session, state: web::Data<AppState>) -> bool {
             "
         );
         return true;
-    } else {
-        println!("✅ Auth enabled")
     }
 
     match session
