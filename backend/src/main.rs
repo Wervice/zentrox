@@ -23,6 +23,8 @@ use sysinfo::System as SysInfoSystem;
 use systemstat::{Platform, System};
 mod packages;
 mod ufw;
+mod url_decode;
+use std::io::Read;
 
 #[allow(non_snake_case)]
 // General App Code
@@ -672,7 +674,7 @@ async fn switch_ufw(
 
     let v: String = path.into_inner();
 
-    if v == "true".to_string() {
+    if v == *"true" {
         let password = &json.sudoPassword;
         match sudo::SwitchedUserCommand::new(
             password.to_string(),
@@ -694,7 +696,7 @@ async fn switch_ufw(
                 return HttpResponse::InternalServerError().finish();
             }
         }
-    } else if v == "false".to_string() {
+    } else if v == *"false" {
         let password = &json.sudoPassword;
         match sudo::SwitchedUserCommand::new(
             password.to_string(),
@@ -718,7 +720,7 @@ async fn switch_ufw(
         }
     }
 
-    return HttpResponse::Ok().finish();
+    HttpResponse::Ok().finish()
 }
 
 #[post("/api/newFireWallRule/{from}/{to}/{action}")]
@@ -749,9 +751,9 @@ async fn new_firewall_rule(
     }
 
     match ufw::new_rule(String::from(password), from, to, action) {
-        Ok(_) => return HttpResponse::Ok().finish(),
-        Err(_) => return HttpResponse::InternalServerError().finish(),
-    };
+        Ok(_) => HttpResponse::Ok().finish(),
+        Err(_) => HttpResponse::InternalServerError().finish(),
+    }
 }
 
 #[post("/api/deleteFireWallRule/{index}")]
@@ -769,9 +771,177 @@ async fn delete_firewall_rule(
     let password = &json.sudoPassword;
 
     match ufw::delete_rule(password.to_string(), i as u32) {
-        Ok(_) => return HttpResponse::Ok().finish(),
-        Err(_) => return HttpResponse::InternalServerError().finish(),
-    };
+        Ok(_) => HttpResponse::Ok().finish(),
+        Err(_) => HttpResponse::InternalServerError().finish(),
+    }
+}
+
+// File API
+#[get("/api/callFile/{file_name}")]
+async fn call_file(
+    session: Session,
+    state: web::Data<AppState>,
+    path: web::Path<String>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().finish();
+    }
+
+    let file_path = url_decode::url_decode(&path);
+
+    if path::Path::new(&file_path).exists() {
+        let f = fs::read(&file_path);
+        match f {
+            Ok(fh) => {
+                HttpResponse::Ok().body(fh.bytes().map(|x| x.unwrap_or(0_u8)).collect::<Vec<u8>>())
+            }
+            Err(_) => HttpResponse::InternalServerError()
+                .body(format!("Failed to read file {}", &file_path)),
+        }
+    } else {
+        HttpResponse::BadRequest().body("This file does not exist.")
+    }
+}
+
+#[derive(Serialize)]
+struct FilesListJson {
+    content: Vec<(String, String)>,
+}
+
+#[get("/api/filesList/{path}")]
+async fn files_list(
+    session: Session,
+    state: web::Data<AppState>,
+    path: web::Path<String>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().finish();
+    }
+
+    let dir_path = url_decode::url_decode(&path);
+
+    match fs::read_dir(dir_path) {
+        Ok(contents) => {
+            let mut result: Vec<(String, String)> = Vec::new();
+            for e in contents {
+                let e_unwrap = &e.unwrap();
+                let file_name = &e_unwrap.file_name().into_string().unwrap();
+                let is_file = e_unwrap.metadata().unwrap().is_file();
+                let is_dir = e_unwrap.metadata().unwrap().is_dir();
+                let is_symlink = e_unwrap.metadata().unwrap().is_symlink();
+
+                if is_file {
+                    result.push((file_name.to_string(), "f".to_string()))
+                } else if is_dir || is_symlink {
+                    result.push((file_name.to_string(), "d".to_string()))
+                } else {
+                    result.push((file_name.to_string(), "a".to_string()))
+                }
+            }
+            HttpResponse::Ok().json(FilesListJson { content: result })
+        }
+        Err(_) => HttpResponse::InternalServerError().finish(),
+    }
+}
+
+#[get("/api/deleteFile/{path}")]
+async fn delete_file(
+    session: Session,
+    state: web::Data<AppState>,
+    path: web::Path<String>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().finish();
+    }
+
+    let file_path = url_decode::url_decode(&path);
+
+    if std::path::Path::new(&file_path).exists() {
+        let metadata = fs::metadata(&file_path).unwrap();
+        let is_file = metadata.is_file();
+        let is_dir = metadata.is_dir();
+        let is_link = metadata.is_symlink();
+        let has_permissions = !metadata.permissions().readonly();
+
+        if (is_file || is_link) && has_permissions {
+            match fs::remove_file(&file_path) {
+                Ok(_) => HttpResponse::Ok().finish(),
+                Err(_) => HttpResponse::InternalServerError().finish(),
+            }
+        } else if is_dir && has_permissions {
+            match fs::remove_dir_all(&file_path) {
+                Ok(_) => HttpResponse::Ok().finish(),
+                Err(_) => HttpResponse::InternalServerError().finish(),
+            }
+        } else {
+            HttpResponse::Forbidden().body("Missing file permissions. File is readonly.")
+        }
+    } else {
+        HttpResponse::BadRequest().body("This path does not exist")
+    }
+}
+
+#[get("/api/renameFile/{old_path}/{new_path}")]
+async fn rename_file(
+    session: Session,
+    state: web::Data<AppState>,
+    path: web::Path<(String, String)>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().finish();
+    }
+
+    let (old_path_e, new_path_e) = &path.into_inner();
+    let old_path = url_decode::url_decode(old_path_e);
+    let new_path = url_decode::url_decode(new_path_e);
+
+    if std::path::Path::new(&old_path).exists() {
+        let metadata = fs::metadata(&old_path).unwrap();
+        let has_permissions = !metadata.permissions().readonly();
+        if has_permissions && !std::path::Path::new(&new_path).exists() {
+            match fs::rename(old_path, new_path) {
+                Ok(_) => HttpResponse::Ok().finish(),
+                Err(_) => HttpResponse::InternalServerError().body("Failed to rename file"),
+            }
+        } else {
+            HttpResponse::Forbidden().body("Missing file permissions. Can not rename.")
+        }
+    } else {
+        HttpResponse::BadRequest().body("This path does not exist")
+    }
+}
+
+#[get("/api/burnFile/{path}")]
+async fn burn_file(
+    session: Session,
+    state: web::Data<AppState>,
+    path: web::Path<String>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().finish();
+    }
+
+    let file_path = url_decode::url_decode(&path);
+
+    if std::path::Path::new(&file_path).exists() {
+        let metadata = fs::metadata(&file_path).unwrap();
+        let has_permissions = !metadata.permissions().readonly();
+        if has_permissions {
+            let size = metadata.len();
+            let r_s = (0..size).map(|_| rand::random::<u8>()).collect::<Vec<u8>>();
+            match fs::write(file_path.clone(), r_s) {
+                Ok(_) => {
+                    let _ = fs::remove_file(&file_path);
+                    HttpResponse::Ok().finish()
+                }
+                Err(_) => HttpResponse::InternalServerError().body("Failed to destroy file."),
+            }
+        } else {
+            HttpResponse::Forbidden().body("Missing file permissions. Can not burn.")
+        }
+    } else {
+        HttpResponse::BadRequest().body("This path does not exist")
+    }
 }
 
 // ======================================================================
@@ -853,6 +1023,12 @@ async fn main() -> std::io::Result<()> {
             .service(switch_ufw)
             .service(new_firewall_rule)
             .service(delete_firewall_rule)
+            // API Files
+            .service(call_file)
+            .service(files_list)
+            .service(delete_file)
+            .service(rename_file)
+            .service(burn_file)
             // General services and blocks
             .service(dashboard_asset_block)
             .service(afs::Files::new("/", "static/"))

@@ -57,7 +57,7 @@ pub fn ufw_status(password: String) -> (bool, Vec<UfwRule>) {
                 index: index as u32,
             });
 
-            index = index + 1;
+            index += 1;
         }
     }
 
@@ -79,9 +79,9 @@ pub fn new_rule(password: String, from: String, to: String, action: String) -> R
     );
 
     match SwitchedUserCommand::new(password, command).spawn() {
-        Ok(_) => return Ok(()),
-        Err(_) => return Err("Failed to spawn command".to_string()),
-    };
+        Ok(_) => Ok(()),
+        Err(_) => Err("Failed to spawn command".to_string()),
+    }
 }
 
 /// Deletes UFW rule by spawning a command contaiting the rules index
@@ -92,7 +92,7 @@ pub fn delete_rule(password: String, index: u32) -> Result<(), String> {
     let command = format!("/usr/sbin/ufw --force delete {} ", index);
 
     match SwitchedUserCommand::new(password, command).spawn() {
-        Ok(_) => return Ok(()),
-        Err(_) => return Err("Failed to spawn command".to_string()),
-    };
+        Ok(_) => Ok(()),
+        Err(_) => Err("Failed to spawn command".to_string()),
+    }
 }
