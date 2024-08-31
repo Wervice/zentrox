@@ -14,6 +14,7 @@ pub struct UfwRule {
 }
 
 /// Fetches the current UFW status
+///
 /// The status is fetched using the command `/usr/sbin/ufw status` which is ran using `sudo`.
 /// This invokes the ufw executable and requests the status and a list of rules in form of a table.
 /// The first line of the ouput contains the status. i.e.: "Status: active" or "Status: inactive".
@@ -65,6 +66,7 @@ pub fn ufw_status(password: String) -> (bool, Vec<UfwRule>) {
 }
 
 /// Create new UFW rule by spawning a command containing the from, to and action value.
+///
 /// The command is spawned with `sudo` to allow for adding rules.
 /// * `password` - The password used to authenticate sudo.
 /// * `from` - From IP/Port used to create new rule. This may not be empty.
@@ -85,6 +87,7 @@ pub fn new_rule(password: String, from: String, to: String, action: String) -> R
 }
 
 /// Deletes UFW rule by spawning a command contaiting the rules index
+///
 /// The command is spawned with `sudo` to allow for deletign rules.
 /// `password` - The password to authenticate sudo.
 /// `index` - The index of the rule to delete.

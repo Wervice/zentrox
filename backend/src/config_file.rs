@@ -2,8 +2,8 @@ use std::fs;
 use std::path;
 
 /// Read from a key-value config file.
-/// * `key` - Key that leads to the required value
 ///
+/// * `key` - Key that leads to the required value
 /// The file is stored in the TOML file format.
 /// The toml file is located under $HOME/zentrox_data/config.toml
 /// If the key is not found an empty string "" is returned.
@@ -25,9 +25,9 @@ pub fn read(key: &str) -> String {
 }
 
 /// Read write to key-value config file.
+///
 /// * `key` - Key where value is stored
 /// * `value` - Value that should be stored
-///
 /// The file is stored in the TOML file format.
 /// The toml file is located under $HOME/zentrox_data/config.toml
 /// If the key already exists the current value is overwritten.

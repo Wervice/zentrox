@@ -18,13 +18,14 @@ use std::{
     process::Command,
     sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
+    io::Read
 };
 use sysinfo::System as SysInfoSystem;
 use systemstat::{Platform, System};
 mod packages;
 mod ufw;
 mod url_decode;
-use std::io::Read;
+mod drives;
 
 #[allow(non_snake_case)]
 // General App Code
@@ -53,6 +54,9 @@ impl AppState {
     }
 }
 
+/// Root of the server.
+///
+/// If the user is logged in, they get redireced to /dashboard, otherwise the login is shown.
 #[get("/")]
 async fn index(session: Session, state: web::Data<AppState>) -> HttpResponse {
     // is_admin session value is != true (None or false), the user is served the login screen
@@ -67,6 +71,9 @@ async fn index(session: Session, state: web::Data<AppState>) -> HttpResponse {
     }
 }
 
+/// The dashboard route.
+///
+/// If the user is logged in, the dashboard is shown, otherwise they get redirected to root.
 #[get("/dashboard")]
 async fn dashboard(session: Session, state: web::Data<AppState>) -> HttpResponse {
     // is_admin session value is != true (None or false), the user is redirected to /
@@ -82,9 +89,18 @@ async fn dashboard(session: Session, state: web::Data<AppState>) -> HttpResponse
 }
 
 // API (Actuall API calls)
+
+/// Empty Json Response
+///
+/// This struct implements serde::Serialize. It can be used to responde with an empty Json
+/// response.
 #[derive(Serialize)]
 struct EmptyJson {}
 
+/// Request that only contains a sudo password from the backend.
+///
+/// This struct implements serde::Derserialize. It can be used to parse a single sudoPassword from
+/// the user. It only has the String filed sudoPassword.
 #[derive(Deserialize)]
 #[allow(non_snake_case)]
 struct SudoPasswordOnlyRequest {
@@ -101,6 +117,17 @@ struct Login {
     userOtp: String,
 }
 
+/// Route that loggs a user in.
+///
+/// First the users name is check in the users database. If it is not in there, the user is
+/// rejected.
+/// Next, the user password is hashed and compared to the password corresponding to the stored
+/// hash.
+/// If the user has enabled 2FA via OTP, the provided token is compared to the one that can be
+/// calculated using the stored OTP secret.
+/// The function keeps track on how often a user attempted to login. If they tried to login more
+/// than 5 times in 10 seconds, they are automatically being rejected for the next 10 seconds, even
+/// if the credentials are correct.
 #[post("/login")]
 async fn login(
     session: Session,
@@ -203,15 +230,26 @@ async fn login(
     HttpResponse::build(StatusCode::FORBIDDEN).body("Missing permissions")
 }
 
-// Logout
+/// Log out a user.
+///
+/// This function removes the users login token from the cookie as well as the
+/// zentrox_admin_password. This invalidates the user and they are logged out.
+/// To prevent the user from re-using the current cookie, the state is replaced by a new random
+/// token that is longer than the one that would normally be used to log in.
 #[get("/logout")]
-async fn logout(session: Session, _state: web::Data<AppState>) -> HttpResponse {
-    session.remove("login_token");
-    let _ = config_file::write("login_token", "");
-    session.remove("zentrox_admin_password");
-    HttpResponse::Found()
-        .append_header(("Location", "/"))
-        .finish()
+async fn logout(session: Session, state: web::Data<AppState>) -> HttpResponse {
+    if is_admin_state(&session, state.clone()) {
+        session.remove("login_token");
+        let _ = config_file::write("login_token", "");
+        session.remove("zentrox_admin_password");
+        *state.login_token.lock().unwrap() =
+            hex::encode((0..32).map(|_| rand::random::<u8>()).collect::<Vec<u8>>()).to_string();
+        HttpResponse::Found()
+            .append_header(("Location", "/"))
+            .finish()
+    } else {
+        HttpResponse::BadRequest().body("You are not logged in.")
+    }
 }
 
 // Ask for Otp Secret
@@ -688,12 +726,14 @@ async fn switch_ufw(
                     return HttpResponse::Ok().finish();
                 } else {
                     println!("❌ Failed to start UFW (Status != 0)");
-                    return HttpResponse::InternalServerError().body("Failed to start UFW (Return value unequal 0)");
+                    return HttpResponse::InternalServerError()
+                        .body("Failed to start UFW (Return value unequal 0)");
                 }
             }
             Err(_) => {
                 println!("❌ Failed to start UFW (Err)");
-                return HttpResponse::InternalServerError().body("Failed to start UFW because to command error");
+                return HttpResponse::InternalServerError()
+                    .body("Failed to start UFW because to command error");
             }
         }
     } else if v == *"false" {
@@ -710,12 +750,14 @@ async fn switch_ufw(
                     return HttpResponse::Ok().finish();
                 } else {
                     println!("❌ Failed to stop UFW (Status != 0)");
-                    return HttpResponse::InternalServerError().body("Failed to stop UFW (Return value unequal 0)");
+                    return HttpResponse::InternalServerError()
+                        .body("Failed to stop UFW (Return value unequal 0)");
                 }
             }
             Err(_) => {
                 println!("❌ Failed to stop UFW (Err)");
-                return HttpResponse::InternalServerError().body("Failed to stop UFW because of command error");
+                return HttpResponse::InternalServerError()
+                    .body("Failed to stop UFW because of command error");
             }
         }
     }
@@ -739,7 +781,8 @@ async fn new_firewall_rule(
 
     if action.is_empty() {
         println!("❌ User provided insufficent firewall rule settings");
-        return HttpResponse::BadRequest().body("The UFW configuration provided by the user was insufficent.");
+        return HttpResponse::BadRequest()
+            .body("The UFW configuration provided by the user was insufficent.");
     }
 
     if from.is_empty() {
@@ -752,7 +795,8 @@ async fn new_firewall_rule(
 
     match ufw::new_rule(String::from(password), from, to, action) {
         Ok(_) => HttpResponse::Ok().finish(),
-        Err(_) => HttpResponse::InternalServerError().body("Failed to create new rule because of command error"),
+        Err(_) => HttpResponse::InternalServerError()
+            .body("Failed to create new rule because of command error"),
     }
 }
 
@@ -772,7 +816,8 @@ async fn delete_firewall_rule(
 
     match ufw::delete_rule(password.to_string(), i as u32) {
         Ok(_) => HttpResponse::Ok().finish(),
-        Err(_) => HttpResponse::InternalServerError().body("Failed to remove rule because of command error"),
+        Err(_) => HttpResponse::InternalServerError()
+            .body("Failed to remove rule because of command error"),
     }
 }
 
@@ -944,6 +989,25 @@ async fn burn_file(
     }
 }
 
+// Block Device API
+#[derive(Serialize)]
+struct DriveListJson {
+    drives: drives::LsblkOutput
+}
+
+#[get("/api/driveList")]
+async fn list_drives(session: Session, state: web::Data<AppState>) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.")
+    }
+
+    let drives_out = drives::device_list();
+    
+    return HttpResponse::Ok().json(DriveListJson {
+        drives: drives_out
+    })
+}
+
 // ======================================================================
 // Blocks (Used to prevent users from accessing certain static resources)
 
@@ -1029,6 +1093,8 @@ async fn main() -> std::io::Result<()> {
             .service(delete_file)
             .service(rename_file)
             .service(burn_file)
+            // Block Device API
+            .service(list_drives)
             // General services and blocks
             .service(dashboard_asset_block)
             .service(afs::Files::new("/", "static/"))

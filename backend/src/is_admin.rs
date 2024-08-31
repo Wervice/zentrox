@@ -4,6 +4,7 @@ use actix_web::web;
 use crate::AppState;
 
 /// Checks if a user is admin.
+///
 /// The function requires two arguments:
 /// * `session` - The current session from the handler
 /// * `state` - The current server state in form of the AppState struct.
@@ -35,7 +36,9 @@ pub fn is_admin_state(session: &Session, state: web::Data<AppState>) -> bool {
         .get::<String>("login_token")
         .expect("Failed to get login_token")
     {
-        Some(value) => value == *state.login_token.lock().unwrap(),
+        Some(value) => {
+            return value == *state.login_token.lock().unwrap();
+        }
         None => false,
     }
 }

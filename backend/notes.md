@@ -24,3 +24,6 @@ eslint configs and similar JS related config files can be removed
         - module.rs
 ## Backend Documentation
 
+Next Up:
+Optain Root / Sudo password from the user. May require adapting frontend
+Use bcrypt instead of SHA for passwords

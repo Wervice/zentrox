@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::{fs, process::Command};
 
 /// Determines which package manager is used by the system.
+///
 /// The only supported package managers are apt (debian-based), dnf (rhel-based) and pacman
 /// (arch-based)
 /// If no supported package manager is founed None will be returned.
@@ -54,6 +55,7 @@ pub fn get_package_manager() -> Option<String> {
 }
 
 /// Autoremvoes every package the systems says is not relevant.
+///
 /// This only works on apt, dnf and pacman based systems.
 /// If the function is called on a system that does not use one of the descriped
 /// package managers, an Err is returned.
@@ -80,6 +82,7 @@ pub fn auto_remove(password: String) -> Result<(), String> {
 }
 
 /// Installs package on the system.
+///
 /// This only works on apt, dnf and pacman based systems.
 /// If the function is called on a system that does not use one of the descriped
 /// package managers, an Err is returned.
@@ -106,6 +109,7 @@ pub fn install_package(name: String, password: String) -> Result<(), String> {
 }
 
 /// Removes package from the system.
+///
 /// This only works on apt, dnf and pacman based systems.
 /// If the function is called on a system that does not use one of the descriped
 /// package managers, an Err is returned.
@@ -133,6 +137,7 @@ pub fn remove_package(name: String, password: String) -> Result<(), String> {
 }
 
 /// List every package, the package manager says is installed
+///
 /// The supported package managers are apt, dnf and pacman.
 /// If the function is used on a distro with an unsupported package manager,
 /// the function will return an Err.
@@ -223,6 +228,7 @@ pub fn list_installed_packages() -> Result<Vec<String>, String> {
 }
 
 /// List all packages that are installed on the system.
+///
 /// This function only supports apt, dnf and pacman.
 /// If a the function is called on a system that uses another package manager,
 /// an error will be returned.
@@ -334,6 +340,7 @@ pub fn list_available_packages() -> Result<Vec<String>, String> {
 }
 
 /// Lists every package that can be removed according to the package manager.
+///
 /// This function only support apt, dnf and pacman.
 /// If the function is called on a system that use a package manager that is not supported,
 /// an error is returned.
@@ -421,6 +428,7 @@ pub struct DesktopApplication {
 }
 
 /// Lists every application that has a desktop file in `/usr/share/applications/`.
+///
 /// Those desktop files are then parsed into DesktopApplication structs.
 /// A DesktopApplication struct contains the pretty name of the application (i.e. Firefox or
 /// Nautilus) and the exec_name like /bin/firefox or /usr/bin/nano

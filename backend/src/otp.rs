@@ -2,6 +2,7 @@ use rand::Rng;
 use totp_rs::{Algorithm, Secret, TOTP};
 
 /// Generates a random otp secret.
+///
 /// The secret is generated from 16 random u8 numbers that are than base32 encoded without padding
 /// using Rfc4648
 pub fn generate_otp_secret() -> String {
@@ -12,8 +13,8 @@ pub fn generate_otp_secret() -> String {
 }
 
 /// Calculates the current 6 digit OTP token from a given secret.
-/// * `otp_secret` The OTP secret that is used for calculation.
 ///
+/// * `otp_secret` The OTP secret that is used for calculation.
 /// The function uses Sha1 and a 30 second interval.
 pub fn calculate_current_otp(otp_secret: &String) -> String {
     let validator = TOTP::new(
