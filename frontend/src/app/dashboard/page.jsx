@@ -1352,8 +1352,8 @@ function Storage() {
 	var driveCapacity = "N/A";
 	var drive;
 	for (drive of driveInformation.ussage) {
-		if (drive.mounted === driveInformation.drives.mountpoint) {
-			driveCapacity = drive.capacity;
+		if (drive[0] === driveInformation.drives.mountpoint || drive[0] == driveInformation.drives.path) {
+			driveCapacity = drive[4]+"%";
 		}
 	}
 

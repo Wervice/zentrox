@@ -14,18 +14,19 @@ mod sudo;
 use actix_cors::Cors;
 use std::{
     collections::HashMap,
-    fs, path,
+    fs,
+    io::Read,
+    path,
     process::Command,
     sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
-    io::Read
 };
 use sysinfo::System as SysInfoSystem;
 use systemstat::{Platform, System};
+mod drives;
 mod packages;
 mod ufw;
 mod url_decode;
-mod drives;
 
 #[allow(non_snake_case)]
 // General App Code
@@ -992,20 +993,51 @@ async fn burn_file(
 // Block Device API
 #[derive(Serialize)]
 struct DriveListJson {
-    drives: drives::LsblkOutput
+    drives: Vec<drives::BlockDevice>,
 }
 
 #[get("/api/driveList")]
 async fn list_drives(session: Session, state: web::Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.")
+        return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
     let drives_out = drives::device_list();
-    
+
+    let drives_out_blkdv = drives_out
+        .expect("❌ Failed to get block devices.")
+        .blockdevices;
+
     return HttpResponse::Ok().json(DriveListJson {
-        drives: drives_out
-    })
+        drives: drives_out_blkdv,
+    });
+}
+
+#[derive(Serialize)]
+struct DriveInformationJson {
+    drives: drives::Drive,
+    ussage: Vec<(String, u64, u64, u64, f64, String)>,
+}
+
+#[get("/api/driveInformation/{drive}")]
+async fn drive_information(
+    session: Session,
+    state: web::Data<AppState>,
+    path: web::Path<String>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    let drive = path;
+
+    let info = drives::drive_information(drive.to_string());
+
+    return HttpResponse::Ok().json(DriveInformationJson {
+        drives: info.unwrap(),
+        ussage: drives::drive_statistics(drive.to_string())
+            .expect("❌ Failed to get drive statistics"),
+    });
 }
 
 // ======================================================================
@@ -1095,6 +1127,7 @@ async fn main() -> std::io::Result<()> {
             .service(burn_file)
             // Block Device API
             .service(list_drives)
+            .service(drive_information)
             // General services and blocks
             .service(dashboard_asset_block)
             .service(afs::Files::new("/", "static/"))
