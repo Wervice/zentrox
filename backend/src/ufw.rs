@@ -25,16 +25,23 @@ pub struct UfwRule {
 /// And a vector containing UfwRules with index, to, from and action.
 ///
 /// * `password` - The password used to authenticate `sudo`
-pub fn ufw_status(password: String) -> (bool, Vec<UfwRule>) {
-    let output = SwitchedUserCommand::new(password, "/usr/sbin/ufw status".to_string())
-        .output()
-        .unwrap()
-        .stdout;
+pub fn ufw_status(password: String) -> Result<(bool, Vec<UfwRule>), String> {
+    let output = match SwitchedUserCommand::new(password, "/usr/sbin/ufw status".to_string())
+        .output() {
+            Ok(v) => v.stdout,
+            Err(_) => {
+                return Err("Wrong sudo password".to_string())
+            }
+        };
     let mut output_lines = output
         .lines()
         .map(|x| x.to_string())
         .filter(|x| !x.is_empty())
         .collect::<Vec<String>>();
+
+    if output_lines.len() == 0 {
+        return Err("Invalid Sudo Password or failed to read UFW status".to_string());
+    }
 
     let enabled = output_lines[0] == "Status: active";
 
@@ -62,7 +69,7 @@ pub fn ufw_status(password: String) -> (bool, Vec<UfwRule>) {
         }
     }
 
-    (enabled, rules_vec)
+    Ok((enabled, rules_vec))
 }
 
 /// Create new UFW rule by spawning a command containing the from, to and action value.

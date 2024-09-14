@@ -1,10 +1,10 @@
 extern crate systemstat;
 use actix_files as afs;
+use actix_multipart;
 use actix_session::{storage::CookieSessionStore, Session, SessionMiddleware};
 use actix_web::cookie::Key;
 use actix_web::{get, http::StatusCode, middleware, post, web, App, HttpResponse, HttpServer};
 use base64::{engine::general_purpose::STANDARD as b64, Engine as _};
-use hmac_sha512::Hash;
 use serde::{Deserialize, Serialize};
 mod is_admin;
 use is_admin::is_admin_state;
@@ -27,6 +27,10 @@ mod drives;
 mod packages;
 mod ufw;
 mod url_decode;
+mod vault;
+use actix_multipart::form::text::Text;
+use actix_multipart::form::{json::Json as MpJson, tempfile::TempFile, MultipartForm};
+use sha2::{Digest, Sha256, Sha512};
 
 #[allow(non_snake_case)]
 // General App Code
@@ -191,7 +195,7 @@ async fn login(
         let mut found_user: bool = false;
         if &line_username == username {
             found_user = true;
-            let mut hasher = Hash::new();
+            let mut hasher = Sha512::new();
             hasher.update(password);
             let hash = hex::encode(hasher.finalize());
             if hash == line.split(": ").nth(1).expect("Failed to get password") {
@@ -253,7 +257,10 @@ async fn logout(session: Session, state: web::Data<AppState>) -> HttpResponse {
     }
 }
 
-// Ask for Otp Secret
+/// Retrieve OTP secret on first login.
+///
+/// This function will only return the users OTP secret when the web page is viewed for the first
+/// time. To keep track of this status, a key knows_otp_secret is used.
 #[get("/login/otpSecret")]
 async fn otp_secret_request(_state: web::Data<AppState>) -> HttpResponse {
     #[derive(Serialize)]
@@ -271,6 +278,9 @@ async fn otp_secret_request(_state: web::Data<AppState>) -> HttpResponse {
     }
 }
 
+/// Check if the users uses OTP.
+///
+/// This function returns a boolean depending on the user using OTP or not.
 #[get("/login/useOtp")]
 async fn use_otp(_state: web::Data<AppState>) -> HttpResponse {
     #[derive(Serialize)]
@@ -284,6 +294,8 @@ async fn use_otp(_state: web::Data<AppState>) -> HttpResponse {
 }
 
 // Functional Requests
+
+/// Return the CPU ussage percentage.
 #[get("/api/cpuPercent")]
 async fn cpu_percent(session: Session, state: web::Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state) {
@@ -311,6 +323,7 @@ async fn cpu_percent(session: Session, state: web::Data<AppState>) -> HttpRespon
     HttpResponse::Ok().json(JsonResponse { p: cpu_ussage })
 }
 
+/// Return the the RAM ussage percentage.
 #[get("/api/ramPercent")]
 async fn ram_percent(session: Session, state: web::Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state) {
@@ -339,6 +352,7 @@ async fn ram_percent(session: Session, state: web::Data<AppState>) -> HttpRespon
     })
 }
 
+/// Return the main disk ussage percentage.
 #[get("/api/diskPercent")]
 async fn disk_percent(session: Session, state: web::Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state) {
@@ -366,6 +380,14 @@ async fn disk_percent(session: Session, state: web::Data<AppState>) -> HttpRespo
     })
 }
 
+/// Return general information about the system. This includes:
+/// * `os_name` {string} - The name of your operating system. i.e.: Debian Bookworm 12
+/// * `power_supply` {string} - Does you PC get AC power of battery? Is it charging?
+/// * `hostname` {string} - The hostname of your computer.
+/// * `uptime ` {string} - How long is your computer running since the last boot.
+/// * `temperature` {string} - Your computer CPU temperature in celcius.
+/// * `zentrox_pid` {u16} - The PID of the current running Zentrox instance.
+/// * `process_number` {u32} - The number of active running processes
 #[get("/api/deviceInformation")]
 async fn device_information(session: Session, state: web::Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state) {
@@ -446,6 +468,10 @@ async fn device_information(session: Session, state: web::Data<AppState>) -> Htt
 }
 
 // FTP API
+
+/// Return the current FTP config.
+///
+/// This includes the ftp username, password and status (is the server on or off)
 #[get("/api/fetchFTPconfig")]
 async fn fetch_ftp_config(session: Session, state: web::Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state) {
@@ -482,6 +508,12 @@ struct JsonRequest {
     sudoPassword: String,
 }
 
+/// Update the FTP config.
+///
+/// This function updates the FTP config. For this to work, Zentrox needs the sudo password to
+/// enable or disable the FTP server, depending on the users choice. The request can also only
+/// contain the desired status instead of username, password or other information. In this case,
+/// the value enableDisable has to be true.
 #[post("/api/updateFTPConfig")]
 async fn update_ftp_config(
     session: Session,
@@ -513,8 +545,6 @@ async fn update_ftp_config(
                 .arg(whoami::username_os().into_string().unwrap())
                 .spawn();
         });
-
-        let _ = config_file::write("ftp_running", "1");
     }
 
     if !json.enableDisable.unwrap_or(false) {
@@ -523,9 +553,9 @@ async fn update_ftp_config(
         let local_root = json.ftpLocalRoot.clone().unwrap_or(String::from(""));
 
         if !password.is_empty() {
-            let hasher = &mut Hash::new();
+            let hasher = &mut Sha256::new();
             hasher.update(&password);
-            let hashed_password = hex::encode(hasher.finalize());
+            let hashed_password = hex::encode(hasher.clone().finalize());
             let _ = config_file::write("ftp_password", &hashed_password);
         }
 
@@ -551,6 +581,10 @@ struct PackageResponseJson {
     others: Vec<String>, // Not installed and not a .desktop file
 }
 
+/// Return the current package database.
+///
+/// This returns a list of every installed packages, every app the has a .desktop file and all
+/// available packages that are listed in the package manager.
 #[get("/api/packageDatabase")]
 async fn package_database(session: Session, state: web::Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state) {
@@ -598,6 +632,7 @@ struct PackageDatabaseAutoremoveJson {
     packages: Vec<String>,
 }
 
+/// Return a list of all packages that would be affected by an autoremove.
 #[get("/api/packageDatabaseAutoremove")]
 async fn package_database_autoremove(session: Session, state: web::Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state) {
@@ -617,6 +652,10 @@ struct PackageActionRequest {
 }
 
 #[post("/api/installPackage")]
+/// Install a package on the users system.
+///
+/// It requires the package name along side the sudo password in the request body.
+/// This only works under apt, dnf and pacman.
 async fn install_package(
     session: Session,
     json: web::Json<PackageActionRequest>,
@@ -636,6 +675,10 @@ async fn install_package(
 }
 
 #[post("/api/removePackage")]
+/// Remove a package from the users system.
+///
+/// It requires the package name along side the sudo password in the request body.
+/// This only works under apt, dnf and pacman.
 async fn remove_package(
     session: Session,
     json: web::Json<PackageActionRequest>,
@@ -654,6 +697,7 @@ async fn remove_package(
     }
 }
 
+/// Run an autoremove command on the users computer.
 #[post("/api/clearAutoRemove")]
 async fn clear_auto_remove(
     session: Session,
@@ -680,6 +724,7 @@ struct FireWallInformationResponseJson {
     rules: Vec<ufw::UfwRule>,
 }
 
+/// Returns general information about the current UFW firewall configuration.
 #[post("/api/fireWallInformation")]
 async fn firewall_information(
     session: Session,
@@ -692,14 +737,24 @@ async fn firewall_information(
 
     let password = &json.sudoPassword;
 
-    let ufw_stauts = ufw::ufw_status(password.to_string());
+    match ufw::ufw_status(password.to_string()) {
+        Ok(ufw_status) => {
+            let enabled = ufw_status.0;
+            let rules = ufw_status.1;
 
-    let enabled = ufw_stauts.0;
-    let rules = ufw_stauts.1;
-
-    HttpResponse::Ok().json(FireWallInformationResponseJson { enabled, rules })
+            HttpResponse::Ok().json(FireWallInformationResponseJson { enabled, rules })
+        }
+        Err(err) => {
+            eprintln!("❌ UFW Status error {err}");
+            HttpResponse::BadRequest().body(err)
+        }
+    }
 }
 
+/// Enable or disable the UFW firewall.
+///
+/// This requires a url parameter. It can either be "true" or "false".
+/// In addtion to that the request has to server the user with a sudo password.
 #[post("/api/switchUfw/{value}")]
 async fn switch_ufw(
     session: Session,
@@ -766,6 +821,13 @@ async fn switch_ufw(
     HttpResponse::Ok().finish()
 }
 
+/// Create a new firewall rule.
+///
+/// This request takes three URL parameters.
+/// * `from` - The IP adress the request comes from (can be "any" as well).
+/// * `to` - The port the request goes to.
+/// * `action` - The action (allow / deny) that is taken.
+/// This requires a sudo password.
 #[post("/api/newFireWallRule/{from}/{to}/{action}")]
 async fn new_firewall_rule(
     session: Session,
@@ -801,6 +863,7 @@ async fn new_firewall_rule(
     }
 }
 
+/// Delete a firewall rule by its index.
 #[post("/api/deleteFireWallRule/{index}")]
 async fn delete_firewall_rule(
     session: Session,
@@ -1040,6 +1103,608 @@ async fn drive_information(
     });
 }
 
+// Vault API
+
+#[derive(Deserialize)]
+struct VaultConfigurationJson {
+    key: Option<String>,
+    oldKey: Option<String>,
+    newKey: Option<String>,
+}
+
+#[derive(Serialize)]
+struct VaultConfigurationCodeResponseJson {
+    code: String,
+}
+
+#[derive(Serialize)]
+struct VaultConfigurationMessageResponseJson {
+    message: String,
+}
+
+#[post("/api/vaultConfigure")]
+async fn vault_configure(
+    session: Session,
+    state: web::Data<AppState>,
+    json: web::Json<VaultConfigurationJson>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    let vault_path = path::Path::new(&dirs::home_dir().unwrap())
+        .join("zentrox_data")
+        .join("vault_directory");
+
+    if config_file::read("vault_enabled") == "0" && !vault_path.exists() {
+        if json.key.is_none() {
+            return HttpResponse::BadRequest().body("This request is malformed");
+        }
+
+        let key = &json.key.clone().unwrap();
+
+        match fs::create_dir_all(&vault_path) {
+            Ok(_) => {}
+            Err(e) => {
+                eprintln!("❌ Failed to create vault_directory.\n{}", e);
+                return HttpResponse::InternalServerError()
+                    .body("Failed to create vault_directory.");
+            }
+        };
+
+        let vault_file_contents = format!(
+            "Vault created by {} at UNIX {}.",
+            whoami::username(),
+            match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+                Ok(v) => v,
+                Err(_) =>
+                    return HttpResponse::InternalServerError()
+                        .body("System time before UNIX epoch (1/1/1970)"),
+            }
+            .as_millis()
+        );
+
+        match fs::write(vault_path.join(".vault"), vault_file_contents) {
+            Ok(_) => {}
+            Err(e) => {
+                eprintln!("❌ Failed to write vault file.\n{}", e);
+                return HttpResponse::InternalServerError().body(e.to_string());
+            }
+        }
+
+        vault::encrypt_file(
+            vault_path.join(".vault").to_string_lossy().to_string(),
+            &key,
+        );
+        let _ = config_file::write("vault_enabled", "1");
+    } else {
+        if json.oldKey.is_some() && json.newKey.is_some() {
+            let old_key = json.oldKey.clone().unwrap();
+            let new_key = json.newKey.clone().unwrap();
+            match vault::decrypt_file(
+                std::path::Path::new(&dirs::home_dir().unwrap())
+                    .join("zentrox_data")
+                    .join("vault_directory")
+                    .join(".vault")
+                    .to_string_lossy()
+                    .to_string(),
+                &old_key.to_string(),
+            ) {
+                Some(_) => vault::encrypt_file(
+                    std::path::Path::new(&dirs::home_dir().unwrap())
+                        .join("zentrox_data")
+                        .join("vault_directory")
+                        .join(".vault")
+                        .to_string_lossy()
+                        .to_string(),
+                    &old_key.to_string(),
+                ),
+                None => {
+                    return HttpResponse::Forbidden().json(VaultConfigurationMessageResponseJson {
+                        message: "auth_failed".to_string(),
+                    })
+                }
+            };
+
+            match vault::decrypt_directory(
+                &path::Path::new(&dirs::home_dir().unwrap())
+                    .join("zentrox_data")
+                    .join("vault_directory")
+                    .to_string_lossy()
+                    .to_string(),
+                &old_key,
+            ) {
+                Ok(_) => {}
+                Err(_) => {
+                    return HttpResponse::Forbidden().json(VaultConfigurationMessageResponseJson {
+                        message: "auth_failed".to_string(),
+                    })
+                }
+            };
+
+            match vault::encrypt_directory(
+                &path::Path::new(&dirs::home_dir().unwrap())
+                    .join("zentrox_data")
+                    .join("vault_directory")
+                    .to_string_lossy()
+                    .to_string(),
+                &new_key,
+            ) {
+                Ok(_) => {}
+                Err(e) => return HttpResponse::InternalServerError().body(e),
+            };
+        } else {
+            return HttpResponse::Ok().json(VaultConfigurationCodeResponseJson {
+                code: "no_decrypt_key".to_string(),
+            });
+        }
+    }
+
+    HttpResponse::Ok().json(EmptyJson {})
+}
+
+// Vault Tree
+
+#[derive(Serialize)]
+struct VaultFsPathJson {
+    fs: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct VaultKeyRequest {
+    key: String,
+}
+
+fn list_paths(directory: String, key: String) -> Vec<String> {
+    let read = fs::read_dir(directory).unwrap();
+    let mut paths: Vec<String> = Vec::new();
+
+    for entry in read {
+        let entry_unwrap = &entry.unwrap();
+        let entry_metadata = &entry_unwrap.metadata().unwrap();
+        let is_file = entry_metadata.is_file() || entry_metadata.is_symlink();
+        let path = &entry_unwrap.path().to_string_lossy().to_string().replace(
+            &path::Path::new(&dirs::home_dir().unwrap())
+                .join("zentrox_data")
+                .join("vault_directory")
+                .to_string_lossy()
+                .to_string(),
+            "",
+        );
+
+        if is_file {
+            paths.push(
+                path.to_string()
+                    .split("/")
+                    .filter(|x| !x.is_empty())
+                    .map(|x| {
+                        if x != ".vault" && !x.is_empty() {
+                            match vault::decrypt_string_hash(x.to_string(), &key) {
+                                Some(v) => v,
+                                None => "Decryption Error".to_string(),
+                            }
+                        } else {
+                            ".vault".to_string()
+                        }
+                    })
+                    .collect::<Vec<String>>()
+                    .join("/"),
+            ); // Path of the file, while ignoring the path until (but still including) vault_directory.
+        } else {
+            paths.push(
+                path.to_string()
+                    .split("/")
+                    .filter(|x| !x.is_empty())
+                    .map(|x| {
+                        if x != ".vault" && !x.is_empty() {
+                            match vault::decrypt_string_hash(x.to_string(), &key) {
+                                Some(v) => v,
+                                None => "Decryption Error".to_string(),
+                            }
+                        } else {
+                            ".vault".to_string()
+                        }
+                    })
+                    .collect::<Vec<String>>()
+                    .join("/")
+                    .to_string()
+                    + "/",
+            ); // Path of the file, while ignoring the path until (but still including) vault_directory.
+            for e in list_paths(
+                entry_unwrap.path().to_string_lossy().to_string(),
+                key.clone(),
+            ) {
+                paths.push(e); // Path of the file, while ignoring the path until (but still including) vault_directory.
+            }
+        }
+    }
+    paths
+}
+
+#[post("/api/vaultTree")]
+async fn vault_tree(
+    session: Session,
+    state: web::Data<AppState>,
+    json: web::Json<VaultKeyRequest>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+    if config_file::read("vault_enabled") == "1" {
+        let key = &json.key;
+
+        match vault::decrypt_file(
+            std::path::Path::new(&dirs::home_dir().unwrap())
+                .join("zentrox_data")
+                .join("vault_directory")
+                .join(".vault")
+                .to_string_lossy()
+                .to_string(),
+            &key.to_string(),
+        ) {
+            Some(_) => vault::encrypt_file(
+                std::path::Path::new(&dirs::home_dir().unwrap())
+                    .join("zentrox_data")
+                    .join("vault_directory")
+                    .join(".vault")
+                    .to_string_lossy()
+                    .to_string(),
+                &key.to_string(),
+            ),
+            None => {
+                return HttpResponse::Forbidden().json(VaultConfigurationMessageResponseJson {
+                    message: "auth_failed".to_string(),
+                })
+            }
+        };
+
+        let paths = list_paths(
+            std::path::Path::new(&dirs::home_dir().unwrap())
+                .join("zentrox_data")
+                .join("vault_directory")
+                .to_string_lossy()
+                .to_string(),
+            key.to_string(),
+        );
+
+        return HttpResponse::Ok().json(VaultFsPathJson { fs: paths });
+    } else {
+        return HttpResponse::Ok().json(VaultConfigurationMessageResponseJson {
+            message: "vault_not_configured".to_string(),
+        });
+    }
+}
+
+// Delete vault file
+#[derive(Deserialize)]
+#[allow(non_snake_case)]
+struct VaultDeleteRequest {
+    deletePath: String,
+    key: String,
+}
+
+#[post("/api/deleteVaultFile")]
+async fn delete_vault_file(
+    session: Session,
+    state: web::Data<AppState>,
+    json: web::Json<VaultDeleteRequest>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    let sent_path = &json.deletePath;
+
+    if sent_path == ".vault" {
+        HttpResponse::BadRequest().finish();
+    }
+
+    let path = path::Path::new(&dirs::home_dir().unwrap().to_string_lossy().to_string())
+        .join("zentrox_data")
+        .join("vault_directory")
+        .join(
+            sent_path
+                .split("/")
+                .filter(|x| !x.is_empty())
+                .map(|x| vault::encrypt_string_hash(x.to_string(), &json.key.to_string()).unwrap())
+                .collect::<Vec<String>>()
+                .join("/"),
+        );
+
+    if path.metadata().unwrap().is_file() {
+        let file_size = fs::metadata(&path).unwrap().len();
+        let mut i = 0;
+
+        while i != 5 {
+            let random_data = (0..file_size)
+                .map(|_| rand::random::<u8>())
+                .collect::<Vec<u8>>();
+            let _ = fs::write(&path, random_data);
+            i += 1;
+        }
+
+        match fs::remove_file(path) {
+            Ok(_) => {}
+            Err(e) => {
+                eprintln!("❌ Failed to remove vault file.\n{}", e);
+                return HttpResponse::InternalServerError().finish();
+            }
+        };
+    } else {
+        let _ = vault::burn_directory(path.to_string_lossy().to_string());
+        match fs::remove_dir_all(path) {
+            Ok(_) => {}
+            Err(e) => {
+                eprintln!("❌ Failed to remove vault directory.\n{}", e);
+                return HttpResponse::InternalServerError().finish();
+            }
+        };
+    }
+
+    return HttpResponse::Ok().json(EmptyJson {});
+}
+
+// Rename vault file
+#[derive(Deserialize)]
+#[allow(non_snake_case)]
+struct VaultNewFolderRequest {
+    folder_name: String,
+    key: String,
+}
+
+#[post("/api/vaultNewFolder")]
+async fn vault_new_folder(
+    session: Session,
+    state: web::Data<AppState>,
+    json: web::Json<VaultNewFolderRequest>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    let sent_path = &json.folder_name;
+
+    if sent_path.split("/").last().unwrap().len() > 64 {
+        return HttpResponse::InternalServerError().finish();
+    }
+
+    let path = path::Path::new(&dirs::home_dir().unwrap().to_string_lossy().to_string())
+        .join("zentrox_data")
+        .join("vault_directory")
+        .join(
+            sent_path
+                .split("/")
+                .filter(|x| !x.is_empty())
+                .map(|x| vault::encrypt_string_hash(x.to_string(), &json.key.to_string()).unwrap())
+                .collect::<Vec<String>>()
+                .join("/"),
+        );
+
+    if path.exists() {
+        return HttpResponse::BadRequest().body("This file already exists.");
+    }
+
+    let _ = fs::create_dir(&path);
+    return HttpResponse::Ok().json(EmptyJson {});
+}
+
+// Upload vault file
+
+#[derive(Debug, MultipartForm)]
+struct VaultUploadForm {
+    #[multipart(limit = "10GB")]
+    file: TempFile,
+    key: Text<String>,
+    path: Text<String>,
+}
+
+#[post("/upload/vault")]
+async fn upload_vault(
+    session: Session,
+    state: web::Data<AppState>,
+    MultipartForm(form): MultipartForm<VaultUploadForm>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    let file_name = form
+        .file
+        .file_name
+        .unwrap_or_else(|| "vault_default_file".to_string());
+    let key = &form.key;
+
+    if file_name == ".vault" {
+        return HttpResponse::BadRequest().body("A file can not be named .vault");
+    }
+
+    let base_path = path::Path::new(&dirs::home_dir().unwrap())
+        .join("zentrox_data")
+        .join("vault_directory");
+
+    let encrypted_path = form
+        .path
+        .to_string()
+        .split('/')
+        .filter(|x| !x.is_empty()) // Filter out empty path entries
+        .map(|x| vault::encrypt_string_hash(x.to_string(), &key).unwrap())
+        .collect::<Vec<String>>()
+        .join("/");
+
+    let in_vault_path = base_path
+        .join(encrypted_path)
+        .join(vault::encrypt_string_hash(file_name.to_string(), &key).unwrap());
+
+    if in_vault_path.exists() {
+        return HttpResponse::BadRequest().body("This file already exists.");
+    }
+
+    let tmp_file_path = form.file.file.path().to_owned();
+    let _ = fs::copy(&tmp_file_path, &in_vault_path);
+
+    let file_size = fs::metadata(&tmp_file_path).unwrap().len();
+    let mut i = 0;
+
+    while i != 5 {
+        let random_data = (0..file_size)
+            .map(|_| rand::random::<u8>())
+            .collect::<Vec<u8>>();
+        let _ = fs::write(&tmp_file_path, random_data);
+        i += 1;
+    }
+
+    match fs::remove_file(&tmp_file_path) {
+        Ok(_) => {}
+        Err(e) => {
+            eprintln!("❌ Failed to remove temp file.\n{}", e);
+            return HttpResponse::InternalServerError().finish();
+        }
+    };
+
+    vault::encrypt_file(in_vault_path.to_string_lossy().to_string(), &key);
+
+    HttpResponse::Ok().finish()
+}
+
+// Rename vault folder
+#[derive(Deserialize)]
+#[allow(non_snake_case)]
+struct VaultRenameRequest {
+    path: String,
+    newName: String,
+    key: String,
+}
+
+#[post("/api/renameVaultFile")]
+async fn rename_vault_file(
+    session: Session,
+    state: web::Data<AppState>,
+    json: web::Json<VaultRenameRequest>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    let sent_path = &json.path;
+
+    if sent_path == "/.vault" {
+        HttpResponse::BadRequest().finish();
+    }
+
+    let path = path::Path::new(&dirs::home_dir().unwrap().to_string_lossy().to_string())
+        .join("zentrox_data")
+        .join("vault_directory")
+        .join(
+            sent_path
+                .split("/")
+                .filter(|x| !x.is_empty())
+                .map(|x| vault::encrypt_string_hash(x.to_string(), &json.key.to_string()).unwrap())
+                .collect::<Vec<String>>()
+                .join("/"),
+        );
+
+    let sent_new_path = &json.newName;
+    let new_path = path::Path::new(&dirs::home_dir().unwrap().to_string_lossy().to_string())
+        .join("zentrox_data")
+        .join("vault_directory")
+        .join(
+            sent_new_path
+                .split("/")
+                .filter(|x| !x.is_empty())
+                .map(|x| vault::encrypt_string_hash(x.to_string(), &json.key.to_string()).unwrap())
+                .collect::<Vec<String>>()
+                .join("/"),
+        );
+
+    if new_path.exists() {
+        return HttpResponse::BadRequest().body("This file already exists.");
+    }
+
+    let _ = fs::rename(&path, &new_path);
+
+    if new_path.metadata().unwrap().is_file() {
+        let file_size = fs::metadata(&new_path).unwrap().len();
+        let mut i = 0;
+
+        while i != 5 {
+            let random_data = (0..file_size)
+                .map(|_| rand::random::<u8>())
+                .collect::<Vec<u8>>();
+            let _ = fs::write(&path, random_data);
+            i += 1;
+        }
+
+        let _ = fs::remove_file(path);
+    }
+
+    return HttpResponse::Ok().json(EmptyJson {});
+}
+
+// Download vault file
+#[derive(Deserialize)]
+struct VaultFileDownloadJson {
+    key: String,
+    path: String,
+}
+
+#[post("/api/vaultFileDownload")]
+async fn vault_file_download(
+    session: Session,
+    state: web::Data<AppState>,
+    json: web::Json<VaultFileDownloadJson>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    let sent_path = &json.path;
+    let key = &json.key;
+
+    if sent_path == "/.vault" {
+        HttpResponse::BadRequest().finish();
+    }
+
+    let path = path::Path::new(&dirs::home_dir().unwrap().to_string_lossy().to_string())
+        .join("zentrox_data")
+        .join("vault_directory")
+        .join(
+            sent_path
+                .split("/")
+                .filter(|x| !x.is_empty())
+                .map(|x| vault::encrypt_string_hash(x.to_string(), &json.key.to_string()).unwrap())
+                .collect::<Vec<String>>()
+                .join("/"),
+        )
+        .to_string_lossy()
+        .to_string();
+
+    let _ = fs::copy(&path, format!("{}.dec", path).to_string());
+
+    vault::decrypt_file(format!("{}.dec", path).to_string(), &key);
+    if path::Path::new(&format!("{}.dec", path).to_string()).exists() {
+        let f = fs::read(&format!("{}.dec", path).to_string());
+        match f {
+            Ok(fh) => {
+                let data = fh.bytes().map(|x| x.unwrap_or(0_u8)).collect::<Vec<u8>>();
+                let _ = vault::burn_file(format!("{}.dec", path).to_string());
+                let _ = fs::remove_file(format!("{}.dec", path).to_string());
+                HttpResponse::Ok().body(data)
+            }
+            Err(_) => {
+                HttpResponse::InternalServerError().body(format!("Failed to read decrypted file"))
+            }
+        }
+    } else {
+        HttpResponse::BadRequest().body("This file does not exist.")
+    }
+}
+
+// Show Robots.txt
+#[get("/robots.txt")]
+async fn robots_txt() -> HttpResponse {
+    return HttpResponse::Ok().body(include_str!("../robots.txt"));
+}
+
 // ======================================================================
 // Blocks (Used to prevent users from accessing certain static resources)
 
@@ -1128,11 +1793,20 @@ async fn main() -> std::io::Result<()> {
             // Block Device API
             .service(list_drives)
             .service(drive_information)
+            // Vault API
+            .service(vault_configure)
+            .service(vault_tree)
+            .service(vault_new_folder)
+            .service(upload_vault)
+            .service(delete_vault_file)
+            .service(rename_vault_file)
+            .service(vault_file_download)
             // General services and blocks
             .service(dashboard_asset_block)
+            .service(robots_txt)
             .service(afs::Files::new("/", "static/"))
     })
-    .bind(("0.0.0.0", 8080))?
+    .bind(("::0.0.0.0", 8080))?
     .run()
     .await
 }

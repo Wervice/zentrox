@@ -42,6 +42,7 @@ pub struct LsblkOutputExhaustive {
     pub blockdevices: Vec<Drive>,
 }
 
+/// List all block device on the system.
 pub fn device_list() -> Option<LsblkOutput> {
     let lsblk_output = Command::new("lsblk")
         .arg("-o")
@@ -63,6 +64,9 @@ pub fn device_list() -> Option<LsblkOutput> {
     }
 }
 
+/// Return drive statistics about a drive.
+/// * `drive` - The drive name
+/// This function returns every entry where the specefied drive name is in the path.
 pub fn drive_statistics(drive: String) -> Option<Vec<(String, u64, u64, u64, f64, String)>> {
     let dfp_output = Command::new("df").arg("-P").output().unwrap().stdout;
     let re = Regex::new(r"\s+").unwrap();
@@ -109,7 +113,7 @@ pub fn drive_information(device_name: String) -> Option<Drive> {
     let c_output = match c.output() {
         Ok(v) => v.stdout,
         Err(e) => {
-            eprintln!("❌ Failed to spawn lsblk --bytes --json -o NAME,MODEL,PATH,SIZE,OWNER,MOUNTPOINT,FSUSED when getting information about a specific drive");
+            eprintln!("❌ Failed to spawn lsblk --bytes --json -o NAME,MODEL,PATH,SIZE,OWNER,MOUNTPOINT,FSUSED when getting information about a specific drive.\n{}", e);
             return None;
         }
     };

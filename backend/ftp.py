@@ -70,7 +70,7 @@ def main():
     write_config_file("ftp_pid", os.getpid())
     write_config_file("ftp_running", "1")
     authorizer = DummySHA512Authorizer()    
-    authorizer.add_user(read_config_file("ftp_username"), read_config_file("ftp_password"), read_config_file("ftp_root"), "elradfmwMT") 
+    authorizer.add_user(read_config_file("ftp_username"), read_config_file("ftp_password"), read_config_file("ftp_local_root"), "elradfmwMT") 
     handler = TLS_FTPHandler
     handler.certfile = os.path.join(home_path, "zentrox", "selfsigned.pem")
     handler.authorizer = authorizer
