@@ -29,7 +29,7 @@ mod ufw;
 mod url_decode;
 mod vault;
 use actix_multipart::form::text::Text;
-use actix_multipart::form::{json::Json as MpJson, tempfile::TempFile, MultipartForm};
+use actix_multipart::form::{tempfile::TempFile, MultipartForm};
 use sha2::{Digest, Sha256, Sha512};
 
 #[allow(non_snake_case)]
@@ -48,6 +48,7 @@ struct AppState {
         >,
     >,
     login_token: Arc<Mutex<String>>,
+    system: Arc<Mutex<System>>,
 }
 
 impl AppState {
@@ -55,6 +56,7 @@ impl AppState {
         AppState {
             login_requests: Arc::new(Mutex::new(HashMap::new())),
             login_token: Arc::new(Mutex::new(String::from(""))),
+            system: Arc::new(Mutex::new(System::new())),
         }
     }
 }
@@ -298,7 +300,7 @@ async fn use_otp(_state: web::Data<AppState>) -> HttpResponse {
 /// Return the CPU ussage percentage.
 #[get("/api/cpuPercent")]
 async fn cpu_percent(session: Session, state: web::Data<AppState>) -> HttpResponse {
-    if !is_admin_state(&session, state) {
+    if !is_admin_state(&session, state.clone()) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     };
 
@@ -307,8 +309,7 @@ async fn cpu_percent(session: Session, state: web::Data<AppState>) -> HttpRespon
         p: f32,
     }
 
-    let sys = System::new();
-    let cpu_ussage = match sys.cpu_load_aggregate() {
+    let cpu_ussage = match state.system.lock().unwrap().cpu_load_aggregate() {
         Ok(cpu) => {
             std::thread::sleep(std::time::Duration::from_secs(1)); // wait a second
             let cpu = cpu.done().unwrap();
@@ -326,7 +327,7 @@ async fn cpu_percent(session: Session, state: web::Data<AppState>) -> HttpRespon
 /// Return the the RAM ussage percentage.
 #[get("/api/ramPercent")]
 async fn ram_percent(session: Session, state: web::Data<AppState>) -> HttpResponse {
-    if !is_admin_state(&session, state) {
+    if !is_admin_state(&session, state.clone()) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     };
 
@@ -335,8 +336,7 @@ async fn ram_percent(session: Session, state: web::Data<AppState>) -> HttpRespon
         p: f64,
     }
 
-    let sys = System::new();
-    let memory_ussage = match sys.memory() {
+    let memory_ussage = match state.system.lock().unwrap().memory() {
         Ok(memory) => {
             (memory.total.as_u64() as f64 - memory.free.as_u64() as f64)
                 / memory.total.as_u64() as f64
@@ -355,7 +355,7 @@ async fn ram_percent(session: Session, state: web::Data<AppState>) -> HttpRespon
 /// Return the main disk ussage percentage.
 #[get("/api/diskPercent")]
 async fn disk_percent(session: Session, state: web::Data<AppState>) -> HttpResponse {
-    if !is_admin_state(&session, state) {
+    if !is_admin_state(&session, state.clone()) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     };
 
@@ -364,8 +364,7 @@ async fn disk_percent(session: Session, state: web::Data<AppState>) -> HttpRespo
         p: f64,
     }
 
-    let sys = System::new();
-    let disk_ussage = match sys.mount_at("/") {
+    let disk_ussage = match state.system.lock().unwrap().mount_at("/") {
         Ok(disk) => {
             (disk.total.as_u64() as f64 - disk.free.as_u64() as f64) / disk.total.as_u64() as f64
         }
@@ -1106,6 +1105,7 @@ async fn drive_information(
 // Vault API
 
 #[derive(Deserialize)]
+#[allow(non_snake_case)]
 struct VaultConfigurationJson {
     key: Option<String>,
     oldKey: Option<String>,

@@ -26,12 +26,10 @@ pub struct UfwRule {
 ///
 /// * `password` - The password used to authenticate `sudo`
 pub fn ufw_status(password: String) -> Result<(bool, Vec<UfwRule>), String> {
-    let output = match SwitchedUserCommand::new(password, "/usr/sbin/ufw status".to_string())
-        .output() {
+    let output =
+        match SwitchedUserCommand::new(password, "/usr/sbin/ufw status".to_string()).output() {
             Ok(v) => v.stdout,
-            Err(_) => {
-                return Err("Wrong sudo password".to_string())
-            }
+            Err(_) => return Err("Wrong sudo password".to_string()),
         };
     let mut output_lines = output
         .lines()

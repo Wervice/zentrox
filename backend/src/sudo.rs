@@ -147,12 +147,13 @@ impl SwitchedUserCommand {
 
             // Check if sudo reported an incorrect password
             dbg!(&stderr_content);
-            
-            if stderr_content.contains("sudo") && stderr_content.contains("incorrect password attempt")
+
+            if stderr_content.contains("sudo")
+                && stderr_content.contains("incorrect password attempt")
             {
                 return Err("Incorrect password provided".to_string());
             }
-            
+
             // Return the output if everything succeeded
             Ok(SudoOuput {
                 stdout: stdout_content,

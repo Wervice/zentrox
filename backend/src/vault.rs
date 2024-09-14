@@ -5,8 +5,6 @@ use aes_gcm::{
 use sha2::{Digest, Sha256};
 
 use std::fs;
-use std::io::Read;
-use std::path::Path;
 
 /// Decrypts a file with a specefied key and writes the cleartext back to the file.
 /// * `file` - Path to the file to decrypt
@@ -36,6 +34,7 @@ pub fn decrypt_file(file: String, key: &String) -> Option<()> {
     }
 }
 
+#[allow(dead_code)]
 /// Decrypts a string with a given key and decodes the input from hexadecimal.
 /// * `string` - Path to the file to decrypt
 /// * `key` - Key to decrypt file
@@ -58,6 +57,7 @@ pub fn decrypt_string(string: String, key: &String) -> Option<String> {
     }
 }
 
+#[allow(dead_code)]
 /// Encrypt a string with a given key and encodes the output to hexadecimal.
 /// * `string` - Path to the file to decrypt
 /// * `key` - Key to decrypt file
@@ -167,17 +167,17 @@ pub fn encrypt_directory(directory: &String, key: &String) -> Result<(), String>
             if filename != ".vault" {
                 let mut encrypted_path = e_u.path();
                 encrypted_path.pop();
-                fs::rename(
+                let _ = fs::rename(
                     e_u.path(),
                     encrypted_path.join(encrypt_string_hash(filename, key).unwrap().to_string()),
                 );
             }
         } else {
-            encrypt_directory(&e_u.path().to_string_lossy().to_string(), &key);
+            let _ = encrypt_directory(&e_u.path().to_string_lossy().to_string(), &key);
             let filename = e_u.file_name().to_string_lossy().to_string();
             let mut encrypted_path = e_u.path();
             encrypted_path.pop();
-            fs::rename(
+            let _ = fs::rename(
                 e_u.path(),
                 encrypted_path.join(encrypt_string_hash(filename, key).unwrap().to_string()),
             );
@@ -200,17 +200,17 @@ pub fn decrypt_directory(directory: &String, key: &String) -> Result<(), String>
             if filename != ".vault" {
                 let mut encrypted_path = e_u.path();
                 encrypted_path.pop();
-                fs::rename(
+                let _ = fs::rename(
                     e_u.path(),
                     encrypted_path.join(decrypt_string_hash(filename, key).unwrap().to_string()),
                 );
             }
         } else {
-            decrypt_directory(&e_u.path().to_string_lossy().to_string(), &key);
+            let _ = decrypt_directory(&e_u.path().to_string_lossy().to_string(), &key);
             let filename = e_u.file_name().to_string_lossy().to_string();
             let mut encrypted_path = e_u.path();
             encrypted_path.pop();
-            fs::rename(
+            let _ = fs::rename(
                 e_u.path(),
                 encrypted_path.join(decrypt_string_hash(filename, key).unwrap().to_string()),
             );
@@ -218,27 +218,6 @@ pub fn decrypt_directory(directory: &String, key: &String) -> Result<(), String>
     }
 
     Ok(())
-}
-
-/// Lock vault file by creating a lock file with no contents.
-/// * `file` - The path to the file to lock
-pub fn work_lock_vault_file(file: String) -> Result<(), String> {
-    match fs::write(file + ".zvlock", "") {
-        Ok(_) => Ok(()),
-        Err(_) => Err("Failed to write file.".to_string()),
-    }
-}
-
-/// Wait for 200ms for every time the file is locked.
-pub fn wait_for_unlock(file: String) -> Result<(), String> {
-    let file_name = format!("{}.zvlock", &file).to_string();
-    let lock_path = Path::new(&file_name);
-
-    while lock_path.exists() {
-        std::thread::sleep_ms(200);
-    }
-
-    return Ok(());
 }
 
 pub fn burn_file(path: String) -> Result<(), String> {

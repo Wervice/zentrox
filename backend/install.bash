@@ -37,11 +37,11 @@ npm_failed() {
 }
 
 python_failed() {
-	echo -ne "❌ The installer for Python modules failed. Do you want to ignore & restart pip3, use an alternative to pip3 or stop the program? [ignore/packageManager/N] "
+	echo -ne "❌ The installer for Python modules failed. Do you want to ignore & restart pip3, use an alternative to pip3 or stop the program? [ignore/P/N] "
 	read -r
 	if [[ $REPLY == "ignore" ]]; then
 		sudo pip3 -q install pyftpdlib PyOpenSSL --break-system-packages &> /dev/null
-	elif [[ $REPLY == "packageManager" ]]; then
+	elif [[ $REPLY == "P" ]]; then
 		echo "❓ Please enter the name of your package manager [apt/dnf/pacman/zypper]"
 		read PYTHON_PACKAGE_MANAGER
 		if [[ $PYTHON_PACKAGE_MANAGER == "apt" ]]; then
@@ -152,36 +152,21 @@ fi
 mkdir -p "$ZENTROX_DATA_PATH" &> /dev/null || true
 
 if [[ $ZENTROX_PATH == "/" || $ZENTROX_PATH == "$HOME" || $ZENTROX_PATH == "$HOME/" ]] ; then
-	echo "⚠️ Critical problem detected: $ZENTROX_PATH equal to protected folder"
+	echo "⚠️  Critical problem detected: $ZENTROX_PATH equal to protected folder"
 fi
 
-echo -n "❓ Remove (rm -rf) $ZENTROX_PATH to make sure no old versions of Zentrox are left [Y/n] "
+mkdir -p "$ZENTROX_PATH"
+mv -f static/ "$ZENTROX_PATH/static"
+mv -f zentrox "$ZENTROX_PATH/zentrox"
+mv -f ftp.py "$ZENTROX_PATH/ftp.py"
+chmod +x "$ZENTROX_PATH/zentrox"
 
-read -r
+echo "ℹ️  Please add $ZENTROX_PATH to your path"
+echo "ℹ️  The zentrox binary was moved to $ZENTROX_PATH/zentrox"
 
-if [[ $REPLY == "Y" || $REPLY == "" ]]; then
-	rm -rf "$ZENTROX_PATH"
-fi
+cd "$ZENTROX_PATH" || exit # Got to zentrox_server folder
 
-echo "🔽 Cloning Zentrox to $ZENTROX_PATH"
-
-git clone https://github.com/Wervice/zentrox/ "$ZENTROX_PATH"&> /dev/null # Clones Codelink repo to current folder
-
-cd "$ZENTROX_PATH || exit" # Got to zentrox_server folder
-
-echo "✅ Download finished"
-
-if ! command npm -v &> /dev/null
-then
-	echo "❌ Node Package Manager (npm) is not installed. To fix this issue, please install nodejs."
-	echo "❌ The command to do this may look like this:"
-	echo "❌ -E sudo apt install node OR sudo apt install nodejs"
-	exit -1
-fi
-
-echo "✅ NPM can be used"
-
-if ! command pip3 -v &> /dev/null
+if ! command pip3 --version &> /dev/null
 then
 	echo "❌ Python Package Manager (pip3) is not installed. To fix this issue, please install python3."
 	echo "❌ The command to do this may look like this:"
@@ -191,44 +176,18 @@ fi
 
 echo "✅ Python can be used"
 
-if ! command git -v &> /dev/null
-then
-	echo "❌ Git is not installed"
-fi
-
-echo "⌛ Installing dependencies"
-if ! npm -q install express body-parser cookie-parser express-session node-os-utils ejs compression multiparty &> /dev/null; then
-	echo "❌ NPM package installation failed";
-	npm_failed;
-fi
-
-echo "✅ Installed NPM packages"
-										   
 if ! sudo pip3 -q install pyftpdlib PyOpenSSL &> /dev/null; then
 	echo "❌ Python3 package installation failed"
 	python_failed
-fi
-
-echo "✅ Installed Python packages"
-
-echo "⌛ Compiling C programs"
-if ! gcc ./libs/crypt_c.c -o ./libs/crypt_c -lcrypt &> /dev/null; then
-	echo "❌ Compiling using GCC failed"
+else
+	echo "✅ Installed Python packages"
 fi
 
 if ! openssl -v &> /dev/null; then
 	echo "❌ Please install OpenSSL on your system"
+else
+	echo "✅ OpenSSL is installed" 
 fi
-
-echo "✅ OpenSSL is installed" 
-
-echo "🔑 Generating selfsigned keys"
-
-echo "ℹ️ In the following, you will be asked to enter some information to generate  SSL keys and certificates."
-echo "ℹ️ You can all fields except the last two empty."
-echo "ℹ️ If you do not want to enter real information, you do not have to but it is recommended."
-
-echo ""
 
 if ! /sbin/ufw --version &> /dev/null; then
 	echo "❌ UFW (Uncomplicated firewall) is not installed"
@@ -237,9 +196,19 @@ else
 	echo "✅ The UFW is installed"
 fi
 
-if ! sudo /usr/sbin/ufw allow from any to any port 3000 > /dev/null; then
+if ! sudo /usr/sbin/ufw allow from any to any port 8080 > /dev/null; then
 	echo "❌ Failed to add UFW rule for Zentrox"
+else
+	echo "✅ Added UFW rule for Zentrox on port 8080"
 fi
+
+echo "🔑 Generating selfsigned keys"
+
+echo "ℹ️  In the following, you will be asked to enter some information to generate  SSL keys and certificates."
+echo "ℹ️  You can all fields except the last two empty."
+echo "ℹ️  If you do not want to enter real information, you do not have to but it is recommended."
+
+echo ""
 
 openssl genrsa -out selfsigned.key 2048
 openssl req -new -key selfsigned.key -out selfsigned.pem
@@ -270,6 +239,7 @@ openssl rand -base64 64 > "$ZENTROX_DATA_PATH/sessionSecret.txt"
 
 touch "$ZENTROX_DATA_PATH"/locked.db
 
+touch ~/zentrox_data/config.toml
 update_toml "server_name" "$ZENTROX_SERVER_NAME"
 update_toml "reg_mode" "linkInvite"
 update_toml "server_name" "$ZENTROX_SERVER_NAME"
@@ -283,10 +253,12 @@ update_toml "knows_otp_secret" "0"
 
 # Enable 2FA
 if [[ $ENABLE_2FA == "Y" || $ENABLE_2FA == "" ]]; then
-	toml_update "use_otp" "1"
-	echo "ℹ️ You can read the OTP secret in Zentrox' log when you first start the server.'"
-	echo "ℹ️ The secret is also stored in ~/zentrox_data/config.db"
-	echo "ℹ️ Please copy it and store it in a dedicated app for OTP management."
+	update_toml "use_otp" "1"
+	echo "ℹ️  You can read the OTP secret in Zentrox' log when you first start the server.'"
+	echo "ℹ️  The secret is also stored in ~/zentrox_data/config.toml"
+	echo "ℹ️  Please copy it and store it in a dedicated app for OTP management."
+else 
+	update_toml "use_otp" "0"
 fi
 
 # Configure admin account
