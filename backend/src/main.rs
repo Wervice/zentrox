@@ -359,7 +359,7 @@ async fn cpu_percent(session: Session, state: web::Data<AppState>) -> HttpRespon
 
     let cpu_ussage = match state.system.lock().unwrap().cpu_load_aggregate() {
         Ok(cpu) => {
-            let _ = actix_rt::time::sleep(std::time::Duration::from_secs(1)); // wait a second
+            std::thread::sleep(std::time::Duration::from_secs(1));
             let cpu = cpu.done().unwrap();
             cpu.user * 100.0
         }
