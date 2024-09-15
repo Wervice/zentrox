@@ -30,7 +30,10 @@ mod url_decode;
 mod vault;
 use actix_multipart::form::text::Text;
 use actix_multipart::form::{tempfile::TempFile, MultipartForm};
+use actix_rt::time::interval;
+use openssl::ssl::{SslAcceptor, SslFiletype, SslMethod};
 use sha2::{Digest, Sha256, Sha512};
+use tokio::task;
 
 #[allow(non_snake_case)]
 // General App Code
@@ -53,11 +56,40 @@ struct AppState {
 
 impl AppState {
     fn new() -> Self {
+        let random_string: Vec<u8> = (0..128).map(|_| rand::random::<u8>()).collect();
         AppState {
             login_requests: Arc::new(Mutex::new(HashMap::new())),
-            login_token: Arc::new(Mutex::new(String::from(""))),
+            login_token: Arc::new(Mutex::new(
+                String::from_utf8_lossy(&random_string).to_string(),
+            )),
             system: Arc::new(Mutex::new(System::new())),
         }
+    }
+
+    fn cleanup_old_ips(&self) {
+        let mut login_requests = self.login_requests.lock().unwrap();
+        let current_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_millis();
+
+        // Retain only entries where the timestamp is within the last 15 minutes (900 seconds)
+        login_requests.retain(|_ip, (timestamp, _)| {
+            let ip_age_seconds = current_time - *timestamp;
+            ip_age_seconds <= 900_000 // 900 seconds = 15 minutes
+        });
+    }
+
+    fn start_cleanup_task(self: Self) {
+        let cleanup_interval = std::time::Duration::from_secs(60); // Every 60 seconds
+        task::spawn(async move {
+            let mut interval = interval(cleanup_interval);
+
+            loop {
+                interval.tick().await;
+                self.cleanup_old_ips();
+            }
+        });
     }
 }
 
@@ -146,15 +178,23 @@ async fn login(
     let password = &json.password;
     let otp_code = &json.userOtp;
 
-    let ip: std::net::IpAddr;
+    let ip: String;
     if let Some(peer_addr) = req.peer_addr() {
-        ip = peer_addr.ip();
+        let mut hasher = Sha256::new();
+        hasher.update(peer_addr.ip().to_string());
+        ip = hex::encode(hasher.finalize()).to_string();
     } else {
         eprintln!("Failed to retrieve IP address during login. Early return.");
         return HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body("");
     }
 
-    let mut requests = state.login_requests.lock().unwrap();
+    let mut requests = match state.login_requests.lock() {
+        Ok(guard) => guard,
+        Err(v) => {
+            v.into_inner()
+        },  // Recover the lock even if it's poisoned
+    };
+
     let current_request_entry = &mut requests.get(&ip.to_string()).unwrap_or(&(0, 0));
     let current_request_last_request_time = current_request_entry.0;
     let current_request_counter = current_request_entry.1;
@@ -163,19 +203,30 @@ async fn login(
         .unwrap()
         .as_millis();
 
-    if current_request_counter > 5
+    if current_request_counter > 10
         && (current_unix_timestamp - current_request_last_request_time) < 10000
     {
         let _ = &mut requests.insert(
             ip.to_string(),
             (current_unix_timestamp, current_request_counter + 1),
         );
-        return HttpResponse::Forbidden().body("You were rate limited.");
-    } else if current_request_counter > 5
-        && (current_unix_timestamp - current_request_last_request_time) > 10000
-    {
-        let _ = &mut requests.insert(ip.to_string(), (current_unix_timestamp, 0));
+        return HttpResponse::TooManyRequests().body("You were rate-limited.");
+    } else if current_request_counter > 5 {
+        // Implementing exponential backoff
+        let penalty_time = 2_u64.pow(current_request_counter.saturating_sub(5) as u32) * 1000; // Exponential backoff in milliseconds
+
+        if (current_unix_timestamp - current_request_last_request_time) < penalty_time.into() {
+            let _ = &mut requests.insert(
+                ip.to_string(),
+                (current_unix_timestamp, current_request_counter + 1),
+            );
+            return HttpResponse::TooManyRequests().body("You were rate-limited.");
+        } else {
+            // Reset the counter after the penalty period has passed
+            let _ = &mut requests.insert(ip.to_string(), (current_unix_timestamp, 1));
+        }
     } else {
+        // Increment the request counter and update the last request timestamp
         let _ = &mut requests.insert(
             ip.to_string(),
             (current_unix_timestamp, current_request_counter + 1),
@@ -201,10 +252,10 @@ async fn login(
             hasher.update(password);
             let hash = hex::encode(hasher.finalize());
             if hash == line.split(": ").nth(1).expect("Failed to get password") {
+                let login_token: Vec<u8> = is_admin::generate_random_token();
                 if config_file::read("use_otp") == "1" {
                     let otp_secret = config_file::read("otp_secret");
                     if otp::calculate_current_otp(&otp_secret) == *otp_code {
-                        let login_token: Vec<u8> = (0..4).map(|_| rand::random::<u8>()).collect();
                         let _ =
                             session.insert("login_token", hex::encode(&login_token).to_string());
 
@@ -212,10 +263,9 @@ async fn login(
 
                         return HttpResponse::build(StatusCode::OK).json(web::Json(EmptyJson {}));
                     } else {
-                        println!("❌ Wrong OTP while authenticating {}", &username);
+                        println!("❌ Wrong OTP while authenticating");
                     }
                 } else {
-                    let login_token: Vec<u8> = (0..16).map(|_| rand::random::<u8>()).collect();
                     // for hashes
                     let _ = session.insert("login_token", hex::encode(&login_token).to_string());
 
@@ -224,16 +274,16 @@ async fn login(
                     return HttpResponse::build(StatusCode::OK).json(web::Json(EmptyJson {}));
                 }
             } else {
-                println!("❌ Wrong Password while authenticating {}", &username);
+                println!("❌ Wrong Password while authenticating");
                 return HttpResponse::build(StatusCode::FORBIDDEN).body("Missing permissions");
             }
         }
         if !found_user {
-            println!("❌ User not found while authenticating {}", &username);
+            println!("❌ User not found while authenticating");
             return HttpResponse::build(StatusCode::FORBIDDEN).body("Missing permissions");
         }
     }
-    println!("❌ Drop Thru while authenticating {}", &username);
+    println!("❌ Drop Thru while authenticating");
     HttpResponse::build(StatusCode::FORBIDDEN).body("Missing permissions")
 }
 
@@ -243,14 +293,12 @@ async fn login(
 /// zentrox_admin_password. This invalidates the user and they are logged out.
 /// To prevent the user from re-using the current cookie, the state is replaced by a new random
 /// token that is longer than the one that would normally be used to log in.
-#[get("/logout")]
+#[post("/logout")]
 async fn logout(session: Session, state: web::Data<AppState>) -> HttpResponse {
     if is_admin_state(&session, state.clone()) {
-        session.remove("login_token");
-        let _ = config_file::write("login_token", "");
-        session.remove("zentrox_admin_password");
+        session.purge();
         *state.login_token.lock().unwrap() =
-            hex::encode((0..32).map(|_| rand::random::<u8>()).collect::<Vec<u8>>()).to_string();
+            hex::encode((0..64).map(|_| rand::random::<u8>()).collect::<Vec<u8>>()).to_string();
         HttpResponse::Found()
             .append_header(("Location", "/"))
             .finish()
@@ -263,7 +311,7 @@ async fn logout(session: Session, state: web::Data<AppState>) -> HttpResponse {
 ///
 /// This function will only return the users OTP secret when the web page is viewed for the first
 /// time. To keep track of this status, a key knows_otp_secret is used.
-#[get("/login/otpSecret")]
+#[post("/login/otpSecret")]
 async fn otp_secret_request(_state: web::Data<AppState>) -> HttpResponse {
     #[derive(Serialize)]
     struct SecretJsonResponse {
@@ -283,7 +331,7 @@ async fn otp_secret_request(_state: web::Data<AppState>) -> HttpResponse {
 /// Check if the users uses OTP.
 ///
 /// This function returns a boolean depending on the user using OTP or not.
-#[get("/login/useOtp")]
+#[post("/login/useOtp")]
 async fn use_otp(_state: web::Data<AppState>) -> HttpResponse {
     #[derive(Serialize)]
     struct JsonResponse {
@@ -311,7 +359,7 @@ async fn cpu_percent(session: Session, state: web::Data<AppState>) -> HttpRespon
 
     let cpu_ussage = match state.system.lock().unwrap().cpu_load_aggregate() {
         Ok(cpu) => {
-            std::thread::sleep(std::time::Duration::from_secs(1)); // wait a second
+            let _ = actix_rt::time::sleep(std::time::Duration::from_secs(1)); // wait a second
             let cpu = cpu.done().unwrap();
             cpu.user * 100.0
         }
@@ -366,7 +414,13 @@ async fn disk_percent(session: Session, state: web::Data<AppState>) -> HttpRespo
 
     let disk_ussage = match state.system.lock().unwrap().mount_at("/") {
         Ok(disk) => {
-            (disk.total.as_u64() as f64 - disk.free.as_u64() as f64) / disk.total.as_u64() as f64
+            let total = disk.total.as_u64() as f64;
+            let free = disk.free.as_u64() as f64;
+            if total > 0.0 {
+                (total - free) / total
+            } else {
+                0.0
+            }
         }
         Err(err) => {
             eprintln!("❌ Disk Ussage Error (Returned f64 0.0) {}", err);
@@ -1511,7 +1565,9 @@ async fn upload_vault(
     let file_name = form
         .file
         .file_name
-        .unwrap_or_else(|| "vault_default_file".to_string());
+        .unwrap_or_else(|| "vault_default_file".to_string())
+        .replace("..", "")
+        .replace("/", "");
     let key = &form.key;
 
     if file_name == ".vault" {
@@ -1705,6 +1761,67 @@ async fn robots_txt() -> HttpResponse {
     return HttpResponse::Ok().body(include_str!("../robots.txt"));
 }
 
+// Upload tls cert
+
+#[derive(Debug, MultipartForm)]
+struct TlsUploadForm {
+    #[multipart(limit = "1GB")]
+    file: TempFile,
+}
+
+#[post("/upload/tls")]
+async fn upload_tls(
+    session: Session,
+    state: web::Data<AppState>,
+    MultipartForm(form): MultipartForm<TlsUploadForm>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    let file_name = form
+        .file
+        .file_name
+        .unwrap_or_else(|| "tls".to_string())
+        .replace("..", "")
+        .replace("/", "");
+
+    let base_path = path::Path::new(&dirs::home_dir().unwrap())
+        .join("zentrox")
+        .join(&file_name);
+
+    let _ = config_file::write("tls_cert", &file_name.to_string());
+
+    let tmp_file_path = form.file.file.path().to_owned();
+    let _ = fs::copy(&tmp_file_path, &base_path);
+
+    match fs::remove_file(&tmp_file_path) {
+        Ok(_) => {}
+        Err(e) => {
+            eprintln!("❌ Failed to remove temp file.\n{}", e);
+            return HttpResponse::InternalServerError().finish();
+        }
+    };
+
+    HttpResponse::Ok().finish()
+}
+
+#[derive(Serialize)]
+struct CertNamesJson {
+    tls: String,
+}
+
+#[get("/api/certNames")]
+async fn cert_names(session: Session, state: web::Data<AppState>) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    let tls = config_file::read("tls_cert");
+
+    HttpResponse::Ok().json(CertNamesJson { tls })
+}
+
 // ======================================================================
 // Blocks (Used to prevent users from accessing certain static resources)
 
@@ -1723,37 +1840,71 @@ async fn main() -> std::io::Result<()> {
     println!("🚀 Serving Zentrox on Port 8080");
 
     // Resetting variables to default state
-    let _ = config_file::write("ftp_pid", "");
-    let _ = config_file::write("ftp_running", "0");
+    if let Err(e) = config_file::write("ftp_pid", "") {
+        eprintln!("Failed to reset ftp_pid: {}", e);
+    }
+    if let Err(e) = config_file::write("ftp_running", "0") {
+        eprintln!("Failed to reset ftp_running: {}", e);
+    }
 
-    let secret_session_key = Key::try_generate().unwrap();
-    let app_state = web::Data::new(AppState::new());
+    let secret_session_key = Key::try_generate().expect("Failed to generate session key");
+    let app_state = AppState::new();
+    app_state.clone().start_cleanup_task(); // Start periodic cleanup
 
     if config_file::read("otp_secret").is_empty() && config_file::read("use_otp") == "1" {
         let new_otp_secret = otp::generate_otp_secret();
-        let _ = config_file::write("otp_secret", &new_otp_secret);
+        if let Err(e) = config_file::write("otp_secret", &new_otp_secret) {
+            eprintln!("Failed to write OTP secret: {}", e);
+        }
         println!(
-            "🔒 Your One-Time-Pad Secret is: {}
-            🔒 Store this in a secure location and add it to your 2FA app.
-            🔒 If you lose this key, you will need physical access to this device.
-            🔒 From there, you can find it in ~/zentrox_data/config.toml",
-            new_otp_secret
-        )
+            "{}",
+            include_str!("../notes/otp_note.txt").replace("SECRET", &new_otp_secret)
+        );
     }
+
+    if config_file::read("tls_cert") == "selfsigned.pem" {
+        println!(include_str!("../notes/cert_note.txt"));
+    }
+
+    let mut builder =
+        SslAcceptor::mozilla_intermediate(SslMethod::tls()).expect("Failed to create SslAcceptor");
+
+    match builder.set_private_key_file(config_file::read("tls_cert"), SslFiletype::PEM) {
+        Ok(_) => {}
+        Err(err) => {
+            eprintln!("❌ Failed to set private key file.\n{err}");
+            let _ = println!("ℹ️  Returning to selfsigned.pem on next start of Zentrox.");
+            let _ = config_file::write("tls_cert", "selfsigned.pem");
+            panic!()
+        }
+    };
+    match builder.set_certificate_chain_file(config_file::read("tls_cert")) {
+        Ok(_) => {}
+        Err(err) => {
+            eprintln!("❌ Failed to set private key file.\n{err}");
+            let _ = println!("ℹ️  Returning to selfsigned.pem on next start of Zentrox.");
+            let _ = config_file::write("tls_cert", "selfsigned.pem");
+            panic!()
+        }
+    };
 
     HttpServer::new(move || {
         App::new()
-            .app_data(app_state.clone())
+            .app_data(web::Data::new(app_state.clone()))
             .wrap(
                 SessionMiddleware::builder(
                     CookieSessionStore::default(),
                     secret_session_key.clone(),
                 )
-                .cookie_secure(false)
+                .session_lifecycle(
+                    actix_session::config::PersistentSession::default()
+                        .session_ttl(actix_web::cookie::time::Duration::seconds(24 * 60 * 60)),
+                )
+                .cookie_secure(true)
                 .cookie_name("session".to_string())
                 .build(),
             )
-            .wrap(Cors::permissive())
+            .wrap(Cors::default())
             .wrap(middleware::Compress::default())
             // Landing
             .service(dashboard)
@@ -1801,12 +1952,15 @@ async fn main() -> std::io::Result<()> {
             .service(delete_vault_file)
             .service(rename_vault_file)
             .service(vault_file_download)
+            // Certificates
+            .service(upload_tls)
+            .service(cert_names)
             // General services and blocks
             .service(dashboard_asset_block)
             .service(robots_txt)
             .service(afs::Files::new("/", "static/"))
     })
-    .bind(("::0.0.0.0", 8080))?
+    .bind_openssl(("0.0.0.0", 8080), builder)?
     .run()
     .await
 }

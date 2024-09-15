@@ -250,6 +250,7 @@ update_toml "ftp_password" "$(echo -n 'change_me' | sha512sum | cut -d ' ' -f 1)
 update_toml "ftp_local_root" "/"
 update_toml "vault_enabled" "0"
 update_toml "knows_otp_secret" "0"
+update_toml "tls_cert" "selfsigned.pem"
 
 # Enable 2FA
 if [[ $ENABLE_2FA == "Y" || $ENABLE_2FA == "" ]]; then
@@ -267,6 +268,4 @@ echo -n "true" > "$ZENTROX_DATA_PATH/setupDone.txt"
 
 echo -n "$(echo -n "$ADMIN_USERNAME" | base64): $(echo -n "$ADMIN_PASSWORD" | sha512sum | cut -d ' ' -f 1): admin" > "$ZENTROX_DATA_PATH/users.txt"
 
-echo "✅ Installation"
-echo "ℹ️  You can now start Zentrox using the command  [ cd $ZENTROX_PATH; node index.js ]"
-
+echo "ℹ️  You can now start Zentrox using the command  [ $ZENTROX_PATH/zentrox ]"

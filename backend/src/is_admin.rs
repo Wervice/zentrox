@@ -1,5 +1,6 @@
 use actix_session::Session;
 use actix_web::web;
+use rand::Rng;
 
 use crate::AppState;
 
@@ -19,26 +20,40 @@ use crate::AppState;
 pub fn is_admin_state(session: &Session, state: web::Data<AppState>) -> bool {
     let disable_auth_for_development = false; // 🚨 DO NOT LEAVE THIS ON DURING RELEASE / PROD
     if disable_auth_for_development {
-        println!(
-            "
-            ⚠️ AUTH IS DISABLED
-            ----------------------------------------------------------------
-            🛑 Auth is disabled for development.
-            🛑 Stop the program immediately if you are running this in prod!
-            🛑 This is intended for development only!
-            ----------------------------------------------------------------
-            "
-        );
+        println!(include_str!("../notes/auth_note.txt"));
         return true;
     }
 
-    match session
-        .get::<String>("login_token")
-        .expect("Failed to get login_token")
-    {
-        Some(value) => {
-            return value == *state.login_token.lock().unwrap();
+    match session.get::<String>("login_token") {
+        Ok(value) => {
+            match value {
+                Some(value) => {
+                    match hex::decode(&value) {
+                        Ok(decoded) => {
+                            if decoded.len() != 16 {
+                                return false;
+                            }
+                            return value == *state.login_token.lock().unwrap();
+                        }
+                        Err(_) => {
+                            // If decoding fails, consider the token invalid
+                            return false;
+                        }
+                    }
+                }
+                None => return false,
+            }
+            // Handle invalid hex decode safely
         }
-        None => false,
+        Err(err) => {
+            eprintln!("❌ Failed to get login_token from session: {err}");
+            return false;
+        }
     }
+}
+
+pub fn generate_random_token() -> Vec<u8> {
+    let mut rng = rand::rngs::OsRng;
+    let token: [u8; 16] = rng.gen(); // Generate 16 random bytes
+    token.to_vec()
 }

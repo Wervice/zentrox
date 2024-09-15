@@ -24,7 +24,9 @@ if (fetchURLPrefix.length > 0) {
 	console.error("Fetch URL Prefix is enabled");
 }
 
-fetch(fetchURLPrefix + "/login/otpSecret", {}).then((res) => {
+fetch(fetchURLPrefix + "/login/otpSecret", {
+	method: "POST"
+}).then((res) => {
 	if (res.ok) {
 		res.json().then((json) => {
 			toast({
@@ -48,7 +50,7 @@ fetch(fetchURLPrefix + "/login/otpSecret", {}).then((res) => {
 
 function OTPInputField({ value, onChange }) {
 	const useOtpFetch = async () => {
-		fetch(fetchURLPrefix + "/login/useOtp", {}).then((res) => {
+		fetch(fetchURLPrefix + "/login/useOtp", {method: "POST"}).then((res) => {
 			if (res.ok) {
 				res.json().then((json) => {
 					if (json["used"]) {
@@ -71,7 +73,36 @@ function OTPInputField({ value, onChange }) {
 				<Label>
 					<LockKeyholeIcon className="inline-block pr-1" /> OPT Key
 				</Label>
-				<InputOTP maxLength={6} value={value} onChange={onChange}>
+				<InputOTP
+					maxLength={6}
+					value={value}
+					onChange={onChange}
+					onKeyPress={(event) => {
+						if (event.key == "Enter") {
+							fetch(fetchURLPrefix + "/login", {
+								method: "POST",
+								headers: {
+									"Content-Type": "application/json",
+								},
+								body: JSON.stringify({
+									username: userName,
+									password: passWord,
+									userOtp: otpKey,
+								}),
+							}).then((res) => {
+								if (!res.ok) {
+									toast({
+										title: "Login Error",
+										description: "Your login was rejected",
+										duration: 4000,
+									});
+								} else {
+									location.href = "/dashboard";
+								}
+							});
+						}
+					}}
+				>
 					<InputOTPGroup>
 						<InputOTPSlot index={0} />
 						<InputOTPSlot index={1} />
@@ -120,6 +151,31 @@ export default function Login() {
 					type="password"
 					onChange={(event) => {
 						changePassWord(event.target.value);
+					}}
+					onKeyPress={(event) => {
+						if (event.key == "Enter") {
+							fetch(fetchURLPrefix + "/login", {
+								method: "POST",
+								headers: {
+									"Content-Type": "application/json",
+								},
+								body: JSON.stringify({
+									username: userName,
+									password: passWord,
+									userOtp: otpKey,
+								}),
+							}).then((res) => {
+								if (!res.ok) {
+									toast({
+										title: "Login Error",
+										description: "Your login was rejected",
+										duration: 4000,
+									});
+								} else {
+									location.href = "/dashboard";
+								}
+							});
+						}
 					}}
 				/>
 				<OTPInputField

@@ -107,6 +107,7 @@ import {
 } from "@/components/ui/context-menu";
 import JSXStyle from "styled-jsx/style";
 import { Julius_Sans_One } from "next/font/google";
+import { Description } from "@radix-ui/react-toast";
 // const fetchURLPrefix = "";
 const fetchURLPrefix = require("@/lib/fetchPrefix");
 
@@ -136,10 +137,10 @@ function TabButton({ onClick, isDefault, isActive, children }) {
 	const [isOnloadDefault, setOnloadDefault] = useState(isDefault);
 	if (isOnloadDefault || isActive) {
 		var style =
-			"mr-2 ml-2 text-lg hover:bg-neutral-900 text-white bg-neutral-900 hover:bg-neutral-800 hover:text-neutral-100";
+			"mr-2 ml-2 text-lg hover:bg-neutral-900 text-white bg-neutral-900 hover:bg-neutral-800 hover:text-neutral-100 focus:outline outline-2 outline-offset-2";
 	} else {
 		var style =
-			"bg-transparent mr-2 ml-2 text-lg hover:bg-neutral-800 hover:text-neutral-200 text-neutral-400";
+			"bg-transparent mr-2 ml-2 text-lg hover:bg-neutral-800 hover:text-neutral-200 text-neutral-400 focus:outline outline-2 outline-offset-2";
 	}
 	if (isOnloadDefault) {
 		onClick();
@@ -253,20 +254,21 @@ function Overview() {
 		temperature: "",
 	});
 	const [ftpEnabled, setFtpEnabled] = useState(false);
-	const [updatingFTP, setUpdatingFTP] = useState(false);
-	const [ftpEnableSpinner, setFtpEnableSpinner] = useState(false);
 	var enableFtpSudoPasswordInput = useRef("");
 
-	useInterval(() => overviewFetch(), 5000);
-	useInterval(() => {
-		if (!updatingFTP) {
-			ftpStatusFetch();
-		}
-	}, 2500);
+	useEffect(() => {
+		const interval = setInterval(() => {
+			overviewFetch();
+		}, 5000);
+
+		return () => clearInterval(interval);
+	}, []);
+
 	useEffect(() => {
 		overviewFetch();
 		ftpStatusFetch();
 	}, []);
+
 	return (
 		<Page name="Overview" className="align-top">
 			<div className="h-72">
@@ -386,8 +388,6 @@ function Overview() {
 								checked={ftpEnabled}
 								id="ftpEnabled"
 								onClick={(e) => {
-									setFtpEnableSpinner(true);
-									setUpdatingFTP(true);
 									e.target.disabled = true;
 									setTimeout(() => {
 										e.target.disabled = false;
@@ -411,7 +411,6 @@ function Overview() {
 								<DialogClose asChild>
 									<Button
 										onClick={() => {
-											setFtpEnabled(!ftpEnabled);
 											fetch(fetchURLPrefix + "/api/updateFTPConfig", {
 												method: "POST",
 												headers: {
@@ -423,6 +422,17 @@ function Overview() {
 													sudoPassword:
 														enableFtpSudoPasswordInput.current.value,
 												}),
+											}).then((res) => {
+												if (res.ok) {
+													setTimeout(() => {
+														ftpStatusFetch();
+													}, 1000);
+												} else {
+													toast({
+														title: "Failed to toggle FTP server",
+														description: "Zentrox failed to toggle FTP",
+													});
+												}
 											});
 										}}
 									>
@@ -668,6 +678,9 @@ function Packages() {
 						/>
 						<DialogFooter>
 							<DialogClose asChild>
+								<Button variant="outline">Close</Button>
+							</DialogClose>
+							<DialogClose asChild>
 								<Button
 									onClick={() => {
 										setClearAutoRemoveButtonState("working");
@@ -811,6 +824,9 @@ function Packages() {
 							ref={packageSudoPasswordInput}
 						/>
 						<DialogFooter>
+							<DialogClose asChild>
+								<Button variant="outline">Close</Button>
+							</DialogClose>
 							<Button
 								variant={
 									packagePopUpConfig.mode == "install"
@@ -898,25 +914,31 @@ function Firewall() {
 	const [newRuleAction, setNewRuleAction] = useState("allow");
 	const [preventRefetch, setPreventRefetch] = useState(false);
 	const [sudoPassword, setSudoPassword] = useState("");
+	const [sudoDialogOpen, setSudoDialogOpen] = useState(true);
 	var newRuleTo = useRef("");
 	var newRuleFrom = useRef("");
 	var sudoPasswordInput = useRef("");
 	const { toast } = useToast();
 
-	function fetchFireWallInformation() {
+	function fetchFireWallInformation(password = sudoPassword) {
 		fetch(fetchURLPrefix + "/api/fireWallInformation", {
 			headers: {
 				"Content-Type": "application/json",
 			},
 			method: "POST",
 			body: JSON.stringify({
-				sudoPassword: sudoPassword,
+				sudoPassword: password,
 			}),
 		}).then((res) => {
 			if (res.ok) {
 				res.json().then((json) => {
 					setRules(json["rules"]);
 					setFireWallEnabled(json["enabled"]);
+				});
+			} else {
+				toast({
+					title: "Wrong Sudo Password",
+					description: "Zentrox failed to validate your sudo password",
 				});
 			}
 		});
@@ -995,12 +1017,12 @@ function Firewall() {
 																	{
 																		method: "POST",
 																		headers: {
-																			"Content-Type": "application/json"
+																			"Content-Type": "application/json",
 																		},
 																		body: JSON.stringify({
-																			sudoPassword: sudoPassword
-																		})
-																	}
+																			sudoPassword: sudoPassword,
+																		}),
+																	},
 																).then((res) => {
 																	if (!res.ok) {
 																		toast({
@@ -1038,7 +1060,10 @@ function Firewall() {
 
 	return (
 		<>
-			<Dialog open={sudoPassword == ""}>
+			<Dialog
+				open={sudoPassword == "" && sudoDialogOpen}
+				onOpenChange={setSudoDialogOpen}
+			>
 				<DialogContent>
 					<DialogHeader>
 						<DialogTitle>Sudo Password</DialogTitle>
@@ -1056,12 +1081,17 @@ function Firewall() {
 					/>
 					<DialogFooter>
 						<DialogClose asChild>
+							<Button variant="outline">Cancle</Button>
+						</DialogClose>
+						<DialogClose asChild>
 							<Button
 								onClick={() => {
 									setSudoPassword(sudoPasswordInput.current.value);
-									fetchFireWallInformation();
+									fetchFireWallInformation(sudoPasswordInput.current.value);
 								}}
-							>Proceed</Button>
+							>
+								Proceed
+							</Button>
 						</DialogClose>
 					</DialogFooter>
 				</DialogContent>
@@ -1123,6 +1153,9 @@ function Firewall() {
 									</Select>
 									<DialogFooter>
 										<DialogClose asChild>
+											<Button variant="outline">Cancle</Button>
+										</DialogClose>
+										<DialogClose asChild>
 											<Button
 												onClick={() => {
 													setPreventRefetch(false);
@@ -1150,12 +1183,12 @@ function Firewall() {
 														{
 															method: "POST",
 															headers: {
-																"Content-Type": "application/json"
+																"Content-Type": "application/json",
 															},
 															body: JSON.stringify({
-																sudoPassword: sudoPassword
-															})
-														}
+																sudoPassword: sudoPassword,
+															}),
+														},
 													).then((res) => {
 														if (res.ok) {
 															fetchFireWallInformation();
@@ -1190,25 +1223,23 @@ function Firewall() {
 						<Switch
 							onClick={(e) => {
 								e.target.disabled = true;
-								fetch(
-									fetchURLPrefix + "/api/switchUfw/"+!fireWallEnabled,
-									{
-										method: "POST",
-										headers: {
-											"Content-Type": "application/json"
-										},
-										body: JSON.stringify({
-											sudoPassword: sudoPassword
-										})
-									}
-								).then((res) => {
+								fetch(fetchURLPrefix + "/api/switchUfw/" + !fireWallEnabled, {
+									method: "POST",
+									headers: {
+										"Content-Type": "application/json",
+									},
+									body: JSON.stringify({
+										sudoPassword: sudoPassword,
+									}),
+								}).then((res) => {
 									if (res.ok) {
 										setFireWallEnabled(!fireWallEnabled);
 									} else {
 										toast({
 											title: "Failed to apply firewall configuration",
-											description: "Zentrox failed to change the state of the firewall."
-										})
+											description:
+												"Zentrox failed to change the state of the firewall.",
+										});
 									}
 									e.target.disabled = false;
 									fetchFireWallInformation();
@@ -1352,8 +1383,11 @@ function Storage() {
 	var driveCapacity = "N/A";
 	var drive;
 	for (drive of driveInformation.ussage) {
-		if (drive[0] === driveInformation.drives.mountpoint || drive[0] == driveInformation.drives.path) {
-			driveCapacity = drive[4]+"%";
+		if (
+			drive[0] === driveInformation.drives.mountpoint ||
+			drive[0] == driveInformation.drives.path
+		) {
+			driveCapacity = drive[4] + "%";
 		}
 	}
 
@@ -1521,6 +1555,24 @@ function Vault() {
 		setDeletionModalVisible(true);
 	}
 
+	function isDirectChild(entry, currentVaultPath) {
+		// Remove trailing `/` from entry if it exists
+		entry = entry.endsWith("/") ? entry.slice(0, -1) : entry;
+
+		console.log(currentVaultPath);
+
+		// Check if the entry starts with the currentVaultPath
+		if (!entry.startsWith(currentVaultPath)) return false;
+
+		// Get the remaining part of the entry after currentVaultPath
+		let remainingPath = entry.slice(currentVaultPath.length);
+
+		console.log(remainingPath);
+
+		// Check if the remaining path contains any `/`
+		return !remainingPath.includes("/");
+	}
+
 	return (
 		<Page name="Vault">
 			<Toaster />
@@ -1541,6 +1593,9 @@ function Vault() {
 						ref={vaultKeyDecryptModal}
 					/>
 					<DialogFooter>
+						<DialogClose asChild>
+							<Button variant="outline">Cancle</Button>
+						</DialogClose>
 						<DialogClose asChild>
 							<Button
 								onClick={() => {
@@ -1662,38 +1717,6 @@ function Vault() {
 				>
 					<LockOpenIcon className="w-4 h-4 inline" /> Open Vault
 				</Button>
-				<Button
-					variant="secondary"
-					className="inline mr-1"
-					onClick={() => {
-						setDownloadBackupButton("loading");
-						fetch(fetchURLPrefix + "/api/vaultBackup").then((res) => {
-							if (res.ok) {
-								res.blob().then((blob) => {
-									setDownloadBackupButton("default");
-									var url = window.URL.createObjectURL(blob);
-									var a = document.createElement("a");
-									a.href = url;
-									a.download = "vault.tar";
-									document.body.appendChild(a); // we need to append the element to the dom -> otherwise it will not work in firefox
-									a.click();
-									a.remove();
-								});
-							} else {
-								toast({
-									title: "Failed to fetch",
-								});
-							}
-						});
-					}}
-				>
-					{downloadBackupButton === "default" ? (
-						<DownloadIcon className="w-4 h-4 inline mr-1" />
-					) : (
-						<LoaderIcon className="animate-spin h-4 w-4 inline mr-1" />
-					)}{" "}
-					Download Vault
-				</Button>
 			</div>
 			<div
 				hidden={!vaultViewVisible}
@@ -1728,6 +1751,9 @@ function Vault() {
 						<Input type="text" ref={newDirectoryInput} placeholder="Name" />
 						<DialogFooter>
 							<DialogClose asChild>
+								<Button variant="outline">Close</Button>
+							</DialogClose>
+							<DialogClose asChild>
 								<Button
 									onClick={() => {
 										if (
@@ -1738,6 +1764,14 @@ function Vault() {
 												title: "Illegal name",
 												description:
 													"A file name may not include slashes or spaces.",
+											});
+											return;
+										}
+										if (newDirectoryInput.current.value.length > 64) {
+											toast({
+												title: "Filename too long",
+												description:
+													"A filename can not be longer than 64 characters.",
 											});
 											return;
 										}
@@ -1796,7 +1830,7 @@ function Vault() {
 											},
 											body: JSON.stringify({
 												key: vaultSessionKey,
-												path: currentVaultPath + "/" + currentVaultFileRename,
+												path: currentVaultFileRename,
 												newName:
 													currentVaultPath +
 													"/" +
@@ -1825,10 +1859,15 @@ function Vault() {
 					<AlertDialogContent>
 						<AlertDialogTitle>Delete File</AlertDialogTitle>
 						<AlertDialogDescription>
-							Do you really want to delete {currentVaultFileDelete}?<br />
+							Do you really want to delete{" "}
+							{currentVaultFileDelete.length > 64
+								? currentVaultFileDelete.substring(0, 61) + "..."
+								: currentVaultFileDelete}
+							?<br />
 							This action can not be undone.
 						</AlertDialogDescription>
 						<AlertDialogFooter>
+							<AlertDialogCancel>Cancel</AlertDialogCancel>
 							<AlertDialogAction
 								onClick={() => {
 									fetch(fetchURLPrefix + "/api/deleteVaultFile", {
@@ -1838,8 +1877,7 @@ function Vault() {
 										},
 										body: JSON.stringify({
 											key: vaultSessionKey,
-											deletePath:
-												currentVaultPath + "/" + currentVaultFileDelete,
+											deletePath: currentVaultFileDelete,
 										}),
 									}).then((res) => {
 										if (res.ok) vaultTree(vaultSessionKey);
@@ -1872,33 +1910,38 @@ function Vault() {
 				<input
 					type="file"
 					ref={uploadInput}
-					onChange={() => {
-						setUploadButton("loading");
-						var fileForSubmit = uploadInput.current.files[0];
-						if (fileForSubmit.size >= 1024 * 1024 * 1024 * 2) {
-							toast({
-								title: "File to big",
-								description: "The file you provided was larger than 2GB",
-							});
-						}
-						var formData = new FormData();
-						formData.append("file", fileForSubmit);
-						formData.append("path", currentVaultPath);
-						formData.append("key", vaultSessionKey);
-						fetch(fetchURLPrefix + "/upload/vault", {
-							method: "POST",
-							body: formData,
-						}).then((res) => {
-							if (res.ok) {
-								vaultTree(vaultSessionKey);
-								setUploadButton("default");
-							} else {
+					onInput={() => {
+						if (event.target.files.length > 0) {
+							setUploadButton("loading");
+							var fileForSubmit = uploadInput.current.files[0];
+							if (fileForSubmit.size >= 1024 * 1024 * 1024 * 10) {
 								toast({
-									title: "Failed to upload file",
-									description: "Zentrox failed to upload the file you provided",
+									title: "File to big",
+									description: "The file you provided was larger than 10GB",
 								});
 							}
-						});
+							var formData = new FormData();
+							formData.append("file", fileForSubmit);
+							formData.append("path", currentVaultPath);
+							formData.append("key", vaultSessionKey);
+							fetch(fetchURLPrefix + "/upload/vault", {
+								method: "POST",
+								body: formData,
+							}).then((res) => {
+								uploadInput.current.value = "";
+								if (res.ok) {
+									vaultTree(vaultSessionKey);
+									setUploadButton("default");
+								} else {
+									setUploadButton("default");
+									toast({
+										title: "Failed to upload file",
+										description:
+											"Zentrox failed to upload the file you provided",
+									});
+								}
+							});
+						}
 					}}
 					hidden
 				/>
@@ -1926,13 +1969,7 @@ function Vault() {
 					 * @param {string} entry*/
 					currentVaultContents
 						.filter((entry) => {
-							if (
-								entry.startsWith(currentVaultPath) &&
-								entry.replace(currentVaultPath).split("/").length <= 2 &&
-								entry != currentVaultPath
-							)
-								return true;
-							return false;
+							return isDirectChild(entry, currentVaultPath);
 						})
 						.map((entry) => {
 							var type = "";
@@ -1983,7 +2020,7 @@ function Vault() {
 																},
 																body: JSON.stringify({
 																	key: vaultSessionKey,
-																	path: currentVaultPath + entry,
+																	path: entry,
 																}),
 															}).then((res) => {
 																e.target.classList.remove("animate-pulse");
@@ -2036,6 +2073,7 @@ function Servers() {
 	var ftpPassWordInput = useRef();
 	var ftpRootInput = useRef();
 	var ftpApplySudoPasswordInput = useRef();
+	var tlsCertFileInput = useRef();
 
 	const [ftpConfig, setFtpConfig] = useState({
 		enabled: false,
@@ -2043,8 +2081,11 @@ function Servers() {
 		ftpLocalRoot: "",
 	});
 	const [ftpCheckBoxChecked, setFtpCheckBoxChecked] = useState(false);
+	const [certNames, setCertName] = useState({
+		tls: "TLS Certificate",
+	});
 
-	const fetchFtpConfig = () => {
+	const fetchData =  () => {
 		fetch(fetchURLPrefix + "/api/fetchFTPconfig").then((res) => {
 			if (res.ok) {
 				res.json().then((json) => {
@@ -2060,28 +2101,92 @@ function Servers() {
 				});
 			}
 		});
+
+		fetch("/api/certNames").then((res) => {
+				res.json().then((j) => {
+					setCertName(j)
+				})
+		})
 	};
 
-	useEffect(fetchFtpConfig, []);
+	useEffect(fetchData, []);
 
 	return (
 		<Page name="Servers">
-			<h1 className="text-xl">General</h1>
-			Certificates{" "}
-			<InfoButton
-				title={"Certificates"}
-				info={
-					<>
-						Zentrox automatically generates self signed certificates to provide
-						an encrypted connection.
-						<br />
-						This connection is not protected from Man-In-The-Middle attacks,
-						which is why it is recommended to use a SSL certificate by a
-						Certificate Authority.
-					</>
-				}
-			/>
 			<h1 className="text-xl">
+				Certificates{" "}
+				<InfoButton
+					title={"Certificates"}
+					info={
+						<>
+							Zentrox automatically generates self signed certificates to
+							provide an encrypted connection.
+							<br />
+							This connection is not protected from Man-In-The-Middle attacks,
+							which is why it is recommended to use a SSL certificate by a
+							Certificate Authority.
+						</>
+					}
+				/>
+			</h1>
+			<h2 className="font-semibold">TLS</h2>
+			<input
+				type="file"
+				ref={tlsCertFileInput}
+				hidden={true}
+				onChange={() => {
+					var fileForSubmit = tlsCertFileInput.current.files[0];
+					if (fileForSubmit.size >= 1024 * 1024 * 1024 * 1) {
+						toast({
+							title: "File to big",
+							description: "The file you provided was larger than 1GB",
+						});
+					}
+
+					var fileName = tlsCertFileInput.current.files[0].name;
+					
+					if (fileName.split(".").reverse()[0].toLowerCase() != "pem") {
+						toast({
+							title: "Not a pem file",
+							description: "Zentrox can only use pem certificates."
+						})
+					}
+
+					var formData = new FormData();
+					formData.append("file", fileForSubmit);
+					fetch(fetchURLPrefix + "/upload/tls", {
+						method: "POST",
+						body: formData,
+					}).then((res) => {
+						if (res.ok) {
+							setCertName({
+								tls: fileName
+							})
+							tlsCertFileInput.current.value = "";
+							toast({
+								title: "Upload finished",
+								description: "Zentrox successfully uploaded the new certificate. You need to manually restart Zentrox to start using the new certificate.",
+								duration: 200000
+							})
+						} else {
+							toast({
+								title: "Failed to upload TLS certificate",
+								description:
+									"Zentrox failed to upload the TLS certificate you provided",
+							});
+						}
+					});
+				}}
+			/>
+			<Button
+				onClick={() => {
+					tlsCertFileInput.current.click();
+				}}
+			>
+				Upload
+			</Button>{" "}
+			<span className="text-neutral-600">{certNames.tls}</span>
+			<h1 className="text-xl pt-3">
 				FTP{" "}
 				<InfoButton
 					title={"File Transfer Protocol"}
@@ -2112,6 +2217,7 @@ function Servers() {
 				ref={ftpUserNameInput}
 				placeholder="Username"
 				className="inline-block mb-1"
+				disabled={ftpCheckBoxChecked}
 			/>{" "}
 			<InfoButton
 				title={"FTP Username"}
@@ -2129,6 +2235,7 @@ function Servers() {
 				ref={ftpPassWordInput}
 				placeholder="Password"
 				className="inline-block mb-1"
+				disabled={ftpCheckBoxChecked}
 			/>{" "}
 			<InfoButton
 				title={"FTP Password"}
@@ -2149,6 +2256,7 @@ function Servers() {
 				ref={ftpRootInput}
 				placeholder="FTP Root Directory"
 				className="inline-block mb-1"
+				disabled={ftpCheckBoxChecked}
 			/>{" "}
 			<InfoButton
 				title={"FTP Root"}
@@ -2177,6 +2285,9 @@ function Servers() {
 						placeholder="Password"
 					/>
 					<DialogFooter>
+						<DialogClose asChild>
+							<Button variant="outline">Close</Button>
+						</DialogClose>
 						<DialogClose
 							onClick={() => {
 								fetch(fetchURLPrefix + "/api/updateFTPConfig", {
@@ -2358,7 +2469,11 @@ export default function Dashboard() {
 					variant="link"
 					className="text-white p-2 m-0 float-right"
 					onClick={() => {
-						location.href = "/logout";
+						fetch("/logout", {
+							method: "POST"
+						}).then(() => {
+							location.href = "/"
+						})
 					}}
 				>
 					<LogOut className="h-16 p-1" /> Logout
