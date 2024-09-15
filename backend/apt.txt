@@ -1,2 +1,0 @@
-🚀 Serving Zentrox on Port 8080
-apt is met
