@@ -17,4 +17,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Build
-      run: cargo build --release
+      run: |
+        bash update_frontend.bash
+        bash build.bash
+      working-directory: ./backend/
