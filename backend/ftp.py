@@ -72,7 +72,7 @@ def main():
     authorizer = DummySHA512Authorizer()    
     authorizer.add_user(read_config_file("ftp_username"), read_config_file("ftp_password"), read_config_file("ftp_local_root"), "elradfmwMT") 
     handler = TLS_FTPHandler
-    handler.certfile = os.path.join(home_path, "zentrox", "selfsigned.pem")
+    handler.certfile = os.path.join(home_path, "zentrox", read_config_file("tls_cert"))
     handler.authorizer = authorizer
     server = FTPServer(('', 21), handler)
     server.serve_forever()

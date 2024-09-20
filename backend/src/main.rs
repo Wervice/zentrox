@@ -52,6 +52,7 @@ struct AppState {
     >,
     login_token: Arc<Mutex<String>>,
     system: Arc<Mutex<System>>,
+    username: Arc<Mutex<String>>,
 }
 
 impl AppState {
@@ -63,6 +64,7 @@ impl AppState {
                 String::from_utf8_lossy(&random_string).to_string(),
             )),
             system: Arc::new(Mutex::new(System::new())),
+            username: Arc::new(Mutex::new(String::new())),
         }
     }
 
@@ -184,15 +186,13 @@ async fn login(
         hasher.update(peer_addr.ip().to_string());
         ip = hex::encode(hasher.finalize()).to_string();
     } else {
-        eprintln!("Failed to retrieve IP address during login. Early return.");
+        eprintln!("❌ Failed to retrieve IP address during login. Early return.");
         return HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body("");
     }
 
     let mut requests = match state.login_requests.lock() {
         Ok(guard) => guard,
-        Err(v) => {
-            v.into_inner()
-        },  // Recover the lock even if it's poisoned
+        Err(v) => v.into_inner(), // Recover the lock even if it's poisoned
     };
 
     let current_request_entry = &mut requests.get(&ip.to_string()).unwrap_or(&(0, 0));
@@ -212,8 +212,8 @@ async fn login(
         );
         return HttpResponse::TooManyRequests().body("You were rate-limited.");
     } else if current_request_counter > 5 {
-        // Implementing exponential backoff
-        let penalty_time = 2_u64.pow(current_request_counter.saturating_sub(5) as u32) * 1000; // Exponential backoff in milliseconds
+        // Implementing exponential back off
+        let penalty_time = 2_u64.pow(current_request_counter.saturating_sub(5) as u32) * 1000; // Exponential back off in milliseconds
 
         if (current_unix_timestamp - current_request_last_request_time) < penalty_time.into() {
             let _ = &mut requests.insert(
@@ -238,7 +238,7 @@ async fn login(
         .join(dirs::home_dir().unwrap())
         .join("zentrox_data");
 
-    for line in fs::read_to_string(zentrox_installation_path.join("users.txt"))
+    for line in fs::read_to_string(zentrox_installation_path.join("users"))
         .unwrap()
         .split("\n")
     {
@@ -248,10 +248,10 @@ async fn login(
         let mut found_user: bool = false;
         if &line_username == username {
             found_user = true;
-            let mut hasher = Sha512::new();
-            hasher.update(password);
-            let hash = hex::encode(hasher.finalize());
-            if hash == line.split(": ").nth(1).expect("Failed to get password") {
+
+            let stored_password = line.split(": ").nth(1).expect("Failed to get password");
+            let hashes_correct = is_admin::password_hash(password, stored_password);
+            if hashes_correct {
                 let login_token: Vec<u8> = is_admin::generate_random_token();
                 if config_file::read("use_otp") == "1" {
                     let otp_secret = config_file::read("otp_secret");
@@ -260,6 +260,7 @@ async fn login(
                             session.insert("login_token", hex::encode(&login_token).to_string());
 
                         *state.login_token.lock().unwrap() = hex::encode(&login_token).to_string();
+                        *state.username.lock().unwrap() = username.to_string();
 
                         return HttpResponse::build(StatusCode::OK).json(web::Json(EmptyJson {}));
                     } else {
@@ -270,6 +271,7 @@ async fn login(
                     let _ = session.insert("login_token", hex::encode(&login_token).to_string());
 
                     *state.login_token.lock().unwrap() = hex::encode(&login_token).to_string();
+                    *state.username.lock().unwrap() = username.to_string();
 
                     return HttpResponse::build(StatusCode::OK).json(web::Json(EmptyJson {}));
                 }
@@ -925,7 +927,7 @@ async fn delete_firewall_rule(
     path: web::Path<i32>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked");
+        return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
     let i = path.into_inner();
@@ -946,7 +948,7 @@ async fn call_file(
     path: web::Path<String>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked");
+        return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
     let file_path = url_decode::url_decode(&path);
@@ -977,7 +979,7 @@ async fn files_list(
     path: web::Path<String>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked");
+        return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
     let dir_path = url_decode::url_decode(&path);
@@ -1822,6 +1824,151 @@ async fn cert_names(session: Session, state: web::Data<AppState>) -> HttpRespons
     HttpResponse::Ok().json(CertNamesJson { tls })
 }
 
+// Power Off System
+#[post("/api/powerOff")]
+async fn power_off(
+    session: Session,
+    state: web::Data<AppState>,
+    json: web::Json<SudoPasswordOnlyRequest>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    sudo::SwitchedUserCommand::new(json.sudoPassword.clone(), "poweroff".to_string()).spawn();
+
+    HttpResponse::Ok().finish()
+}
+
+// Account Details
+#[derive(Serialize)]
+struct AccountDetailsJson {
+    username: String,
+}
+
+#[post("/api/accountDetails")]
+async fn account_details(session: Session, state: web::Data<AppState>) -> HttpResponse {
+    if !is_admin_state(&session, state.clone()) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    let username = match state.username.lock() {
+        Ok(v) => v,
+        Err(e) => e.into_inner(),
+    };
+
+    return HttpResponse::Ok().json(AccountDetailsJson {
+        username: username.to_string(),
+    });
+}
+
+#[derive(Deserialize)]
+struct UpdateAccountJson {
+    password: String,
+    username: String,
+}
+
+#[post("/api/updateAccountDetails")]
+async fn update_account_details(
+    session: Session,
+    state: web::Data<AppState>,
+    json: web::Json<UpdateAccountJson>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state.clone()) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    let username = match state.username.lock() {
+        Ok(v) => v,
+        Err(e) => e.into_inner(),
+    };
+
+    let password = &json.password;
+    let new_username = &json.username;
+
+    let users_txt_path = path::Path::new(&dirs::home_dir().unwrap())
+        .join("zentrox_data")
+        .join("users");
+    let users_txt_contents = match fs::read_to_string(&users_txt_path) {
+        Ok(v) => v.to_string(),
+        Err(err) => {
+            eprintln!("❌ Can't read users {err}");
+            return HttpResponse::InternalServerError().finish();
+        }
+    };
+    
+    if !password.is_empty() || *new_username != *username {
+        let users_lines: Vec<String> = users_txt_contents.lines().map(|x| x.to_string()).collect();
+        let mut new_lines: Vec<String> = Vec::new();
+        for line in users_lines {
+            let dec_username = b64.decode(line.split(": ").nth(0).unwrap());
+            if String::from_utf8(dec_username.unwrap()).unwrap() == username.to_string() {
+                new_lines.push(
+                    [b64.encode(new_username), {
+                        if !password.is_empty() {
+                            let mut hasher = Sha512::new();
+                            hasher.update(password);
+                            hex::encode(hasher.finalize())
+                        } else {
+                            line.split(": ").nth(1).unwrap().to_string()
+                        }
+                    }]
+                    .join(": "),
+                )
+            } else {
+                new_lines.push(line)
+            }
+        }
+
+        let _ = fs::write(users_txt_path, new_lines.join("\n"));
+    }
+
+    HttpResponse::Ok().finish()
+}
+
+#[get("/api/profilePicture")]
+async fn profile_picture(session: Session, state: web::Data<AppState>) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+        let f = fs::read(path::Path::new(&dirs::home_dir().unwrap()).join("zentrox_data").join("profile.png"));
+
+        match f {
+            Ok(fh) => {
+                HttpResponse::Ok().body(fh.bytes().map(|x| x.unwrap_or(0_u8)).collect::<Vec<u8>>())
+            }
+            Err(_) => HttpResponse::NotFound()
+                .body(format!("Failed to find account picture")),
+        }
+}
+
+#[derive(Debug, MultipartForm)]
+struct ProfilePictureUploadForm {
+    #[multipart(limit = "2MB")]
+    file: TempFile,
+}
+
+#[post("/api/uploadProfilePicture")]
+async fn upload_profile_picture(session: Session, state: web::Data<AppState>, MultipartForm(form): MultipartForm<ProfilePictureUploadForm>) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    let profile_picture_path = path::Path::new(&dirs::home_dir().unwrap()).join("zentrox_data").join("profile.png");
+   
+    let tmp_file_path = form.file.file.path().to_owned();
+    let _ = fs::copy(&tmp_file_path, &profile_picture_path);
+    
+    match fs::remove_file(&tmp_file_path) {
+        Ok(_) => {return HttpResponse::Ok().finish()}
+        Err(e) => {
+            eprintln!("❌ Failed to remove temp file.\n{}", e);
+            return HttpResponse::InternalServerError().finish();
+        }
+    };
+} 
+
 // ======================================================================
 // Blocks (Used to prevent users from accessing certain static resources)
 
@@ -1952,9 +2099,16 @@ async fn main() -> std::io::Result<()> {
             .service(delete_vault_file)
             .service(rename_vault_file)
             .service(vault_file_download)
+            // Power Off System
+            .service(power_off)
             // Certificates
             .service(upload_tls)
             .service(cert_names)
+            // Account Details
+            .service(account_details)
+            .service(update_account_details)
+            .service(profile_picture)
+            .service(upload_profile_picture)
             // General services and blocks
             .service(dashboard_asset_block)
             .service(robots_txt)

@@ -16,9 +16,9 @@ import {
 	Clock2,
 	HouseIcon,
 	PrinterIcon,
-    PlugIcon,
-    ListIcon,
-    GridIcon,
+	PlugIcon,
+	ListIcon,
+	GridIcon,
 } from "lucide-react";
 
 import {
@@ -314,18 +314,21 @@ export default function FileView({ className }) {
 				<ArrowUp className="inline mr-1" />
 				Up
 			</Button>
-			<Button className="mr-1" onClick={
-				() => {
+			<Button
+				className="mr-1"
+				onClick={() => {
 					if (view === "list") {
-						setView("grid")
+						setView("grid");
 					} else {
-						setView("list")
+						setView("list");
 					}
-				}
-			}>
-				{
-					view === "list" ? <ListIcon className="inline h-6 w-6" /> : <GridIcon className="inline h-6 w-6" />	
-				}
+				}}
+			>
+				{view === "list" ? (
+					<ListIcon className="inline h-6 w-6" />
+				) : (
+					<GridIcon className="inline h-6 w-6" />
+				)}
 			</Button>
 			<Dialog>
 				<DialogTrigger>

@@ -1,5 +1,4 @@
 "use client";
-
 import { Button } from "@/components/ui/button.jsx";
 import { Input } from "@/components/ui/input.jsx";
 import {
@@ -16,7 +15,7 @@ import Caption from "@/components/ui/Caption.jsx";
 import TopBarInformative from "@/components/ui/TopBarInformative.jsx";
 import Image from "@/components/ui/Image.jsx";
 import { useEffect, useState } from "react";
-import { KeyIcon, LockKeyholeIcon, User } from "lucide-react";
+import { ClipboardIcon, KeyIcon, LockKeyholeIcon, User } from "lucide-react";
 
 const fetchURLPrefix = require("@/lib/fetchPrefix");
 
@@ -24,33 +23,9 @@ if (fetchURLPrefix.length > 0) {
 	console.error("Fetch URL Prefix is enabled");
 }
 
-fetch(fetchURLPrefix + "/login/otpSecret", {
-	method: "POST"
-}).then((res) => {
-	if (res.ok) {
-		res.json().then((json) => {
-			toast({
-				title: "OTP Secret",
-				description: "Your OTP secret is: " + json["secret"],
-				duration: 200000,
-				action: (
-					<ToastAction
-						altText="Copy"
-						onClick={() => {
-							navigator.clipboard.writeText(json["secret"]);
-						}}
-					>
-						Copy
-					</ToastAction>
-				),
-			});
-		});
-	}
-});
-
 function OTPInputField({ value, onChange }) {
 	const useOtpFetch = async () => {
-		fetch(fetchURLPrefix + "/login/useOtp", {method: "POST"}).then((res) => {
+		fetch(fetchURLPrefix + "/login/useOtp", { method: "POST" }).then((res) => {
 			if (res.ok) {
 				res.json().then((json) => {
 					if (json["used"]) {
@@ -125,6 +100,32 @@ export default function Login() {
 	const [passWord, changePassWord] = useState("");
 	const [otpKey, changeOtpKey] = useState("");
 	const { toast } = useToast();
+
+	useEffect(() => {
+		fetch(fetchURLPrefix + "/login/otpSecret", {
+			method: "POST",
+		}).then((res) => {
+			if (res.ok) {
+				res.json().then((json) => {
+					toast({
+						title: "OTP Secret",
+						description: "Your OTP secret is: " + json["secret"],
+						duration: 200000,
+						action: (
+							<ToastAction
+								altText="Copy"
+								onClick={() => {
+									navigator.clipboard.writeText(json["secret"]);
+								}}
+							>
+								<ClipboardIcon className="w-6 h-6 inline-block mr-1" /> Copy
+							</ToastAction>
+						),
+					});
+				});
+			}
+		});
+	}, []);
 
 	return (
 		<>

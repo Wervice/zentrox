@@ -1,6 +1,6 @@
 // const fetchURLPrefix = "https://192.168.105.70:3000"
-const fetchURLPrefix = ""
-module.exports = fetchURLPrefix
+const fetchURLPrefix = "";
+module.exports = fetchURLPrefix;
 
 /* This code is used to set a prefix before every fetch request.
    Using this, I can work on the code more easily.

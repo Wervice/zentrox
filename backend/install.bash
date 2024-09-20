@@ -228,9 +228,6 @@ echo "✅ Generated .key, .crt and .pem file"
 echo "📁 Creating file structure"
 touch "$ZENTROX_DATA_PATH/admin.txt" &> /dev/null
 touch "$ZENTROX_DATA_PATH/setupDone.txt" &> /dev/null
-touch "$ZENTROX_DATA_PATH/users.txt" &> /dev/null
-mkdir -p "$ZENTROX_DATA_PATH/users" &> /dev/null
-mkdir -p "$ZENTROX_DATA_PATH/users/$(echo "$ADMIN_USERNAME" | base64)" &> /dev/null
 mkdir -p "$ZENTROX_DATA_PATH/upload_vault" &> /dev/null
 mkdir -p "$ZENTROX_DATA_PATH/vault_extract" &> /dev/null
 touch "$ZENTROX_DATA_PATH/zentrox.txt" &> /dev/null
@@ -266,6 +263,7 @@ fi
 echo -n "$ADMIN_USERNAME" > "$ZENTROX_DATA_PATH/admin.txt"
 echo -n "true" > "$ZENTROX_DATA_PATH/setupDone.txt"
 
-echo -n "$(echo -n "$ADMIN_USERNAME" | base64): $(echo -n "$ADMIN_PASSWORD" | sha512sum | cut -d ' ' -f 1): admin" > "$ZENTROX_DATA_PATH/users.txt"
+RANDOM_SALT=$(openssl rand -hex 16)
+echo -n "$(echo -n "$ADMIN_USERNAME" | base64): $(echo "$ADMIN_PASSWORD" | openssl passwd -pbkdf2 -salt "$RANDOM_SALT" -iter 1000000): admin" > "$ZENTROX_DATA_PATH/users"
 
 echo "ℹ️  You can now start Zentrox using the command  [ $ZENTROX_PATH/zentrox ]"

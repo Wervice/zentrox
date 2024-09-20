@@ -8,7 +8,6 @@ import {
 	CpuIcon,
 	Disc2,
 	List,
-	LogOut,
 	MemoryStickIcon,
 	MonitorIcon,
 	Network,
@@ -51,14 +50,10 @@ import {
 	LoaderIcon,
 	DeleteIcon,
 	PenLineIcon,
-	DownloadIcon,
-	PowerOffIcon,
 } from "lucide-react";
 import { useEffect, useState, useRef } from "react";
 import { Label } from "@/components/ui/label";
 import { SideWayBarChart } from "@/components/ui/Charts.jsx";
-import { useInterval } from "usehooks-ts";
-import { table, tr, td, tbody } from "react-table";
 import "./table.css";
 import "./scroll.css";
 import Spinner from "@/components/ui/Spinner.jsx";
@@ -82,7 +77,6 @@ import {
 	SelectContent,
 	SelectGroup,
 	SelectItem,
-	SelectLabel,
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
@@ -105,9 +99,17 @@ import {
 	ContextMenuItem,
 	ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import JSXStyle from "styled-jsx/style";
-import { Julius_Sans_One } from "next/font/google";
-import { Description } from "@radix-ui/react-toast";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuLabel,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { useCallback } from "react";
+
 // const fetchURLPrefix = "";
 const fetchURLPrefix = require("@/lib/fetchPrefix");
 
@@ -176,6 +178,20 @@ function Page({ name, children, className, ...props }) {
 
 function Overview() {
 	function overviewFetch() {
+		// Check localStorage for cached CPU, RAM, Disk, and Device Information
+		const cachedCpuUsage = localStorage.getItem("cpuUsagePercent");
+		const cachedRamUsage = localStorage.getItem("ramUsagePercent");
+		const cachedDiskUsage = localStorage.getItem("diskUsagePercent");
+		const cachedDeviceInformation = localStorage.getItem("deviceInformation");
+
+		// If cached values exist, use them to update the state
+		if (cachedCpuUsage) setCpuUssagePercent(JSON.parse(cachedCpuUsage));
+		if (cachedRamUsage) setRamUssagePercent(JSON.parse(cachedRamUsage));
+		if (cachedDiskUsage) setDiskUssagePercent(JSON.parse(cachedDiskUsage));
+		if (cachedDeviceInformation)
+			setDeviceInformation(JSON.parse(cachedDeviceInformation));
+
+		// Fetch new data for CPU usage
 		fetch(fetchURLPrefix + "/api/cpuPercent", {
 			method: "GET",
 			headers: {
@@ -185,9 +201,12 @@ function Overview() {
 			if (res.ok) {
 				res.json().then((json) => {
 					setCpuUssagePercent(json["p"]);
+					localStorage.setItem("cpuUsagePercent", JSON.stringify(json["p"])); // Cache CPU usage
 				});
 			}
 		});
+
+		// Fetch new data for RAM usage
 		fetch(fetchURLPrefix + "/api/ramPercent", {
 			method: "GET",
 			headers: {
@@ -197,9 +216,12 @@ function Overview() {
 			if (res.ok) {
 				res.json().then((json) => {
 					setRamUssagePercent(json["p"]);
+					localStorage.setItem("ramUsagePercent", JSON.stringify(json["p"])); // Cache RAM usage
 				});
 			}
 		});
+
+		// Fetch new data for Disk usage
 		fetch(fetchURLPrefix + "/api/diskPercent", {
 			method: "GET",
 			headers: {
@@ -209,9 +231,12 @@ function Overview() {
 			if (res.ok) {
 				res.json().then((json) => {
 					setDiskUssagePercent(json["p"]);
+					localStorage.setItem("diskUsagePercent", JSON.stringify(json["p"])); // Cache Disk usage
 				});
 			}
 		});
+
+		// Fetch new data for Device Information
 		fetch(fetchURLPrefix + "/api/deviceInformation", {
 			method: "GET",
 			headers: {
@@ -221,6 +246,7 @@ function Overview() {
 			if (res.ok) {
 				res.json().then((json) => {
 					setDeviceInformation(json);
+					localStorage.setItem("deviceInformation", JSON.stringify(json)); // Cache Device Information
 				});
 			}
 		});
@@ -470,6 +496,61 @@ function Packages() {
 	useEffect(() => fetchPackageList(), []);
 	const [packagePopUpButtonState, setPackagePopUpButtonState] =
 		useState("default");
+
+	useEffect(() => {
+		const storedApps = localStorage.getItem("installedApps");
+		if (storedApps) {
+			setInstalledApps(JSON.parse(storedApps));
+
+			setVisibility(true);
+		}
+	}, []);
+
+	useEffect(() => {
+		if (installedApps.length > 0) {
+			localStorage.setItem("installedApps", JSON.stringify(installedApps));
+		}
+		setVisibility(true);
+	}, [installedApps]);
+
+	// Effect for managing installedPackages from localStorage
+	useEffect(() => {
+		const storedPackages = localStorage.getItem("installedPackages");
+		if (storedPackages) {
+			setInstalledPackages(JSON.parse(storedPackages));
+
+			setVisibility(true);
+		}
+	}, []);
+
+	useEffect(() => {
+		if (installedPackages.length > 0) {
+			localStorage.setItem(
+				"installedPackages",
+				JSON.stringify(installedPackages),
+			);
+
+			setVisibility(true);
+		}
+	}, [installedPackages]);
+
+	// Effect for managing otherPackages from localStorage
+	useEffect(() => {
+		const storedOtherPackages = localStorage.getItem("otherPackages");
+		if (storedOtherPackages) {
+			setOtherPackages(JSON.parse(storedOtherPackages));
+
+			setVisibility(true);
+		}
+	}, []);
+
+	useEffect(() => {
+		if (otherPackages.length > 0) {
+			localStorage.setItem("otherPackages", JSON.stringify(otherPackages));
+
+			setVisibility(true);
+		}
+	}, [otherPackages]);
 
 	function fetchPackageList() {
 		if (
@@ -2085,7 +2166,7 @@ function Servers() {
 		tls: "TLS Certificate",
 	});
 
-	const fetchData =  () => {
+	const fetchData = () => {
 		fetch(fetchURLPrefix + "/api/fetchFTPconfig").then((res) => {
 			if (res.ok) {
 				res.json().then((json) => {
@@ -2103,10 +2184,10 @@ function Servers() {
 		});
 
 		fetch("/api/certNames").then((res) => {
-				res.json().then((j) => {
-					setCertName(j)
-				})
-		})
+			res.json().then((j) => {
+				setCertName(j);
+			});
+		});
 	};
 
 	useEffect(fetchData, []);
@@ -2144,12 +2225,12 @@ function Servers() {
 					}
 
 					var fileName = tlsCertFileInput.current.files[0].name;
-					
+
 					if (fileName.split(".").reverse()[0].toLowerCase() != "pem") {
 						toast({
 							title: "Not a pem file",
-							description: "Zentrox can only use pem certificates."
-						})
+							description: "Zentrox can only use pem certificates.",
+						});
 					}
 
 					var formData = new FormData();
@@ -2160,14 +2241,15 @@ function Servers() {
 					}).then((res) => {
 						if (res.ok) {
 							setCertName({
-								tls: fileName
-							})
+								tls: fileName,
+							});
 							tlsCertFileInput.current.value = "";
 							toast({
 								title: "Upload finished",
-								description: "Zentrox successfully uploaded the new certificate. You need to manually restart Zentrox to start using the new certificate.",
-								duration: 200000
-							})
+								description:
+									"Zentrox successfully uploaded the new certificate. You need to manually restart Zentrox to start using the new certificate.",
+								duration: 200000,
+							});
 						} else {
 							toast({
 								title: "Failed to upload TLS certificate",
@@ -2332,6 +2414,241 @@ function Servers() {
 	);
 }
 
+function Account() {
+	const [account, setAccount] = useState({ username: "" });
+	const [usernameWarningVisible, setUsernameWarningVisible] = useState(false);
+	const [accountDetailsDialogOpen, setAccountDetailsOpen] = useState(false);
+	const [passwordWarningVisible, setPasswordWarningVisible] = useState(false);
+	const [powerOffDialogOpen, setPowerOffDialogOpen] = useState(false);
+	const [reloadTrigger, setReloadTrigger] = useState(0);
+
+	const sudoPasswordInput = useRef(null);
+	const accountUsernameInput = useRef(null);
+	const accountPasswordInput = useRef(null);
+	const profilePictureUploadInput = useRef(null);
+
+	useEffect(() => {
+		if (account.username == "") {
+			fetch("/api/accountDetails", {
+				method: "POST",
+			}).then((r) => {
+				if (r.ok) {
+					r.json().then((j) => {
+						setAccount(j);
+					});
+				} else {
+					toast({
+						title: "Failed to fetch account details",
+					});
+				}
+			});
+		}
+	}, [account]);
+
+	// Callbacks to handle state updates
+	const handleEditDetailsClick = useCallback(() => {
+		setAccountDetailsOpen(true);
+	}, []);
+
+	const handleLogoutClick = useCallback(() => {
+		fetch("/logout", { method: "POST" }).then(() => {
+			location.href = "/";
+		});
+	}, []);
+
+	const handlePowerOffClick = useCallback(() => {
+		setPowerOffDialogOpen(true);
+	}, []);
+
+	const handleApplyClick = () => {
+		const username = accountUsernameInput.current?.value;
+		const password = accountPasswordInput.current?.value;
+
+		fetch("/api/updateAccountDetails", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ username, password }),
+		}).then((res) => {
+			if (res.ok) {
+				toast({
+					title: "Account details updated",
+					description: "Your account details have been updated",
+				});
+			} else {
+				toast({
+					title: "Failed to update account details",
+					description: "Your account details have not been updated",
+				});
+			}
+		});
+	};
+
+	const handlePowerOffConfirm = useCallback(() => {
+		fetch("/api/powerOff", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ sudoPassword: sudoPasswordInput.current?.value }),
+		}).then((res) => {
+			if (!res.ok) {
+				toast({ title: "Power Off failed" });
+			}
+		});
+	}, []);
+
+	return (
+		<>
+			<Dialog
+				open={accountDetailsDialogOpen}
+				onOpenChange={setAccountDetailsOpen}
+			>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Account</DialogTitle>
+						<DialogDescription>Edit your account details.</DialogDescription>
+					</DialogHeader>
+					<span className="p-1 text-red-500" hidden={!usernameWarningVisible}>
+						A username may not be shorter than 5 characters.
+					</span>
+					Username
+					<Input
+						placeholder="Username"
+						ref={accountUsernameInput}
+						defaultValue={account.username}
+						disabled={account.username === ""}
+						onKeyPress={() => {
+							setUsernameWarningVisible(
+								accountUsernameInput.current?.value.length < 5,
+							);
+						}}
+					/>
+					<span className="p-1 text-red-500" hidden={!passwordWarningVisible}>
+						A password may not be shorter than 10 characters.
+					</span>
+					<Input
+						placeholder="Password"
+						type="password"
+						ref={accountPasswordInput}
+						disabled={account.username === ""}
+						onKeyPress={() => {
+							setPasswordWarningVisible(
+								accountPasswordInput.current?.value.length < 10,
+							);
+						}}
+					/>
+					<input
+						type="file"
+						ref={profilePictureUploadInput}
+						onChange={() => {
+							var fileForSubmit = profilePictureUploadInput.current.files[0];
+							if (fileForSubmit.size >= 1024 * 1024) {
+								toast({
+									title: "File to big",
+									description: "The file you provided was larger than 1MB",
+								});
+							}
+							var formData = new FormData();
+							formData.append("file", fileForSubmit);
+							fetch(fetchURLPrefix + "/api/uploadProfilePicture", {
+								method: "POST",
+								body: formData,
+							}).then((res) => {
+								profilePictureUploadInput.current.value = "";
+								if (res.ok) {
+									setReloadTrigger(Date.now());
+								} else {
+									toast({
+										title: "Failed to upload profile picture",
+										description:
+											"Zentrox failed to upload the file you provided",
+									});
+								}
+							});
+						}}
+						hidden
+					/>
+					<Button
+						className="w-fit"
+						onClick={() => {
+							profilePictureUploadInput.current.click();
+						}}
+					>
+						Upload profile picture
+					</Button>
+					<DialogFooter>
+						<DialogClose>
+							<Button variant="outline">Cancel</Button>
+						</DialogClose>
+						<DialogClose>
+							<Button onClick={handleApplyClick}>Apply</Button>
+						</DialogClose>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
+
+			<AlertDialog
+				open={powerOffDialogOpen}
+				onOpenChange={setPowerOffDialogOpen}
+			>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>Power Off</AlertDialogTitle>
+						<AlertDialogDescription>
+							Do you really want to power off your machine? Zentrox cannot
+							reboot it automatically. Please enter your sudo password to do so:
+							<br />
+							<br />
+							<Input
+								type="password"
+								placeholder="Sudo Password"
+								ref={sudoPasswordInput}
+							/>
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<AlertDialogAction onClick={handlePowerOffConfirm}>
+							Power Off
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
+
+			<DropdownMenu>
+				<DropdownMenuTrigger asChild>
+					<Avatar
+						className="inline-table float-right cursor-pointer"
+						onClick={handleEditDetailsClick}
+					>
+						<AvatarImage src={`/api/profilePicture?reload=${reloadTrigger}`} />
+						<AvatarFallback>
+							{account.username != ""
+								? account.username[0]?.toUpperCase()
+								: "A"}
+						</AvatarFallback>
+					</Avatar>
+				</DropdownMenuTrigger>
+
+				<DropdownMenuContent>
+					<DropdownMenuLabel>My Account</DropdownMenuLabel>
+					<DropdownMenuSeparator />
+					<DropdownMenuItem onClick={handleEditDetailsClick}>
+						Edit details
+					</DropdownMenuItem>
+					<DropdownMenuItem onClick={handleLogoutClick}>
+						Logout
+					</DropdownMenuItem>
+
+					<DropdownMenuSeparator></DropdownMenuSeparator>
+					<DropdownMenuLabel>Machine</DropdownMenuLabel>
+					<DropdownMenuItem onClick={handlePowerOffClick}>
+						Power Off
+					</DropdownMenuItem>
+				</DropdownMenuContent>
+			</DropdownMenu>
+		</>
+	);
+}
+
 export default function Dashboard() {
 	const [activeTab, setActiveTab] = useState("Overview");
 
@@ -2354,7 +2671,7 @@ export default function Dashboard() {
 	}
 
 	return (
-		<main className="h-screen w-screen overflow-hidden p-0 m-0 flex flex-col">
+		<main className="h-screen w-screen overflow-hidden p-0 m-0 flex flex-col transition-opacity">
 			<Toaster />
 			<TopBar>
 				<span
@@ -2433,51 +2750,7 @@ export default function Dashboard() {
 				>
 					Servers
 				</TabButton>
-				<AlertDialog>
-					<AlertDialogTrigger asChild>
-						<Button variant="link" className="text-white p-2 m-0 float-right">
-							<PowerOffIcon className="h-16 p-1 text-red-500" /> Power Off
-						</Button>
-					</AlertDialogTrigger>
-					<AlertDialogContent>
-						<AlertDialogHeader>
-							<AlertDialogTitle>Power Off</AlertDialogTitle>
-							<AlertDialogDescription>
-								Do you really want to power off your machine?
-								<br />
-								Zentrox can not reboot it automatically.
-							</AlertDialogDescription>
-						</AlertDialogHeader>
-						<AlertDialogFooter>
-							<AlertDialogAction
-								onClick={() => {
-									fetch(fetchURLPrefix + "/api/powerOff").then((res) => {
-										if (!res.ok) {
-											toast({
-												title: "Power Off failed",
-											});
-										}
-									});
-								}}
-							>
-								Power Off
-							</AlertDialogAction>
-						</AlertDialogFooter>
-					</AlertDialogContent>
-				</AlertDialog>
-				<Button
-					variant="link"
-					className="text-white p-2 m-0 float-right"
-					onClick={() => {
-						fetch("/logout", {
-							method: "POST"
-						}).then(() => {
-							location.href = "/"
-						})
-					}}
-				>
-					<LogOut className="h-16 p-1" /> Logout
-				</Button>
+				<Account />
 			</TopBar>
 			<PageToShow />
 		</main>

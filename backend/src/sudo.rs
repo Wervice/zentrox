@@ -146,7 +146,6 @@ impl SwitchedUserCommand {
                 .expect("Failed to read stderr");
 
             // Check if sudo reported an incorrect password
-            dbg!(&stderr_content);
 
             if stderr_content.contains("sudo")
                 && stderr_content.contains("incorrect password attempt")

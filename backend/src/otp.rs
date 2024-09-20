@@ -1,5 +1,6 @@
 use rand::Rng;
 use totp_rs::{Algorithm, Secret, TOTP};
+use hex;
 
 /// Generates a random otp secret.
 ///
@@ -9,7 +10,21 @@ pub fn generate_otp_secret() -> String {
     let mut random_number_generator = rand::thread_rng();
     let secret_bytes: Vec<u8> = (0..16).map(|_| random_number_generator.gen()).collect();
 
-    base32::encode(base32::Alphabet::Rfc4648 { padding: false }, &secret_bytes)
+    hex::encode(&secret_bytes).to_string().chars()
+        .map(|c| match c {
+            '0' => 'g',
+            '1' => 'h',
+            '2' => 'i',
+            '3' => 'j',
+            '4' => 'k',
+            '5' => 'l',
+            '6' => 'm',
+            '7' => 'n',
+            '8' => 'o',
+            '9' => 'p',
+            _ => c,
+        })
+        .collect()
 }
 
 /// Calculates the current 6 digit OTP token from a given secret.

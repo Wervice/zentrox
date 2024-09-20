@@ -1,6 +1,7 @@
 use actix_session::Session;
 use actix_web::web;
 use rand::Rng;
+use argon2;
 
 use crate::AppState;
 
@@ -56,4 +57,8 @@ pub fn generate_random_token() -> Vec<u8> {
     let mut rng = rand::rngs::OsRng;
     let token: [u8; 16] = rng.gen(); // Generate 16 random bytes
     token.to_vec()
+}
+
+pub fn password_hash(clear_passsword, salt) -> bool {
+    
 }
