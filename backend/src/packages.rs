@@ -1,7 +1,7 @@
 /// APT, DNF, PacMan bindings to
 /// install packages, remove package, list installed/available/unnecessary packages
 use crate::sudo::SwitchedUserCommand;
-use std::collections::HashMap;
+use std::collections::{self, HashMap};
 use std::{fs, process::Command};
 
 /// Determines which package manager is used by the system.
@@ -205,7 +205,7 @@ pub fn list_installed_packages() -> Result<Vec<String>, String> {
             .collect::<Vec<String>>();
         Ok(vector.to_vec())
     } else if package_manager == "pacman" {
-        let command = Command::new("pacman").arg("-Q").output().unwrap();
+        let command = Command::new("pacman").arg("-Qq").output().unwrap();
         let output = String::from_utf8_lossy(&command.stdout).to_string();
         let vector = &output
             .lines()
@@ -213,10 +213,10 @@ pub fn list_installed_packages() -> Result<Vec<String>, String> {
                 let entry = e.to_string();
                 let split = entry.split("/");
                 let collection = split.collect::<Vec<&str>>();
-                if collection.len() != 2 {
+                if collection.len() != 1 {
                     String::from("")
                 } else {
-                    collection[1].to_string()
+                    collection[0].to_string()
                 }
             })
             .filter(|x| !x.is_empty())
@@ -255,6 +255,20 @@ pub fn list_installed_packages() -> Result<Vec<String>, String> {
 /// 1. `pacman -Sl` is called without root permissions.
 /// 2. The output is split into lines and returned as a vector.
 pub fn list_available_packages() -> Result<Vec<String>, String> {
+    
+    fn is_version_number(s: &String) -> bool {
+        let version_number_chars = vec!['.', '-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+        let mut is = false;
+
+        for c in s.chars() {
+            if version_number_chars.contains(&c) {
+                is = true;
+            }
+        }
+
+        is
+    }
+
     let package_manager = get_package_manager().unwrap();
     if package_manager == "apt" {
         let command = Command::new("apt").arg("list").output().unwrap();
@@ -322,14 +336,14 @@ pub fn list_available_packages() -> Result<Vec<String>, String> {
         let output = String::from_utf8_lossy(&command.stdout).to_string();
         let vector = &output
             .lines()
-            .map(|e| {
+            .filter_map(|e| {
                 let entry = e.to_string();
-                let split = entry.split("/");
+                let split = entry.split(" ");
                 let collection = split.collect::<Vec<&str>>();
-                if collection.len() != 2 {
-                    String::from("")
-                } else {
-                    collection[1].to_string()
+                if !entry.contains("[installed") {
+                    return Some(collection[1].to_string());
+                } {
+                    None
                 }
             })
             .collect::<Vec<String>>();

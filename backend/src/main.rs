@@ -34,6 +34,7 @@ use actix_rt::time::interval;
 use openssl::ssl::{SslAcceptor, SslFiletype, SslMethod};
 use sha2::{Digest, Sha256, Sha512};
 use tokio::task;
+mod crypto_utils;
 
 #[allow(non_snake_case)]
 // General App Code
@@ -250,7 +251,8 @@ async fn login(
             found_user = true;
 
             let stored_password = line.split(": ").nth(1).expect("Failed to get password");
-            let hashes_correct = is_admin::password_hash(password, stored_password);
+            let hashes_correct =
+                is_admin::password_hash(password.to_string(), stored_password.to_string());
             if hashes_correct {
                 let login_token: Vec<u8> = is_admin::generate_random_token();
                 if config_file::read("use_otp") == "1" {
@@ -460,15 +462,28 @@ async fn device_information(session: Session, state: web::Data<AppState>) -> Htt
         process_number: u32,
     }
 
-    let os_name = String::from_utf8_lossy(
-        &Command::new("lsb_release")
-            .arg("-d")
-            .output()
-            .unwrap()
-            .stdout,
-    )
-    .to_string()
-    .replace("Description:", ""); // Operating System Name Like Fedora or Debian
+    let os_name = match Command::new("lsb_release").arg("-d").output() {
+        Ok(output_value) => {
+            String::from_utf8_lossy(&output_value.stdout)
+                .to_string()
+                .replace("Description:", "") // Operating System Name Like Fedora or Debian
+        }
+        Err(_) => {
+            let data = fs::read_to_string("/etc/os-release").unwrap();
+            let lines = data.lines();
+            let mut rv = "Unknown OS".to_string();
+            for line in lines {
+                let line_split = line.split("=").collect::<Vec<&str>>();
+                if line_split.len() == 2 {
+                    if line_split[0] == "NAME" {
+                        rv = line_split[1].replace("\"", "").to_string();
+                        break;
+                    }
+                }
+            }
+            rv
+        }
+    };
 
     let power_supply = match fs::read_to_string("/sys/class/power_supply/BAT0/status") {
         Ok(value) => {
@@ -495,8 +510,14 @@ async fn device_information(session: Session, state: web::Data<AppState>) -> Htt
     };
 
     // Current machines hostname. i.e.: debian_pc or 192.168.1.3
-    let hostname =
-        String::from_utf8_lossy(&Command::new("hostname").output().unwrap().stdout).to_string();
+    let hostname = {
+        match Command::new("hostname").output() {
+            Ok(v) => String::from_utf8_lossy(&v.stdout).replace("\n", ""),
+            Err(_) => fs::read_to_string("/etc/hostname")
+                .unwrap_or("No Hostname".to_string())
+                .to_string(),
+        }
+    };
 
     let uptime =
         String::from_utf8_lossy(&Command::new("uptime").arg("-p").output().unwrap().stdout)
@@ -1600,6 +1621,8 @@ async fn upload_vault(
     let tmp_file_path = form.file.file.path().to_owned();
     let _ = fs::copy(&tmp_file_path, &in_vault_path);
 
+    let _ = tokio::fs::copy(&tmp_file_path, &in_vault_path);
+
     let file_size = fs::metadata(&tmp_file_path).unwrap().len();
     let mut i = 0;
 
@@ -1611,13 +1634,7 @@ async fn upload_vault(
         i += 1;
     }
 
-    match fs::remove_file(&tmp_file_path) {
-        Ok(_) => {}
-        Err(e) => {
-            eprintln!("❌ Failed to remove temp file.\n{}", e);
-            return HttpResponse::InternalServerError().finish();
-        }
-    };
+    let _ = tokio::fs::remove_file(&tmp_file_path).await;
 
     vault::encrypt_file(in_vault_path.to_string_lossy().to_string(), &key);
 
@@ -1896,7 +1913,7 @@ async fn update_account_details(
             return HttpResponse::InternalServerError().finish();
         }
     };
-    
+
     if !password.is_empty() || *new_username != *username {
         let users_lines: Vec<String> = users_txt_contents.lines().map(|x| x.to_string()).collect();
         let mut new_lines: Vec<String> = Vec::new();
@@ -1932,15 +1949,18 @@ async fn profile_picture(session: Session, state: web::Data<AppState>) -> HttpRe
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-        let f = fs::read(path::Path::new(&dirs::home_dir().unwrap()).join("zentrox_data").join("profile.png"));
+    let f = fs::read(
+        path::Path::new(&dirs::home_dir().unwrap())
+            .join("zentrox_data")
+            .join("profile.png"),
+    );
 
-        match f {
-            Ok(fh) => {
-                HttpResponse::Ok().body(fh.bytes().map(|x| x.unwrap_or(0_u8)).collect::<Vec<u8>>())
-            }
-            Err(_) => HttpResponse::NotFound()
-                .body(format!("Failed to find account picture")),
+    match f {
+        Ok(fh) => {
+            HttpResponse::Ok().body(fh.bytes().map(|x| x.unwrap_or(0_u8)).collect::<Vec<u8>>())
         }
+        Err(_) => HttpResponse::NotFound().body(format!("Failed to find account picture")),
+    }
 }
 
 #[derive(Debug, MultipartForm)]
@@ -1950,24 +1970,30 @@ struct ProfilePictureUploadForm {
 }
 
 #[post("/api/uploadProfilePicture")]
-async fn upload_profile_picture(session: Session, state: web::Data<AppState>, MultipartForm(form): MultipartForm<ProfilePictureUploadForm>) -> HttpResponse {
+async fn upload_profile_picture(
+    session: Session,
+    state: web::Data<AppState>,
+    MultipartForm(form): MultipartForm<ProfilePictureUploadForm>,
+) -> HttpResponse {
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    let profile_picture_path = path::Path::new(&dirs::home_dir().unwrap()).join("zentrox_data").join("profile.png");
-   
+    let profile_picture_path = path::Path::new(&dirs::home_dir().unwrap())
+        .join("zentrox_data")
+        .join("profile.png");
+
     let tmp_file_path = form.file.file.path().to_owned();
     let _ = fs::copy(&tmp_file_path, &profile_picture_path);
-    
+
     match fs::remove_file(&tmp_file_path) {
-        Ok(_) => {return HttpResponse::Ok().finish()}
+        Ok(_) => return HttpResponse::Ok().finish(),
         Err(e) => {
             eprintln!("❌ Failed to remove temp file.\n{}", e);
             return HttpResponse::InternalServerError().finish();
         }
     };
-} 
+}
 
 // ======================================================================
 // Blocks (Used to prevent users from accessing certain static resources)

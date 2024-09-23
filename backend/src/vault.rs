@@ -5,21 +5,20 @@ use aes_gcm::{
 use sha2::{Digest, Sha256};
 
 use std::fs;
+use crate::crypto_utils;
 
 /// Decrypts a file with a specefied key and writes the cleartext back to the file.
 /// * `file` - Path to the file to decrypt
 /// * `key` - Key to decrypt file
 pub fn decrypt_file(file: String, key: &String) -> Option<()> {
-    let mut hasher = Sha256::new();
-    hasher.update(key);
-    let key_hashed = hasher.finalize();
+    let key_hashed = crypto_utils::argon2_derive_key(key);
 
     let value = fs::read(&file).unwrap();
 
     // Extract the salt and nonce from the file data
     let nonce = &value[0..12]; // Assuming 12-byte nonce
 
-    let cipher = Aes256Gcm::new(&key_hashed);
+    let cipher = Aes256Gcm::new(&key_hashed.unwrap().into());
     let ciphertext = &value[12..];
 
     match cipher.decrypt(nonce.into(), ciphertext) {
@@ -39,16 +38,16 @@ pub fn decrypt_file(file: String, key: &String) -> Option<()> {
 /// * `string` - Path to the file to decrypt
 /// * `key` - Key to decrypt file
 pub fn decrypt_string(string: String, key: &String) -> Option<String> {
-    let mut hasher = Sha256::new();
-    hasher.update(key);
-    let key_hashed = hasher.finalize();
+
+    let key_hashed = crypto_utils::argon2_derive_key(key);
+
 
     let value = &hex::decode(&string).unwrap();
 
     // Extract the salt and nonce from the file data
     let nonce = &value[0..12]; // Assuming 12-byte nonce
 
-    let cipher = Aes256Gcm::new(&key_hashed);
+    let cipher = Aes256Gcm::new(&key_hashed.unwrap().into());
     let ciphertext = &value[12..];
 
     match cipher.decrypt(nonce.into(), ciphertext) {
@@ -62,14 +61,14 @@ pub fn decrypt_string(string: String, key: &String) -> Option<String> {
 /// * `string` - Path to the file to decrypt
 /// * `key` - Key to decrypt file
 pub fn encrypt_string(string: String, key: &String) -> Option<String> {
-    let mut hasher = Sha256::new();
-    hasher.update(key);
-    let key_hashed = hasher.finalize();
+
+    let key_hashed = crypto_utils::argon2_derive_key(key);
+
 
     // Extract the salt and nonce from the file data
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
 
-    let cipher = Aes256Gcm::new(&key_hashed);
+    let cipher = Aes256Gcm::new(&key_hashed.unwrap().into());
 
     match cipher.encrypt(&nonce, string.as_bytes()) {
         Ok(v) => Some(format!("{}{}", hex::encode(nonce), hex::encode(&v))),
@@ -94,16 +93,16 @@ fn generate_nonce(input: &[u8]) -> [u8; 12] {
 /// * `string` - Path to the file to decrypt
 /// * `key` - Key to decrypt file
 pub fn decrypt_string_hash(string: String, key: &String) -> Option<String> {
-    let mut hasher = Sha256::new();
-    hasher.update(key);
-    let key_hashed = hasher.finalize();
+
+    let key_hashed = crypto_utils::argon2_derive_key(key);
+
 
     let value = &hex::decode(&string).unwrap();
 
     // Extract the salt and nonce from the file data
     let nonce = &value[0..12]; // Assuming 12-byte nonce
 
-    let cipher = Aes256Gcm::new(&key_hashed);
+    let cipher = Aes256Gcm::new(&key_hashed.unwrap().into());
     let ciphertext = &value[12..];
 
     match cipher.decrypt(nonce.into(), ciphertext) {
@@ -117,14 +116,14 @@ pub fn decrypt_string_hash(string: String, key: &String) -> Option<String> {
 /// * `string` - Path to the file to decrypt
 /// * `key` - Key to decrypt file
 pub fn encrypt_string_hash(string: String, key: &String) -> Option<String> {
-    let mut hasher = Sha256::new();
-    hasher.update(key);
-    let key_hashed = hasher.finalize();
+
+    let key_hashed = crypto_utils::argon2_derive_key(key);
+
 
     // Extract the salt and nonce from the file data
     let nonce = generate_nonce(string.as_bytes());
 
-    let cipher = Aes256Gcm::new(&key_hashed);
+    let cipher = Aes256Gcm::new(&key_hashed.unwrap().into());
 
     match cipher.encrypt(&nonce.into(), string.as_bytes()) {
         Ok(v) => Some(format!("{}{}", hex::encode(nonce), hex::encode(&v))),
@@ -136,13 +135,13 @@ pub fn encrypt_string_hash(string: String, key: &String) -> Option<String> {
 /// * `file` - Path to the file to decrypt
 /// * `key` - Key to encrypt file
 pub fn encrypt_file(file: String, key: &String) {
-    let mut hasher = Sha256::new();
-    hasher.update(key);
-    let key_hashed = hasher.finalize();
+
+    let key_hashed = crypto_utils::argon2_derive_key(key);
+
 
     let value = fs::read(&file).unwrap();
 
-    let cipher = Aes256Gcm::new(&key_hashed);
+    let cipher = Aes256Gcm::new(&key_hashed.unwrap().into());
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
 
     let ciphertext = cipher.encrypt(&nonce, value.as_ref()).unwrap();

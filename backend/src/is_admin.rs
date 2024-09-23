@@ -1,9 +1,9 @@
 use actix_session::Session;
 use actix_web::web;
+use hex;
 use rand::Rng;
-use argon2;
 
-use crate::AppState;
+use crate::{crypto_utils, AppState};
 
 /// Checks if a user is admin.
 ///
@@ -59,6 +59,16 @@ pub fn generate_random_token() -> Vec<u8> {
     token.to_vec()
 }
 
-pub fn password_hash(clear_passsword, salt) -> bool {
-    
+pub fn password_hash(clear_password: String, original_hash: String) -> bool {
+    let original_hash_segments = original_hash.split("$").collect::<Vec<&str>>();
+    let salt = original_hash_segments[0];
+    let hash = hex::decode(original_hash_segments[1]).unwrap();
+
+    if clear_password.is_empty() {
+        return false;
+    }
+
+    let clear_password_hash = crypto_utils::hmac_sha_512_pbkdf2_hash(&clear_password, &salt).unwrap();
+
+    hash == clear_password_hash
 }
