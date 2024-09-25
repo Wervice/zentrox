@@ -138,7 +138,6 @@ pub fn encrypt_file(file: String, key: &String) {
 
     let key_hashed = crypto_utils::argon2_derive_key(key);
 
-
     let value = fs::read(&file).unwrap();
 
     let cipher = Aes256Gcm::new(&key_hashed.unwrap().into());

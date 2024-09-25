@@ -51,7 +51,6 @@ pub fn write(key: &str, value: &str) -> Result<(), std::io::Error> {
     config_file_parsed[key] = toml_edit::value(value);
 
     let _ = tokio::fs::write(&config_file_swap, config_file_parsed.to_string());
-
     let _ = tokio::fs::rename(config_file_swap, config_file);
 
     Ok(())

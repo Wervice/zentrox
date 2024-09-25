@@ -7,7 +7,7 @@
 update_toml() {
     local key=$1
     local value=$2
-    local toml_file="$HOME/zentrox_data/config.toml"
+    local toml_file="$HOME/zentrox_data/zentrox_store.toml"
 
     # Check if the file exists
     if [[ ! -f "$toml_file" ]]; then
@@ -25,6 +25,13 @@ update_toml() {
     fi
 }
 
+derive_key() {
+	local clearv=$1
+	local salt=$(openssl rand -hex 16)
+
+	echo "$salt\$$(openssl kdf -keylen 64 -binary -kdfopt digest:SHA512 -kdfopt pass:$clearv -kdfopt salt:$salt -kdfopt iter:210000 PBKDF2 | basenc --base16 -w 0)"
+}
+
 npm_failed() {
 	echo -ne "❌ NPM failed while trying to install various NPM packages.\nDo you want to re-start the installation and ignore warnings? [y/N] "
 	read -r
@@ -32,33 +39,26 @@ npm_failed() {
 		npm -q install express body-parser cookie-parser express-session node-os-utils ejs compression
 	else
 		echo "Program stopped"
-		exit -1
+		exit 1
 	fi
 }
 
 python_failed() {
-	echo -ne "❌ The installer for Python modules failed. Do you want to ignore & restart pip3, use an alternative to pip3 or stop the program? [ignore/P/N] "
+	echo -ne "❌ The installer for Python modules failed. Do you want to ignore this issue or install the packages using your package manager. [Ignore/Package] "
 	read -r
-	if [[ $REPLY == "ignore" ]]; then
-		sudo pip3 -q install pyftpdlib PyOpenSSL --break-system-packages &> /dev/null
-	elif [[ $REPLY == "P" ]]; then
-		echo "❓ Please enter the name of your package manager [apt/dnf/pacman/zypper]"
+	if [[ $REPLY == "Package" ]]; then
+		echo "❓ Please enter the name of your package manager [apt/dnf/pacman]"
 		read PYTHON_PACKAGE_MANAGER
 		if [[ $PYTHON_PACKAGE_MANAGER == "apt" ]]; then
 			apt install python3-pyftpdlib python3-openssl -y &> /dev/null
 		elif [[ $PYTHON_PACKAGE_MANAGER == "dnf" ]]; then
 			dnf install python3-pyftpdlib python3-openssl -y &> /dev/null
 		elif [[ $PYTHON_PACKAGE_MANAGER == "pacman" ]]; then
-			pacman -Sy python3-pyftpdlib python3-openssl &> /dev/null
-		elif [[ $PYTHON_PACKAGE_MANAGER == "zypper" ]]; then
-			zypper -n install python3-pyftpdlib python3-openssl &> /dev/null
+			pacman -Sy python-pyftpdlib python-openssl &> /dev/null
 		else
 			echo "❌ This package manager is not know to the installer.\nIt will attempt to run the command $PYTHON_PACKAGE_MANAGER install python3-pyopenssl python3-pyftpdlib -y"
-			$PYTHON_PACKAGE_MANAGER install python3-pyopenssl python3-pyftpdlib -y
+			$PYTHON_PACKAGE_MANAGER install python-pyopenssl python-pyftpdlib -y
 		fi
-	else
-		echo "Program stopped"
-		exit -1
 	fi
 }
 
@@ -74,8 +74,6 @@ ufw_fail() {
 			dnf install ufw -y &> /dev/null
 		elif [[ $UFW_PACKAGE_MANAGER == "pacman" ]]; then
 			pacman -Sy ufw &> /dev/null
-		elif [[ $UFW_PACKAGE_MANAGER == "zypper" ]]; then
-			zypper -n install ufw &> /dev/null
 		else
 			echo "This package manager is not supported"
 		fi
@@ -116,14 +114,14 @@ fi
 echo -n "🤵 Please enter your zentrox admin username (max. 512 characters) (e.g. johndoe) "
 read ADMIN_USERNAME
 
-if (( ${ADMIN_USERNAME} > 512 )); then
+if (( ${#ADMIN_USERNAME} > 512 )); then
 	echo "You will not be able to login with this username"
 fi
 
 echo -n "🔑 Please enter your zentrox admin password "
 read -s ADMIN_PASSWORD
 
-if (( ${ADMIN_PASSWORD} > 1024 )); then
+if (( ${#ADMIN_PASSWORD} > 1024 )); then
 	echo "You will not be able to login with this password"
 fi
 
@@ -146,7 +144,7 @@ if [ -d "$USERNAME_PATH" ]; then
 	ZENTROX_DATA_PATH="$USERNAME_PATH/zentrox_data"
 else
 	echo "❌ Please enter your correct username or make sure, this username is used for your /home directory."
-	exit -1
+	exit 1
 fi
 
 mkdir -p "$ZENTROX_DATA_PATH" &> /dev/null || true
@@ -171,12 +169,12 @@ then
 	echo "❌ Python Package Manager (pip3) is not installed. To fix this issue, please install python3."
 	echo "❌ The command to do this may look like this:"
 	echo -E "❌ sudo apt install python3"
-	exit -1
+	exit 1
 fi
 
 echo "✅ Python can be used"
 
-if ! sudo pip3 -q install pyftpdlib PyOpenSSL &> /dev/null; then
+if ! pip3 -q install pyftpdlib PyOpenSSL &> /dev/null; then
 	echo "❌ Python3 package installation failed"
 	python_failed
 else
@@ -196,6 +194,7 @@ else
 	echo "✅ The UFW is installed"
 fi
 
+echo "ℹ️ Adding UFW rule for port 8080 (this requires admin permissions)"
 if ! sudo /usr/sbin/ufw allow from any to any port 8080 > /dev/null; then
 	echo "❌ Failed to add UFW rule for Zentrox"
 else
@@ -208,13 +207,13 @@ echo "ℹ️  In the following, you will be asked to enter some information to g
 echo "ℹ️  You can all fields except the last two empty."
 echo "ℹ️  If you do not want to enter real information, you do not have to but it is recommended."
 
-echo ""
+echo "-----------------"
 
 openssl genrsa -out selfsigned.key 2048
 openssl req -new -key selfsigned.key -out selfsigned.pem
 openssl x509 -req -days 365 -in selfsigned.pem -signkey selfsigned.key -out selfsigned.crt
 
-echo ""
+echo "-----------------"
 
 echo "🔑 Creating PEM file from key and crt"
 cat selfsigned.crt selfsigned.key > selfsigned.pem
@@ -232,11 +231,10 @@ mkdir -p "$ZENTROX_DATA_PATH/upload_vault" &> /dev/null
 mkdir -p "$ZENTROX_DATA_PATH/vault_extract" &> /dev/null
 touch "$ZENTROX_DATA_PATH/zentrox.txt" &> /dev/null
 touch "$ZENTROX_DATA_PATH/vault.vlt" &> /dev/null
-openssl rand -base64 64 > "$ZENTROX_DATA_PATH/sessionSecret.txt"
 
 touch "$ZENTROX_DATA_PATH"/locked.db
 
-touch ~/zentrox_data/config.toml
+touch ~/zentrox_data/zentrox_store.toml
 update_toml "server_name" "$ZENTROX_SERVER_NAME"
 update_toml "reg_mode" "linkInvite"
 update_toml "server_name" "$ZENTROX_SERVER_NAME"
@@ -264,6 +262,6 @@ echo -n "$ADMIN_USERNAME" > "$ZENTROX_DATA_PATH/admin.txt"
 echo -n "true" > "$ZENTROX_DATA_PATH/setupDone.txt"
 
 RANDOM_SALT=$(openssl rand -hex 16)
-echo -n "$(echo -n "$ADMIN_USERNAME" | base64): $(echo "$ADMIN_PASSWORD" | openssl passwd -pbkdf2 -salt "$RANDOM_SALT" -iter 1000000): admin" > "$ZENTROX_DATA_PATH/users"
+echo -n "$(echo -n "$ADMIN_USERNAME" | base64): $(derive_key $ADMIN_PASSWORD): admin" > "$ZENTROX_DATA_PATH/users"
 
 echo "ℹ️  You can now start Zentrox using the command  [ $ZENTROX_PATH/zentrox ]"
