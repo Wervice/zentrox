@@ -1,6 +1,11 @@
 # Auto detect text files and perform LF normalization
 * text=auto
 *.css linguist-vendored
+*.js linguist-vendored
+*.jsx linguist-vendored
+*.tsx linguist-vendored
+*.ts linguist-vendored
+*.json linguist-vendored
 
 # Zentrox is a Rust project, not a frontend template, library, framework,...
 # Yes, the frontend is something that is relevant to the project, but in the end it is treated and used like static files.
