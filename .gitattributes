@@ -3,7 +3,7 @@
 *.css linguist-vendored
 
 
-backend/static/* linguist-vendored
-backend/target/* linguist-vendored
-frontend/out/* linguist-vendored
-frontend/src/components/ linguist-vendored
+backend/static/* linguist-generated
+backend/target/* linguist-generated
+frontend/out/* linguist-generated
+frontend/src/components/ linguist-generated
