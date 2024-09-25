@@ -2,8 +2,10 @@
 * text=auto
 *.css linguist-vendored
 
-
+# Zentrox is a Rust project, not a frontend template, library, framework,...
+# Yes, the frontend is something that is relevant to the project, but in the end it is treated and used like static files.
+# Thus I am knowingly exluding it as the language statistics make it look as if the project was a JS project.
 backend/static/* linguist-generated
 backend/target/* linguist-generated
-frontend/out/* linguist-generated
+frontend/* linguist-generated
 frontend/src/components/ linguist-generated
