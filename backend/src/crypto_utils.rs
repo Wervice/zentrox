@@ -71,6 +71,8 @@ pub fn hmac_sha_1_pbkdf2_hash(password: &str, salt: &str) -> Option<Vec<u8>> {
     Some(password_hash)
 }
 
+/// Derive a key using Argon2. The keylength is set to 32 bytes.
+/// It uses the salt stored in the config file under vault_key_salt.
 pub fn argon2_derive_key(password: &str) -> Option<[u8; 32]> {
     
     let salt: SaltString;

@@ -58,6 +58,8 @@ pub fn generate_random_token() -> Vec<u8> {
     token.to_vec()
 }
 
+/// Check if the password provided during login matches with the password stored on the server
+/// side. It uses SHA 512 PBKDF2.
 pub fn password_hash(clear_password: String, original_hash: String) -> bool {
     let original_hash_segments = original_hash.split("$").collect::<Vec<&str>>();
     let salt = original_hash_segments[0];

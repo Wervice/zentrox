@@ -102,6 +102,7 @@ pub fn drive_statistics(drive: String) -> Option<Vec<(String, u64, u64, u64, f64
     Some(ussage_vector)
 }
 
+/// Get information about a specified block device
 pub fn drive_information(device_name: String) -> Option<Drive> {
     let mut binding = Command::new("lsblk");
     let c = binding

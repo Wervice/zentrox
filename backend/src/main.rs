@@ -36,8 +36,9 @@ use tokio::task;
 mod crypto_utils;
 
 #[allow(non_snake_case)]
-// General App Code
 #[derive(Clone)]
+/// Current state of the application used to keep track of the logged in users, DoS/Brute force
+/// attack requests and sharing a instance of the System struct.
 struct AppState {
     login_requests: Arc<
         Mutex<
@@ -56,6 +57,8 @@ struct AppState {
 }
 
 impl AppState {
+    
+    /// Initiate a new AppState
     fn new() -> Self {
         let random_string: Vec<u8> = (0..128).map(|_| rand::random::<u8>()).collect();
         AppState {
@@ -68,6 +71,8 @@ impl AppState {
         }
     }
 
+    /// Remove old IP adresses from the AppState login_requests.
+    /// The is required to be lighther on memory and be GDPR compliant.
     fn cleanup_old_ips(&self) {
         let mut login_requests = self.login_requests.lock().unwrap();
         let current_time = SystemTime::now()
@@ -81,7 +86,8 @@ impl AppState {
             ip_age_seconds <= 900_000 // 900 seconds = 15 minutes
         });
     }
-
+    
+    /// Initiate a loop that periodically cleans up the login_requests of the current AppState.
     fn start_cleanup_task(self) {
         let cleanup_interval = std::time::Duration::from_secs(60); // Every 60 seconds
         task::spawn(async move {
@@ -770,8 +776,8 @@ async fn remove_package(
     }
 }
 
-/// Run an autoremove command on the users computer.
 #[post("/api/clearAutoRemove")]
+/// Run an autoremove command on the users computer.
 async fn clear_auto_remove(
     session: Session,
     json: web::Json<SudoPasswordOnlyRequest>,
@@ -797,8 +803,8 @@ struct FireWallInformationResponseJson {
     rules: Vec<ufw::UfwRule>,
 }
 
-/// Returns general information about the current UFW firewall configuration.
 #[post("/api/fireWallInformation")]
+/// Returns general information about the current UFW firewall configuration.
 async fn firewall_information(
     session: Session,
     state: web::Data<AppState>,
@@ -824,11 +830,11 @@ async fn firewall_information(
     }
 }
 
+#[post("/api/switchUfw/{value}")]
 /// Enable or disable the UFW firewall.
 ///
 /// This requires a url parameter. It can either be "true" or "false".
 /// In addtion to that the request has to server the user with a sudo password.
-#[post("/api/switchUfw/{value}")]
 async fn switch_ufw(
     session: Session,
     state: web::Data<AppState>,
@@ -894,6 +900,7 @@ async fn switch_ufw(
     HttpResponse::Ok().finish()
 }
 
+#[post("/api/newFireWallRule/{from}/{to}/{action}")]
 /// Create a new firewall rule.
 ///
 /// This request takes three URL parameters.
@@ -901,7 +908,6 @@ async fn switch_ufw(
 /// * `to` - The port the request goes to.
 /// * `action` - The action (allow / deny) that is taken.
 /// This requires a sudo password.
-#[post("/api/newFireWallRule/{from}/{to}/{action}")]
 async fn new_firewall_rule(
     session: Session,
     state: web::Data<AppState>,
@@ -936,8 +942,8 @@ async fn new_firewall_rule(
     }
 }
 
-/// Delete a firewall rule by its index.
 #[post("/api/deleteFireWallRule/{index}")]
+/// Delete a firewall rule by its index.
 async fn delete_firewall_rule(
     session: Session,
     state: web::Data<AppState>,
@@ -960,6 +966,8 @@ async fn delete_firewall_rule(
 
 // File API
 #[get("/api/callFile/{file_name}")]
+/// Download a file from the machines file system.
+/// This does not work for files that can not be read by the current user.
 async fn call_file(
     session: Session,
     state: web::Data<AppState>,
@@ -991,6 +999,8 @@ struct FilesListJson {
 }
 
 #[get("/api/filesList/{path}")]
+/// List all the files and folders in a current path.
+/// The path provided in the URL has to be url encoded.
 async fn files_list(
     session: Session,
     state: web::Data<AppState>,
@@ -1027,6 +1037,9 @@ async fn files_list(
 }
 
 #[get("/api/deleteFile/{path}")]
+/// Delete a path from the machines file system.
+/// This does not work with files that can not be written by the current user.
+/// The path provided in the requests URL has to be url encoded.
 async fn delete_file(
     session: Session,
     state: web::Data<AppState>,
@@ -1064,6 +1077,9 @@ async fn delete_file(
 }
 
 #[get("/api/renameFile/{old_path}/{new_path}")]
+/// Rename/move a file or folder on the machines file system.
+/// This does not work with files that can not be written/read by the current user.
+/// The paths provided in the URL have to be url encoded.
 async fn rename_file(
     session: Session,
     state: web::Data<AppState>,
@@ -1094,6 +1110,9 @@ async fn rename_file(
 }
 
 #[get("/api/burnFile/{path}")]
+/// Overwrite a file with random data and then delete it.
+/// This does not work with files that can not be written by the current user.
+/// The path provided in the URL has to be url encoded.
 async fn burn_file(
     session: Session,
     state: web::Data<AppState>,
@@ -1133,6 +1152,8 @@ struct DriveListJson {
 }
 
 #[get("/api/driveList")]
+/// List all block devices connected to the current machine including partition and virtual block
+/// devices.
 async fn list_drives(session: Session, state: web::Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
@@ -1156,6 +1177,9 @@ struct DriveInformationJson {
 }
 
 #[get("/api/driveInformation/{drive}")]
+/// Return information about a block device specified in the URL.
+/// The provided information includes (but is not limited to) the block devices mountpoint, file
+/// size, path, owner...
 async fn drive_information(
     session: Session,
     state: web::Data<AppState>,
@@ -1197,6 +1221,11 @@ struct VaultConfigurationMessageResponseJson {
 }
 
 #[post("/api/vaultConfigure")]
+/// Configure Vault by providing a password.
+/// If no instance of vault has yet been created, it will be. If there already is an instance of
+/// vault on the current machine, the password is changed, by decrypting the .vault file in the
+/// vault folder with the old password and then encrypting it with the new password. Thus, Zentrox
+/// also requires the current password.
 async fn vault_configure(
     session: Session,
     state: web::Data<AppState>,
@@ -1327,6 +1356,10 @@ struct VaultKeyRequest {
     key: String,
 }
 
+/// List all paths in Zentrox Vault in a one-dimensional vector. This also decrypts the file names
+/// and folder names of the entries. A directory path always ends with /. The path never starts
+/// with /, thus root is "".
+/// Example: abc.txt; def/; def/gh.i; dev/jkl/mno
 fn list_paths(directory: String, key: String) -> Vec<String> {
     let read = fs::read_dir(directory).unwrap();
     let mut paths: Vec<String> = Vec::new();
@@ -1394,6 +1427,8 @@ fn list_paths(directory: String, key: String) -> Vec<String> {
 }
 
 #[post("/api/vaultTree")]
+/// Calls list_paths with the password provided by the user. This does not work if the password is
+/// wrong.
 async fn vault_tree(
     session: Session,
     state: web::Data<AppState>,
@@ -1456,6 +1491,9 @@ struct VaultDeleteRequest {
 }
 
 #[post("/api/deleteVaultFile")]
+/// Overwrites a file in vault with random data and then removes it from the users file system.
+/// This does not work for the .vault file. This request also does not check for the password
+/// provided by the user to be correct.
 async fn delete_vault_file(
     session: Session,
     state: web::Data<AppState>,
@@ -1516,7 +1554,7 @@ async fn delete_vault_file(
     HttpResponse::Ok().json(EmptyJson {})
 }
 
-// Rename vault file
+// Create new folder in vault
 #[derive(Deserialize)]
 #[allow(non_snake_case)]
 struct VaultNewFolderRequest {
@@ -1525,6 +1563,9 @@ struct VaultNewFolderRequest {
 }
 
 #[post("/api/vaultNewFolder")]
+/// This creates a new folder/directory in the vault directory. The name of the directory is
+/// encrypted. This does not check if the password provided by the user is correct. This wont work
+/// if the directory name is longer than 64 characters.
 async fn vault_new_folder(
     session: Session,
     state: web::Data<AppState>,
@@ -1571,6 +1612,8 @@ struct VaultUploadForm {
 }
 
 #[post("/upload/vault")]
+/// Upload a new file to vault. This requires a multipart form to be the requests body. The file is
+/// then extracted and stored in the users file system.
 async fn upload_vault(
     session: Session,
     state: web::Data<AppState>,
@@ -1636,7 +1679,7 @@ async fn upload_vault(
     HttpResponse::Ok().finish()
 }
 
-// Rename vault folder
+// Rename file/folder in vault
 #[derive(Deserialize)]
 #[allow(non_snake_case)]
 struct VaultRenameRequest {
@@ -1646,6 +1689,8 @@ struct VaultRenameRequest {
 }
 
 #[post("/api/renameVaultFile")]
+/// This renames/moves a directory or file in the vault directory.
+/// The new name will be encrypted. The original name must be provided in non-encrypted form.
 async fn rename_vault_file(
     session: Session,
     state: web::Data<AppState>,
@@ -1718,6 +1763,9 @@ struct VaultFileDownloadJson {
 }
 
 #[post("/api/vaultFileDownload")]
+/// Download a file from Zentrox Vault.
+/// This requires a password from the user in order to decrypt the file server side.
+/// The file will not be provided in encrypted form.
 async fn vault_file_download(
     session: Session,
     state: web::Data<AppState>,
@@ -1771,6 +1819,7 @@ async fn vault_file_download(
 
 // Show Robots.txt
 #[get("/robots.txt")]
+/// Return the robots.txt file to prevent search engines from indexing this server.
 async fn robots_txt() -> HttpResponse {
     HttpResponse::Ok().body(include_str!("../robots.txt"))
 }
@@ -1784,6 +1833,8 @@ struct TlsUploadForm {
 }
 
 #[post("/upload/tls")]
+/// Upload and store a new tls certificate used for TLS protection in HTTPS and FTPS.
+/// The name of then new certificate is stored in the configuration file.
 async fn upload_tls(
     session: Session,
     state: web::Data<AppState>,
@@ -1826,6 +1877,7 @@ struct CertNamesJson {
 }
 
 #[get("/api/certNames")]
+/// Return the name of the current certificate.
 async fn cert_names(session: Session, state: web::Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
@@ -1838,6 +1890,7 @@ async fn cert_names(session: Session, state: web::Data<AppState>) -> HttpRespons
 
 // Power Off System
 #[post("/api/powerOff")]
+/// Powers off the system.
 async fn power_off(
     session: Session,
     state: web::Data<AppState>,
@@ -1847,7 +1900,7 @@ async fn power_off(
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    sudo::SwitchedUserCommand::new(json.sudoPassword.clone(), "poweroff".to_string()).spawn();
+    let _ = sudo::SwitchedUserCommand::new(json.sudoPassword.clone(), "poweroff".to_string()).spawn();
 
     HttpResponse::Ok().finish()
 }
@@ -1859,6 +1912,7 @@ struct AccountDetailsJson {
 }
 
 #[post("/api/accountDetails")]
+/// Return the users account details, which is currently limited to the users username.
 async fn account_details(session: Session, state: web::Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state.clone()) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
@@ -1881,6 +1935,7 @@ struct UpdateAccountJson {
 }
 
 #[post("/api/updateAccountDetails")]
+/// Update the users username and password.
 async fn update_account_details(
     session: Session,
     state: web::Data<AppState>,
@@ -1940,6 +1995,7 @@ async fn update_account_details(
 }
 
 #[get("/api/profilePicture")]
+/// Return the current profile picture.
 async fn profile_picture(session: Session, state: web::Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
@@ -1966,6 +2022,8 @@ struct ProfilePictureUploadForm {
 }
 
 #[post("/api/uploadProfilePicture")]
+/// Upload a new profile picture for the users account.
+/// The picture may not be larger than 2MB in order to keep loading time down.
 async fn upload_profile_picture(
     session: Session,
     state: web::Data<AppState>,
@@ -2004,7 +2062,10 @@ async fn dashboard_asset_block(session: Session, state: web::Data<AppState>) -> 
     }
 }
 
+// The main function
+
 #[actix_web::main]
+/// Prepares Zentrox and starts the server.
 async fn main() -> std::io::Result<()> {
     // If no static/ folder exists in the current directory, try ~/zentrox.
     if !std::env::current_dir().unwrap().join("static").exists() {
@@ -2145,3 +2206,5 @@ async fn main() -> std::io::Result<()> {
     .run()
     .await
 }
+
+// Thank you for reading through all of this 😄
