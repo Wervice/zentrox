@@ -1,7 +1,7 @@
 /// APT, DNF, PacMan bindings to
 /// install packages, remove package, list installed/available/unnecessary packages
 use crate::sudo::SwitchedUserCommand;
-use std::collections::{self, HashMap};
+use std::collections::{HashMap};
 use std::{fs, process::Command};
 
 /// Determines which package manager is used by the system.
@@ -257,7 +257,7 @@ pub fn list_installed_packages() -> Result<Vec<String>, String> {
 pub fn list_available_packages() -> Result<Vec<String>, String> {
     
     fn is_version_number(s: &String) -> bool {
-        let version_number_chars = vec!['.', '-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+        let version_number_chars = ['.', '-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
         let mut is = false;
 
         for c in s.chars() {

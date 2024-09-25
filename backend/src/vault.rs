@@ -160,24 +160,24 @@ pub fn encrypt_directory(directory: &String, key: &String) -> Result<(), String>
     for entry in dir_contents {
         let e_u = entry.unwrap();
         if e_u.metadata().unwrap().is_file() {
-            encrypt_file(e_u.path().to_string_lossy().to_string(), &key);
+            encrypt_file(e_u.path().to_string_lossy().to_string(), key);
             let filename = e_u.file_name().to_string_lossy().to_string();
             if filename != ".vault" {
                 let mut encrypted_path = e_u.path();
                 encrypted_path.pop();
                 let _ = fs::rename(
                     e_u.path(),
-                    encrypted_path.join(encrypt_string_hash(filename, key).unwrap().to_string()),
+                    encrypted_path.join(encrypt_string_hash(filename, key).unwrap()),
                 );
             }
         } else {
-            let _ = encrypt_directory(&e_u.path().to_string_lossy().to_string(), &key);
+            let _ = encrypt_directory(&e_u.path().to_string_lossy().to_string(), key);
             let filename = e_u.file_name().to_string_lossy().to_string();
             let mut encrypted_path = e_u.path();
             encrypted_path.pop();
             let _ = fs::rename(
                 e_u.path(),
-                encrypted_path.join(encrypt_string_hash(filename, key).unwrap().to_string()),
+                encrypted_path.join(encrypt_string_hash(filename, key).unwrap()),
             );
         }
     }
@@ -191,7 +191,7 @@ pub fn decrypt_directory(directory: &String, key: &String) -> Result<(), String>
     for entry in dir_contents {
         let e_u = entry.unwrap();
         if e_u.metadata().unwrap().is_file() {
-            decrypt_file(e_u.path().to_string_lossy().to_string(), &key);
+            decrypt_file(e_u.path().to_string_lossy().to_string(), key);
 
             let filename = e_u.file_name().to_string_lossy().to_string();
 
@@ -200,17 +200,17 @@ pub fn decrypt_directory(directory: &String, key: &String) -> Result<(), String>
                 encrypted_path.pop();
                 let _ = fs::rename(
                     e_u.path(),
-                    encrypted_path.join(decrypt_string_hash(filename, key).unwrap().to_string()),
+                    encrypted_path.join(decrypt_string_hash(filename, key).unwrap()),
                 );
             }
         } else {
-            let _ = decrypt_directory(&e_u.path().to_string_lossy().to_string(), &key);
+            let _ = decrypt_directory(&e_u.path().to_string_lossy().to_string(), key);
             let filename = e_u.file_name().to_string_lossy().to_string();
             let mut encrypted_path = e_u.path();
             encrypted_path.pop();
             let _ = fs::rename(
                 e_u.path(),
-                encrypted_path.join(decrypt_string_hash(filename, key).unwrap().to_string()),
+                encrypted_path.join(decrypt_string_hash(filename, key).unwrap()),
             );
         }
     }
@@ -234,10 +234,10 @@ pub fn burn_file(path: String) -> Result<(), String> {
             }
         };
 
-        i = i + 1;
+        i += 1;
     }
 
-    return Ok(());
+    Ok(())
 }
 
 /// Recursively overwrites the contents of a directory with random data.
@@ -264,7 +264,7 @@ pub fn burn_directory(path: String) -> Result<(), String> {
         }
         Err(e) => {
             eprintln!("❌ Failed to read directory {}\n{e}", e);
-            return Err(e.to_string());
+            Err(e.to_string())
         }
     }
 }

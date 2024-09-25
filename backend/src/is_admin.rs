@@ -1,6 +1,5 @@
 use actix_session::Session;
 use actix_web::web;
-use hex;
 use rand::Rng;
 
 use crate::{crypto_utils, AppState};
@@ -38,17 +37,17 @@ pub fn is_admin_state(session: &Session, state: web::Data<AppState>) -> bool {
                         }
                         Err(_) => {
                             // If decoding fails, consider the token invalid
-                            return false;
+                            false
                         }
                     }
                 }
-                None => return false,
+                None => false,
             }
             // Handle invalid hex decode safely
         }
         Err(err) => {
             eprintln!("❌ Failed to get login_token from session: {err}");
-            return false;
+            false
         }
     }
 }
@@ -68,7 +67,7 @@ pub fn password_hash(clear_password: String, original_hash: String) -> bool {
         return false;
     }
 
-    let clear_password_hash = crypto_utils::hmac_sha_512_pbkdf2_hash(&clear_password, &salt).unwrap();
+    let clear_password_hash = crypto_utils::hmac_sha_512_pbkdf2_hash(&clear_password, salt).unwrap();
 
     hash == clear_password_hash
 }

@@ -1,6 +1,5 @@
 extern crate systemstat;
 use actix_files as afs;
-use actix_multipart;
 use actix_session::{storage::CookieSessionStore, Session, SessionMiddleware};
 use actix_web::cookie::Key;
 use actix_web::{get, http::StatusCode, middleware, post, web, App, HttpResponse, HttpServer};
@@ -83,7 +82,7 @@ impl AppState {
         });
     }
 
-    fn start_cleanup_task(self: Self) {
+    fn start_cleanup_task(self) {
         let cleanup_interval = std::time::Duration::from_secs(60); // Every 60 seconds
         task::spawn(async move {
             let mut interval = interval(cleanup_interval);
@@ -474,11 +473,9 @@ async fn device_information(session: Session, state: web::Data<AppState>) -> Htt
             let mut rv = "Unknown OS".to_string();
             for line in lines {
                 let line_split = line.split("=").collect::<Vec<&str>>();
-                if line_split.len() == 2 {
-                    if line_split[0] == "NAME" {
-                        rv = line_split[1].replace("\"", "").to_string();
-                        break;
-                    }
+                if line_split.len() == 2 && line_split[0] == "NAME" {
+                    rv = line_split[1].replace("\"", "").to_string();
+                    break;
                 }
             }
             rv
@@ -1147,9 +1144,9 @@ async fn list_drives(session: Session, state: web::Data<AppState>) -> HttpRespon
         .expect("❌ Failed to get block devices.")
         .blockdevices;
 
-    return HttpResponse::Ok().json(DriveListJson {
+    HttpResponse::Ok().json(DriveListJson {
         drives: drives_out_blkdv,
-    });
+    })
 }
 
 #[derive(Serialize)]
@@ -1172,11 +1169,11 @@ async fn drive_information(
 
     let info = drives::drive_information(drive.to_string());
 
-    return HttpResponse::Ok().json(DriveInformationJson {
+    HttpResponse::Ok().json(DriveInformationJson {
         drives: info.unwrap(),
         ussage: drives::drive_statistics(drive.to_string())
             .expect("❌ Failed to get drive statistics"),
-    });
+    })
 }
 
 // Vault API
@@ -1251,14 +1248,22 @@ async fn vault_configure(
 
         vault::encrypt_file(
             vault_path.join(".vault").to_string_lossy().to_string(),
-            &key,
+            key,
         );
         let _ = config_file::write("vault_enabled", "1");
-    } else {
-        if json.oldKey.is_some() && json.newKey.is_some() {
-            let old_key = json.oldKey.clone().unwrap();
-            let new_key = json.newKey.clone().unwrap();
-            match vault::decrypt_file(
+    } else if json.oldKey.is_some() && json.newKey.is_some() {
+        let old_key = json.oldKey.clone().unwrap();
+        let new_key = json.newKey.clone().unwrap();
+        match vault::decrypt_file(
+            std::path::Path::new(&dirs::home_dir().unwrap())
+                .join("zentrox_data")
+                .join("vault_directory")
+                .join(".vault")
+                .to_string_lossy()
+                .to_string(),
+            &old_key.to_string(),
+        ) {
+            Some(_) => vault::encrypt_file(
                 std::path::Path::new(&dirs::home_dir().unwrap())
                     .join("zentrox_data")
                     .join("vault_directory")
@@ -1266,55 +1271,45 @@ async fn vault_configure(
                     .to_string_lossy()
                     .to_string(),
                 &old_key.to_string(),
-            ) {
-                Some(_) => vault::encrypt_file(
-                    std::path::Path::new(&dirs::home_dir().unwrap())
-                        .join("zentrox_data")
-                        .join("vault_directory")
-                        .join(".vault")
-                        .to_string_lossy()
-                        .to_string(),
-                    &old_key.to_string(),
-                ),
-                None => {
-                    return HttpResponse::Forbidden().json(VaultConfigurationMessageResponseJson {
-                        message: "auth_failed".to_string(),
-                    })
-                }
-            };
+            ),
+            None => {
+                return HttpResponse::Forbidden().json(VaultConfigurationMessageResponseJson {
+                    message: "auth_failed".to_string(),
+                })
+            }
+        };
 
-            match vault::decrypt_directory(
-                &path::Path::new(&dirs::home_dir().unwrap())
-                    .join("zentrox_data")
-                    .join("vault_directory")
-                    .to_string_lossy()
-                    .to_string(),
-                &old_key,
-            ) {
-                Ok(_) => {}
-                Err(_) => {
-                    return HttpResponse::Forbidden().json(VaultConfigurationMessageResponseJson {
-                        message: "auth_failed".to_string(),
-                    })
-                }
-            };
+        match vault::decrypt_directory(
+            &path::Path::new(&dirs::home_dir().unwrap())
+                .join("zentrox_data")
+                .join("vault_directory")
+                .to_string_lossy()
+                .to_string(),
+            &old_key,
+        ) {
+            Ok(_) => {}
+            Err(_) => {
+                return HttpResponse::Forbidden().json(VaultConfigurationMessageResponseJson {
+                    message: "auth_failed".to_string(),
+                })
+            }
+        };
 
-            match vault::encrypt_directory(
-                &path::Path::new(&dirs::home_dir().unwrap())
-                    .join("zentrox_data")
-                    .join("vault_directory")
-                    .to_string_lossy()
-                    .to_string(),
-                &new_key,
-            ) {
-                Ok(_) => {}
-                Err(e) => return HttpResponse::InternalServerError().body(e),
-            };
-        } else {
-            return HttpResponse::Ok().json(VaultConfigurationCodeResponseJson {
-                code: "no_decrypt_key".to_string(),
-            });
-        }
+        match vault::encrypt_directory(
+            &path::Path::new(&dirs::home_dir().unwrap())
+                .join("zentrox_data")
+                .join("vault_directory")
+                .to_string_lossy()
+                .to_string(),
+            &new_key,
+        ) {
+            Ok(_) => {}
+            Err(e) => return HttpResponse::InternalServerError().body(e),
+        };
+    } else {
+        return HttpResponse::Ok().json(VaultConfigurationCodeResponseJson {
+            code: "no_decrypt_key".to_string(),
+        });
     }
 
     HttpResponse::Ok().json(EmptyJson {})
@@ -1444,11 +1439,11 @@ async fn vault_tree(
             key.to_string(),
         );
 
-        return HttpResponse::Ok().json(VaultFsPathJson { fs: paths });
+        HttpResponse::Ok().json(VaultFsPathJson { fs: paths })
     } else {
-        return HttpResponse::Ok().json(VaultConfigurationMessageResponseJson {
+        HttpResponse::Ok().json(VaultConfigurationMessageResponseJson {
             message: "vault_not_configured".to_string(),
-        });
+        })
     }
 }
 
@@ -1518,7 +1513,7 @@ async fn delete_vault_file(
         };
     }
 
-    return HttpResponse::Ok().json(EmptyJson {});
+    HttpResponse::Ok().json(EmptyJson {})
 }
 
 // Rename vault file
@@ -1562,7 +1557,7 @@ async fn vault_new_folder(
     }
 
     let _ = fs::create_dir(&path);
-    return HttpResponse::Ok().json(EmptyJson {});
+    HttpResponse::Ok().json(EmptyJson {})
 }
 
 // Upload vault file
@@ -1606,13 +1601,13 @@ async fn upload_vault(
         .to_string()
         .split('/')
         .filter(|x| !x.is_empty()) // Filter out empty path entries
-        .map(|x| vault::encrypt_string_hash(x.to_string(), &key).unwrap())
+        .map(|x| vault::encrypt_string_hash(x.to_string(), key).unwrap())
         .collect::<Vec<String>>()
         .join("/");
 
     let in_vault_path = base_path
         .join(encrypted_path)
-        .join(vault::encrypt_string_hash(file_name.to_string(), &key).unwrap());
+        .join(vault::encrypt_string_hash(file_name.to_string(), key).unwrap());
 
     if in_vault_path.exists() {
         return HttpResponse::BadRequest().body("This file already exists.");
@@ -1636,7 +1631,7 @@ async fn upload_vault(
 
     let _ = tokio::fs::remove_file(&tmp_file_path).await;
 
-    vault::encrypt_file(in_vault_path.to_string_lossy().to_string(), &key);
+    vault::encrypt_file(in_vault_path.to_string_lossy().to_string(), key);
 
     HttpResponse::Ok().finish()
 }
@@ -1712,7 +1707,7 @@ async fn rename_vault_file(
         let _ = fs::remove_file(path);
     }
 
-    return HttpResponse::Ok().json(EmptyJson {});
+    HttpResponse::Ok().json(EmptyJson {})
 }
 
 // Download vault file
@@ -1755,9 +1750,9 @@ async fn vault_file_download(
 
     let _ = fs::copy(&path, format!("{}.dec", path).to_string());
 
-    vault::decrypt_file(format!("{}.dec", path).to_string(), &key);
+    vault::decrypt_file(format!("{}.dec", path).to_string(), key);
     if path::Path::new(&format!("{}.dec", path).to_string()).exists() {
-        let f = fs::read(&format!("{}.dec", path).to_string());
+        let f = fs::read(format!("{}.dec", path).to_string());
         match f {
             Ok(fh) => {
                 let data = fh.bytes().map(|x| x.unwrap_or(0_u8)).collect::<Vec<u8>>();
@@ -1766,7 +1761,7 @@ async fn vault_file_download(
                 HttpResponse::Ok().body(data)
             }
             Err(_) => {
-                HttpResponse::InternalServerError().body(format!("Failed to read decrypted file"))
+                HttpResponse::InternalServerError().body("Failed to read decrypted file".to_string())
             }
         }
     } else {
@@ -1777,7 +1772,7 @@ async fn vault_file_download(
 // Show Robots.txt
 #[get("/robots.txt")]
 async fn robots_txt() -> HttpResponse {
-    return HttpResponse::Ok().body(include_str!("../robots.txt"));
+    HttpResponse::Ok().body(include_str!("../robots.txt"))
 }
 
 // Upload tls cert
@@ -1874,9 +1869,9 @@ async fn account_details(session: Session, state: web::Data<AppState>) -> HttpRe
         Err(e) => e.into_inner(),
     };
 
-    return HttpResponse::Ok().json(AccountDetailsJson {
+    HttpResponse::Ok().json(AccountDetailsJson {
         username: username.to_string(),
-    });
+    })
 }
 
 #[derive(Deserialize)]
@@ -1918,14 +1913,15 @@ async fn update_account_details(
         let users_lines: Vec<String> = users_txt_contents.lines().map(|x| x.to_string()).collect();
         let mut new_lines: Vec<String> = Vec::new();
         for line in users_lines {
-            let dec_username = b64.decode(line.split(": ").nth(0).unwrap());
+            let dec_username = b64.decode(line.split(": ").next().unwrap());
             if String::from_utf8(dec_username.unwrap()).unwrap() == username.to_string() {
                 new_lines.push(
                     [b64.encode(new_username), {
                         if !password.is_empty() {
-                            let mut hasher = Sha512::new();
-                            hasher.update(password);
-                            hex::encode(hasher.finalize())
+                        
+                        let old_password = line.split(": ").nth(1).unwrap().to_string();
+                        let salt = old_password.split("$").nth(0).unwrap();
+                            old_password.split("$").nth(0).unwrap().to_string() + "$" + &hex::encode(crypto_utils::hmac_sha_512_pbkdf2_hash(password, &salt).unwrap())
                         } else {
                             line.split(": ").nth(1).unwrap().to_string()
                         }
@@ -1959,7 +1955,7 @@ async fn profile_picture(session: Session, state: web::Data<AppState>) -> HttpRe
         Ok(fh) => {
             HttpResponse::Ok().body(fh.bytes().map(|x| x.unwrap_or(0_u8)).collect::<Vec<u8>>())
         }
-        Err(_) => HttpResponse::NotFound().body(format!("Failed to find account picture")),
+        Err(_) => HttpResponse::NotFound().body("Failed to find account picture".to_string()),
     }
 }
 
@@ -1987,12 +1983,12 @@ async fn upload_profile_picture(
     let _ = fs::copy(&tmp_file_path, &profile_picture_path);
 
     match fs::remove_file(&tmp_file_path) {
-        Ok(_) => return HttpResponse::Ok().finish(),
+        Ok(_) => HttpResponse::Ok().finish(),
         Err(e) => {
             eprintln!("❌ Failed to remove temp file.\n{}", e);
-            return HttpResponse::InternalServerError().finish();
+            HttpResponse::InternalServerError().finish()
         }
-    };
+    }
 }
 
 // ======================================================================
@@ -2051,7 +2047,7 @@ async fn main() -> std::io::Result<()> {
         Ok(_) => {}
         Err(err) => {
             eprintln!("❌ Failed to set private key file.\n{err}");
-            let _ = println!("ℹ️  Returning to selfsigned.pem on next start of Zentrox.");
+            println!("ℹ️  Returning to selfsigned.pem on next start of Zentrox.");
             let _ = config_file::write("tls_cert", "selfsigned.pem");
             panic!()
         }
@@ -2060,7 +2056,7 @@ async fn main() -> std::io::Result<()> {
         Ok(_) => {}
         Err(err) => {
             eprintln!("❌ Failed to set private key file.\n{err}");
-            let _ = println!("ℹ️  Returning to selfsigned.pem on next start of Zentrox.");
+            println!("ℹ️  Returning to selfsigned.pem on next start of Zentrox.");
             let _ = config_file::write("tls_cert", "selfsigned.pem");
             panic!()
         }

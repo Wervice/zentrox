@@ -1,6 +1,5 @@
 use regex::Regex;
 use serde::Deserialize;
-use serde_json;
 use std::process::Command;
 
 #[derive(Deserialize, serde::Serialize)]
@@ -100,7 +99,7 @@ pub fn drive_statistics(drive: String) -> Option<Vec<(String, u64, u64, u64, f64
         }
     }
 
-    return Some(ussage_vector);
+    Some(ussage_vector)
 }
 
 pub fn drive_information(device_name: String) -> Option<Drive> {

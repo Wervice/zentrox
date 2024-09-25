@@ -129,7 +129,7 @@ impl SwitchedUserCommand {
                 .expect("Failed to capture stderr");
 
             let _ = thread::spawn(move || {
-                write!(stdin, "{}\n", password).expect("Failed to write password to stdin");
+                writeln!(stdin, "{}", password).expect("Failed to write password to stdin");
                 stdin.flush().expect("Failed to flush stdin");
             });
 

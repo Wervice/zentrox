@@ -37,7 +37,7 @@ pub fn ufw_status(password: String) -> Result<(bool, Vec<UfwRule>), String> {
         .filter(|x| !x.is_empty())
         .collect::<Vec<String>>();
 
-    if output_lines.len() == 0 {
+    if output_lines.is_empty() {
         return Err("Invalid Sudo Password or failed to read UFW status".to_string());
     }
 

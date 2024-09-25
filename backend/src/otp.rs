@@ -1,4 +1,3 @@
-use hex;
 use rand::Rng;
 use totp_rs::{Algorithm, Secret, TOTP};
 

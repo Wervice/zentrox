@@ -1,14 +1,11 @@
-use actix_session::config;
 use ring::pbkdf2;
 use std::num::NonZeroU32;
 use argon2::{
     password_hash::{
-        rand_core::OsRng,
-        PasswordHash, PasswordHasher, PasswordVerifier, SaltString
+        rand_core::OsRng, SaltString
     },
     Argon2
 };
-use std::convert::TryInto;
 
 
 use crate::config_file;
@@ -77,9 +74,9 @@ pub fn hmac_sha_1_pbkdf2_hash(password: &str, salt: &str) -> Option<Vec<u8>> {
 pub fn argon2_derive_key(password: &str) -> Option<[u8; 32]> {
     
     let salt: SaltString;
-    if config_file::read("vault_key_salt") == "" {
+    if config_file::read("vault_key_salt").is_empty() {
         salt = SaltString::generate(&mut OsRng);
-        let _ = config_file::write("vault_key_salt", &salt.to_string());
+        let _ = config_file::write("vault_key_salt", salt.as_ref());
     } else {
         salt = SaltString::from_b64(&config_file::read("vault_key_salt")).unwrap();
     }
@@ -89,7 +86,7 @@ pub fn argon2_derive_key(password: &str) -> Option<[u8; 32]> {
     let argon2 = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
 
     let mut output = [0u8; 32];
-    let _ = argon2.hash_password_into(password.as_bytes(), &salt.to_string().as_bytes(), &mut output);
+    let _ = argon2.hash_password_into(password.as_bytes(), salt.to_string().as_bytes(), &mut output);
 
     Some(output)
 }
