@@ -2066,11 +2066,6 @@ async fn dashboard_asset_block(session: Session, state: web::Data<AppState>) -> 
 #[actix_web::main]
 /// Prepares Zentrox and starts the server.
 async fn main() -> std::io::Result<()> {
-    // If no static/ folder exists in the current directory, try ~/zentrox.
-    if !std::env::current_dir().unwrap().join("static").exists() {
-        let _ = std::env::set_current_dir(dirs::home_dir().unwrap().join("zentrox"));
-    }
-
     println!("🚀 Serving Zentrox on Port 8080");
 
     // Resetting variables to default state

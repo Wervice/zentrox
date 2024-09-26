@@ -50,8 +50,8 @@ pub fn write(key: &str, value: &str) -> Result<(), std::io::Error> {
         .expect("Failed to parse config file");
     config_file_parsed[key] = toml_edit::value(value);
 
-    let _ = tokio::fs::write(&config_file_swap, config_file_parsed.to_string());
-    let _ = tokio::fs::rename(config_file_swap, config_file);
+    let _ = fs::write(&config_file_swap, config_file_parsed.to_string());
+    let _ = fs::rename(config_file_swap, config_file);
 
     Ok(())
 }

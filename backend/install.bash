@@ -181,7 +181,7 @@ else
 	echo "✅ Installed Python packages"
 fi
 
-if ! openssl -v &> /dev/null; then
+if ! openssl version &> /dev/null; then
 	echo "❌ Please install OpenSSL on your system"
 else
 	echo "✅ OpenSSL is installed" 
