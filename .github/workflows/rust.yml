@@ -1,0 +1,74 @@
+name: Build Zentrox for Multiple CPU Architectures
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        arch: [x86_64, i686, aarch64, powerpc64, arm64]
+
+    steps:
+    # Checkout the code
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    # Set up Rust
+    - name: Set up Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        target: ${{ matrix.arch }}-unknown-linux-gnu
+
+    # Install cross compilation tools for non-x64 architectures
+    - name: Install cross-compilation tools
+      run: |
+        sudo apt-get update
+        if [ "${{ matrix.arch }}" = "i686" ]; then
+          sudo apt-get install -y gcc-multilib
+        elif [ "${{ matrix.arch }}" = "aarch64" ]; then
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+        elif [ "${{ matrix.arch }}" = "powerpc64" ]; then
+          sudo apt-get install -y gcc-powerpc64le-linux-gnu
+        elif [ "${{ matrix.arch }}" = "arm64" ]; then
+          sudo apt-get install -y gcc-arm-linux-gnueabi
+        fi
+
+    # Build the project for the specific architecture
+    - name: Build project
+      run: |
+        cd backend
+        cargo build --release --target=${{ matrix.arch }}-unknown-linux-gnu
+
+    # Create the distribution folder
+    - name: Assemble distribution
+      run: |
+        ARCH=${{ matrix.arch }}
+        DIST_DIR="/release/dist-${ARCH}"
+        mkdir -p ${DIST_DIR}
+        
+        # Copy compiled binary
+        cp backend/target/${ARCH}-unknown-linux-gnu/release/zentrox ${DIST_DIR}/zentrox
+        
+        # Copy frontend static files
+        cp -r frontend/out ${DIST_DIR}/static
+        
+        # Copy additional required files
+        cp backend/ftp.py ${DIST_DIR}/ftp.py
+        cp backend/install.bash ${DIST_DIR}/install.bash
+        cp backend/robots.txt ${DIST_DIR}/robots.txt
+
+    # Upload artifacts (optional, for debugging or distribution)
+    - name: Upload distribution folder
+      uses: actions/upload-artifact@v3
+      with:
+        name: dist-${{ matrix.arch }}
+        path: /release/dist-${{ matrix.arch }}
