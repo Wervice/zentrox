@@ -69,7 +69,8 @@ pub fn password_hash(clear_password: String, original_hash: String) -> bool {
         return false;
     }
 
-    let clear_password_hash = crypto_utils::hmac_sha_512_pbkdf2_hash(&clear_password, salt).unwrap();
+    let clear_password_hash =
+        crypto_utils::hmac_sha_512_pbkdf2_hash(&clear_password, salt).unwrap();
 
     hash == clear_password_hash
 }

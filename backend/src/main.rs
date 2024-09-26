@@ -31,7 +31,7 @@ use actix_multipart::form::text::Text;
 use actix_multipart::form::{tempfile::TempFile, MultipartForm};
 use actix_rt::time::interval;
 use openssl::ssl::{SslAcceptor, SslFiletype, SslMethod};
-use sha2::{Digest, Sha256, Sha512};
+use sha2::{Digest, Sha256};
 use tokio::task;
 mod crypto_utils;
 
@@ -57,7 +57,6 @@ struct AppState {
 }
 
 impl AppState {
-    
     /// Initiate a new AppState
     fn new() -> Self {
         let random_string: Vec<u8> = (0..128).map(|_| rand::random::<u8>()).collect();
@@ -86,7 +85,7 @@ impl AppState {
             ip_age_seconds <= 900_000 // 900 seconds = 15 minutes
         });
     }
-    
+
     /// Initiate a loop that periodically cleans up the login_requests of the current AppState.
     fn start_cleanup_task(self) {
         let cleanup_interval = std::time::Duration::from_secs(60); // Every 60 seconds
@@ -1275,10 +1274,7 @@ async fn vault_configure(
             }
         }
 
-        vault::encrypt_file(
-            vault_path.join(".vault").to_string_lossy().to_string(),
-            key,
-        );
+        vault::encrypt_file(vault_path.join(".vault").to_string_lossy().to_string(), key);
         let _ = config_file::write("vault_enabled", "1");
     } else if json.oldKey.is_some() && json.newKey.is_some() {
         let old_key = json.oldKey.clone().unwrap();
@@ -1309,11 +1305,11 @@ async fn vault_configure(
         };
 
         match vault::decrypt_directory(
-            &path::Path::new(&dirs::home_dir().unwrap())
+            path::Path::new(&dirs::home_dir().unwrap())
                 .join("zentrox_data")
                 .join("vault_directory")
                 .to_string_lossy()
-                .to_string(),
+                .as_ref(),
             &old_key,
         ) {
             Ok(_) => {}
@@ -1325,11 +1321,11 @@ async fn vault_configure(
         };
 
         match vault::encrypt_directory(
-            &path::Path::new(&dirs::home_dir().unwrap())
+            path::Path::new(&dirs::home_dir().unwrap())
                 .join("zentrox_data")
                 .join("vault_directory")
                 .to_string_lossy()
-                .to_string(),
+                .as_ref(),
             &new_key,
         ) {
             Ok(_) => {}
@@ -1808,9 +1804,8 @@ async fn vault_file_download(
                 let _ = fs::remove_file(format!("{}.dec", path).to_string());
                 HttpResponse::Ok().body(data)
             }
-            Err(_) => {
-                HttpResponse::InternalServerError().body("Failed to read decrypted file".to_string())
-            }
+            Err(_) => HttpResponse::InternalServerError()
+                .body("Failed to read decrypted file".to_string()),
         }
     } else {
         HttpResponse::BadRequest().body("This file does not exist.")
@@ -1900,7 +1895,8 @@ async fn power_off(
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    let _ = sudo::SwitchedUserCommand::new(json.sudoPassword.clone(), "poweroff".to_string()).spawn();
+    let _ =
+        sudo::SwitchedUserCommand::new(json.sudoPassword.clone(), "poweroff".to_string()).spawn();
 
     HttpResponse::Ok().finish()
 }
@@ -1973,10 +1969,13 @@ async fn update_account_details(
                 new_lines.push(
                     [b64.encode(new_username), {
                         if !password.is_empty() {
-                        
-                        let old_password = line.split(": ").nth(1).unwrap().to_string();
-                        let salt = old_password.split("$").nth(0).unwrap();
-                            old_password.split("$").nth(0).unwrap().to_string() + "$" + &hex::encode(crypto_utils::hmac_sha_512_pbkdf2_hash(password, &salt).unwrap())
+                            let old_password = line.split(": ").nth(1).unwrap().to_string();
+                            let salt = old_password.split("$").next().unwrap();
+                            old_password.split("$").next().unwrap().to_string()
+                                + "$"
+                                + &hex::encode(
+                                    crypto_utils::hmac_sha_512_pbkdf2_hash(password, salt).unwrap(),
+                                )
                         } else {
                             line.split(": ").nth(1).unwrap().to_string()
                         }

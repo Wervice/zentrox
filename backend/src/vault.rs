@@ -4,13 +4,13 @@ use aes_gcm::{
 };
 use sha2::{Digest, Sha256};
 
-use std::fs;
 use crate::crypto_utils;
+use std::fs;
 
 /// Decrypts a file with a specefied key and writes the cleartext back to the file.
 /// * `file` - Path to the file to decrypt
 /// * `key` - Key to decrypt file
-pub fn decrypt_file(file: String, key: &String) -> Option<()> {
+pub fn decrypt_file(file: String, key: &str) -> Option<()> {
     let key_hashed = crypto_utils::argon2_derive_key(key);
 
     let value = fs::read(&file).unwrap();
@@ -37,10 +37,8 @@ pub fn decrypt_file(file: String, key: &String) -> Option<()> {
 /// Decrypts a string with a given key and decodes the input from hexadecimal.
 /// * `string` - Path to the file to decrypt
 /// * `key` - Key to decrypt file
-pub fn decrypt_string(string: String, key: &String) -> Option<String> {
-
+pub fn decrypt_string(string: String, key: &str) -> Option<String> {
     let key_hashed = crypto_utils::argon2_derive_key(key);
-
 
     let value = &hex::decode(&string).unwrap();
 
@@ -60,10 +58,8 @@ pub fn decrypt_string(string: String, key: &String) -> Option<String> {
 /// Encrypt a string with a given key and encodes the output to hexadecimal.
 /// * `string` - Path to the file to decrypt
 /// * `key` - Key to decrypt file
-pub fn encrypt_string(string: String, key: &String) -> Option<String> {
-
+pub fn encrypt_string(string: String, key: &str) -> Option<String> {
     let key_hashed = crypto_utils::argon2_derive_key(key);
-
 
     // Extract the salt and nonce from the file data
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
@@ -92,10 +88,8 @@ fn generate_nonce(input: &[u8]) -> [u8; 12] {
 /// The IV for this encryption is derived using a hash of the filename.
 /// * `string` - Path to the file to decrypt
 /// * `key` - Key to decrypt file
-pub fn decrypt_string_hash(string: String, key: &String) -> Option<String> {
-
+pub fn decrypt_string_hash(string: String, key: &str) -> Option<String> {
     let key_hashed = crypto_utils::argon2_derive_key(key);
-
 
     let value = &hex::decode(&string).unwrap();
 
@@ -115,10 +109,8 @@ pub fn decrypt_string_hash(string: String, key: &String) -> Option<String> {
 /// The IV for this encryption is derived using a hash of the filename.
 /// * `string` - Path to the file to decrypt
 /// * `key` - Key to decrypt file
-pub fn encrypt_string_hash(string: String, key: &String) -> Option<String> {
-
+pub fn encrypt_string_hash(string: String, key: &str) -> Option<String> {
     let key_hashed = crypto_utils::argon2_derive_key(key);
-
 
     // Extract the salt and nonce from the file data
     let nonce = generate_nonce(string.as_bytes());
@@ -134,8 +126,7 @@ pub fn encrypt_string_hash(string: String, key: &String) -> Option<String> {
 /// Encrypts a file with a specefied key and writes the ciphertext back to the file.
 /// * `file` - Path to the file to decrypt
 /// * `key` - Key to encrypt file
-pub fn encrypt_file(file: String, key: &String) {
-
+pub fn encrypt_file(file: String, key: &str) {
     let key_hashed = crypto_utils::argon2_derive_key(key);
 
     let value = fs::read(&file).unwrap();
@@ -154,7 +145,7 @@ pub fn encrypt_file(file: String, key: &String) {
     fs::write(&file, enc_data).unwrap();
 }
 
-pub fn encrypt_directory(directory: &String, key: &String) -> Result<(), String> {
+pub fn encrypt_directory(directory: &str, key: &str) -> Result<(), String> {
     let dir_contents = fs::read_dir(directory).unwrap();
 
     for entry in dir_contents {
@@ -171,7 +162,7 @@ pub fn encrypt_directory(directory: &String, key: &String) -> Result<(), String>
                 );
             }
         } else {
-            let _ = encrypt_directory(&e_u.path().to_string_lossy().to_string(), key);
+            let _ = encrypt_directory(e_u.path().to_string_lossy().as_ref(), key);
             let filename = e_u.file_name().to_string_lossy().to_string();
             let mut encrypted_path = e_u.path();
             encrypted_path.pop();
@@ -185,7 +176,7 @@ pub fn encrypt_directory(directory: &String, key: &String) -> Result<(), String>
     Ok(())
 }
 
-pub fn decrypt_directory(directory: &String, key: &String) -> Result<(), String> {
+pub fn decrypt_directory(directory: &str, key: &str) -> Result<(), String> {
     let dir_contents = fs::read_dir(directory).unwrap();
 
     for entry in dir_contents {
@@ -204,7 +195,7 @@ pub fn decrypt_directory(directory: &String, key: &String) -> Result<(), String>
                 );
             }
         } else {
-            let _ = decrypt_directory(&e_u.path().to_string_lossy().to_string(), key);
+            let _ = decrypt_directory(e_u.path().to_string_lossy().as_ref(), key);
             let filename = e_u.file_name().to_string_lossy().to_string();
             let mut encrypted_path = e_u.path();
             encrypted_path.pop();

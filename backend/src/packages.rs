@@ -1,7 +1,7 @@
 /// APT, DNF, PacMan bindings to
 /// install packages, remove package, list installed/available/unnecessary packages
 use crate::sudo::SwitchedUserCommand;
-use std::collections::{HashMap};
+use std::collections::HashMap;
 use std::{fs, process::Command};
 
 /// Determines which package manager is used by the system.
@@ -255,20 +255,6 @@ pub fn list_installed_packages() -> Result<Vec<String>, String> {
 /// 1. `pacman -Sl` is called without root permissions.
 /// 2. The output is split into lines and returned as a vector.
 pub fn list_available_packages() -> Result<Vec<String>, String> {
-    
-    fn is_version_number(s: &String) -> bool {
-        let version_number_chars = ['.', '-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
-        let mut is = false;
-
-        for c in s.chars() {
-            if version_number_chars.contains(&c) {
-                is = true;
-            }
-        }
-
-        is
-    }
-
     let package_manager = get_package_manager().unwrap();
     if package_manager == "apt" {
         let command = Command::new("apt").arg("list").output().unwrap();
@@ -341,8 +327,8 @@ pub fn list_available_packages() -> Result<Vec<String>, String> {
                 let split = entry.split(" ");
                 let collection = split.collect::<Vec<&str>>();
                 if !entry.contains("[installed") {
-                    return Some(collection[1].to_string());
-                } {
+                    Some(collection[1].to_string())
+                } else {
                     None
                 }
             })

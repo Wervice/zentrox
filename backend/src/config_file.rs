@@ -43,7 +43,7 @@ pub fn write(key: &str, value: &str) -> Result<(), std::io::Error> {
         .join(dirs::home_dir().unwrap())
         .join("zentrox_data")
         .join("zentrox_store_swap.toml");
-    
+
     let mut config_file_parsed = fs::read_to_string(&config_file)
         .expect("Failed to read config file")
         .parse::<toml_edit::DocumentMut>()
