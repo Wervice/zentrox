@@ -2464,6 +2464,10 @@ function Account() {
 		const username = accountUsernameInput.current?.value;
 		const password = accountPasswordInput.current?.value;
 
+		setAccount({
+			username: username
+		})
+
 		fetch("/api/updateAccountDetails", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },

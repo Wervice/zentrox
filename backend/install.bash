@@ -261,7 +261,6 @@ fi
 echo -n "$ADMIN_USERNAME" > "$ZENTROX_DATA_PATH/admin.txt"
 echo -n "true" > "$ZENTROX_DATA_PATH/setupDone.txt"
 
-RANDOM_SALT=$(openssl rand -hex 16)
 echo -n "$(echo -n "$ADMIN_USERNAME" | base64): $(derive_key $ADMIN_PASSWORD): admin" > "$ZENTROX_DATA_PATH/users"
 
 echo "ℹ️  You can now start Zentrox using the command  [ $ZENTROX_PATH/zentrox ]"

@@ -25,6 +25,13 @@ It provides you with important and helpful tools for managing your device.
 
 ## 🛠️ Installation
 **Zentrox is not yet intended for active use, but for testing.**
+Zentrox has the following requirements
+- OpenSSL
+- Uncomplicated Firewall
+- Python 3.11+
+- pacman/apt/dnf
+- Node (only for self-building)
+- Cargo (only for self-building)
 
 Zentrox can be installed in one of the following two ways:
 ### Pre-build binaries
