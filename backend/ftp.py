@@ -7,7 +7,7 @@ import sys
 import os
 
 home_path = "/home/"+sys.argv[1]
-config_file_path = os.path.join(home_path, "zentrox_data", "config.toml")
+config_file_path = os.path.join(home_path, "zentrox_data", "zentrox_store.toml")
 
 if sys.argv[1] == "root":
     home_path = "/root"
