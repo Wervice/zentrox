@@ -149,21 +149,6 @@ fi
 
 mkdir -p "$ZENTROX_DATA_PATH" &> /dev/null || true
 
-if [[ $ZENTROX_PATH == "/" || $ZENTROX_PATH == "$HOME" || $ZENTROX_PATH == "$HOME/" ]] ; then
-	echo "⚠️  Critical problem detected: $ZENTROX_PATH equal to protected folder"
-fi
-
-mkdir -p "$ZENTROX_PATH"
-mv -f static/ "$ZENTROX_PATH/static"
-mv -f zentrox "$ZENTROX_PATH/zentrox"
-mv -f ftp.py "$ZENTROX_PATH/ftp.py"
-chmod +x "$ZENTROX_PATH/zentrox"
-
-echo "ℹ️  Please add $ZENTROX_PATH to your path"
-echo "ℹ️  The zentrox binary was moved to $ZENTROX_PATH/zentrox"
-
-cd "$ZENTROX_PATH" || exit # Got to zentrox_server folder
-
 if ! command pip3 --version &> /dev/null
 then
 	echo "❌ Python Package Manager (pip3) is not installed. To fix this issue, please install python3."
