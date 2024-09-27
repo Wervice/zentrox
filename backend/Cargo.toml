@@ -16,7 +16,7 @@ base64 = "0.22.1"
 dirs = "5.0.1"
 futures = "0.3.30"
 hex = "0.4.3"
-openssl = "0.10.66"
+openssl = { version = "0.10.66", features = ["vendored"] }
 rand = "0.8.5"
 regex = "1.10.6"
 ring = "0.17.8"
@@ -34,3 +34,9 @@ whoami = "1.5.1"
 [profile.release]
 opt-level = 3
 debug = 0
+
+[[bin]]
+name = "zentrox"
+path = "src/main.rs"
+
+include = ["static/**/*", "install.bash", "ftp.py", "robots.txt"]

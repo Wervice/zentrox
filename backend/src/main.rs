@@ -11,12 +11,13 @@ mod config_file;
 mod otp;
 mod sudo;
 use actix_cors::Cors;
+use std::env::{self, current_dir};
 use std::{
     collections::HashMap,
     fs,
     io::Read,
     path,
-    process::Command,
+    process::{Command, Stdio},
     sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -2067,6 +2068,21 @@ async fn dashboard_asset_block(session: Session, state: web::Data<AppState>) -> 
 /// Prepares Zentrox and starts the server.
 async fn main() -> std::io::Result<()> {
     println!("🚀 Serving Zentrox on Port 8080");
+
+    if !env::current_dir().unwrap().join("static").exists() {
+        env::set_current_dir(std::env::current_exe().unwrap().parent().unwrap());
+    }
+
+    if !dirs::home_dir().unwrap().join("zentrox_data").exists() {
+       let status = Command::new("bash")
+            .arg("install.bash")
+            .stdin(Stdio::inherit())  // Allows user to provide input
+            .stdout(Stdio::inherit()) // Redirect stdout to console
+            .stderr(Stdio::inherit()) // Redirect stderr to console
+            .status()  // Executes the command
+            .expect("Failed to run install.bash");
+
+    }
 
     // Resetting variables to default state
     if let Err(e) = config_file::write("ftp_pid", "") {
