@@ -1,7 +1,14 @@
 [package]
 name = "zentrox"
-version = "0.1.0"
+version = "0.1.1-testing-0.2"
 edition = "2021"
+authors = ["wervice"]
+description = "An open source home lab device frontend to administrate your devices"
+documentation = "https://github.com/Wervice/zentrox/wiki"
+homepage = "https://wervice.github.io/zentrox"
+license = "Apache-2.0"
+keywords = ["administration", "actix", "remote"]
+repository = "https://github.com/Wervice/zentrox"
 
 [dependencies]
 actix-cors = "0.7.0"
@@ -16,7 +23,7 @@ base64 = "0.22.1"
 dirs = "5.0.1"
 futures = "0.3.30"
 hex = "0.4.3"
-openssl = { version = "0.10.66", features = ["vendored"] }
+openssl = { version = "0.10.66" }
 rand = "0.8.5"
 regex = "1.10.6"
 ring = "0.17.8"
@@ -38,5 +45,4 @@ debug = 0
 [[bin]]
 name = "zentrox"
 path = "src/main.rs"
-
 include = ["static/**/*", "install.bash", "ftp.py", "robots.txt"]
