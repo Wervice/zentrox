@@ -35,6 +35,12 @@ use openssl::ssl::{SslAcceptor, SslFiletype, SslMethod};
 use sha2::{Digest, Sha256};
 use tokio::task;
 mod crypto_utils;
+use flate2::read::GzDecoder;
+use std::fs::File;
+use std::io::{self, Cursor};
+use std::path::Path;
+use tar::Archive;
+
 
 #[allow(non_snake_case)]
 #[derive(Clone)]
@@ -2069,12 +2075,34 @@ async fn dashboard_asset_block(session: Session, state: web::Data<AppState>) -> 
 async fn main() -> std::io::Result<()> {
     println!("🚀 Serving Zentrox on Port 8080");
 
+    let files: &[u8] = include_bytes!("../statics.tar.gz");
+
     if !env::current_dir().unwrap().join("static").exists() {
-        env::set_current_dir(std::env::current_exe().unwrap().parent().unwrap());
+        env::set_current_dir(dirs::home_dir().unwrap().join("zentrox"));
     }
 
     if !dirs::home_dir().unwrap().join("zentrox_data").exists() {
-       let status = Command::new("bash")
+       
+        fs::create_dir(dirs::home_dir().unwrap().join("zentrox"));
+
+        // Step 2: Decompress the .gz file
+    let tar_gz_cursor = Cursor::new(files); // Cursor allows reading from the byte slice
+    let decompressed = GzDecoder::new(files); // GzDecoder reads the .gz file and decompresses it
+
+    // Step 3: Extract the .tar archive from the decompressed data
+    let mut archive = Archive::new(decompressed);
+
+    // Step 4: Define where to extract the files (for example, to /tmp/extracted/)
+    let output_dir = dirs::home_dir().unwrap().join(
+        "zentrox"
+            );
+    fs::create_dir_all(&output_dir)?; // Ensure the output directory exists
+
+    // Step 5: Extract the contents of the tar archive
+    archive.unpack(output_dir)?;
+
+
+        let status = Command::new("bash")
             .arg("install.bash")
             .stdin(Stdio::inherit())  // Allows user to provide input
             .stdout(Stdio::inherit()) // Redirect stdout to console
