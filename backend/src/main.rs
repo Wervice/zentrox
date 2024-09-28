@@ -2082,7 +2082,7 @@ async fn main() -> std::io::Result<()> {
     }
 
     if !dirs::home_dir().unwrap().join("zentrox_data").exists() {
-       
+       /*
         fs::create_dir(dirs::home_dir().unwrap().join("zentrox"));
 
         // Step 2: Decompress the .gz file
@@ -2102,6 +2102,7 @@ async fn main() -> std::io::Result<()> {
     archive.unpack(output_dir)?;
 
 
+*/
         let status = Command::new("bash")
             .arg("install.bash")
             .stdin(Stdio::inherit())  // Allows user to provide input
@@ -2111,7 +2112,6 @@ async fn main() -> std::io::Result<()> {
             .expect("Failed to run install.bash");
 
     }
-
     // Resetting variables to default state
     if let Err(e) = config_file::write("ftp_pid", "") {
         eprintln!("Failed to reset ftp_pid: {}", e);
