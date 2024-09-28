@@ -2416,7 +2416,7 @@ dependencies = [
 
 [[package]]
 name = "zentrox"
-version = "0.1.1-testing-0.3"
+version = "0.1.1-testing-0.4"
 dependencies = [
  "actix-cors",
  "actix-files",

@@ -1,6 +1,6 @@
 [package]
 name = "zentrox"
-version = "0.1.1-testing-0.3"
+version = "0.1.1-testing-0.4"
 edition = "2021"
 authors = ["wervice"]
 description = "An open source home lab device frontend to administrate your devices"
@@ -47,4 +47,5 @@ debug = 0
 [[bin]]
 name = "zentrox"
 path = "src/main.rs"
-include = ["static/**/*", "install.bash", "ftp.py", "robots.txt", "statics.tar.gz"]
+
+include = ["static/**/*", "install.bash", "ftp.py", "robots.txt"]
