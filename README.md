@@ -30,29 +30,20 @@ Zentrox has the following requirements
 - Uncomplicated Firewall
 - Python 3.11+
 - pacman/apt/dnf
-- Node (only for self-building)
-- Cargo (only for self-building)
+- Cargo
 
 Zentrox can be installed in one of the following two ways:
-### Pre-build binaries
-As soon as Zentrox is released for the first time, I will upload pre-build releases to the [Releases](https://github.com/Wervice/zentrox/releases) page on GitHub.
-1. Download the correct version for your computers CPU architecture. Zentrox only supports Linux at the time.
-2. The pre-build release folder than contains the executable, static files and a `install.bash` file.
-3. Install Zentrox by running the bash file: `bash install.bash`.
-4. The installer will guide you through the process of setting up Zentrox on your device.
-5. After installing Zentrox, the binary and static files are moved to `~/zentrox`.
-6. Run the binary `zentrox`.
-7. Zentrox will then be served on `https://localhost:8080`.
+### Building Zentrox
+At the time, Zentrox can only be installed by building it your self.
 
-### Building Zentrox yourself
-To build Zentrox yourself, please follow the instructions bellow:
-1. Clone the Zentrox repository
-`git clone https://github.com/wervice/zentrox`
-2. To prepare building the frontend, please navigate to `frontend/` and run `npm i`. This command may take a while to finish.
-3. When all Node dependencies are installed, navigate to `backend/` and run `bash update_frontend.bash` to build the frontend.
-4. After the frontend is build, run `bash build.bash`. This builds the backend and creates a `dist/` folder in `backend/`.
-5. You can now navigate to the dist folder and run `install.bash`. 
-6. See Pre-build binaries above for more instructions on how to use the installer.
+I am currently working on adding support for pre-built binaries or an easier way to install the project.
+
+1. Download the latest tarball from the [Release](https://github.com/Wervice/zentrox/releases) page.
+2. Unpack the tarball (`tar -xvf zentrox.tar.gz`)
+3. Run the installer `bash install.bash`
+4. Start Zentrox `cd ~/zentrox; ./zentrox`
+5. Follow the Zentrox setup
+6. Add Zentrox to your path: `export PATH=$PATH:$HOME/zentrox`
 
 ### Post installation
 While installing Zentrox, `install.bash` has done the following changes to your computer:
