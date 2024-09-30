@@ -60,17 +60,8 @@ pub fn generate_random_token() -> Vec<u8> {
 
 /// Check if the password provided during login matches with the password stored on the server
 /// side. It uses SHA 512 PBKDF2.
-pub fn password_hash(clear_password: String, original_hash: String) -> bool {
-    let original_hash_segments = original_hash.split("$").collect::<Vec<&str>>();
-    let salt = original_hash_segments[0];
-    let hash = hex::decode(original_hash_segments[1]).unwrap();
+pub fn password_hash(login_password: String, stored_hash: String) -> bool {
+    let hash = hex::encode(&crypto_utils::argon2_derive_key(&login_password).unwrap()); 
 
-    if clear_password.is_empty() {
-        return false;
-    }
-
-    let clear_password_hash =
-        crypto_utils::hmac_sha_512_pbkdf2_hash(&clear_password, salt).unwrap();
-
-    hash == clear_password_hash
+    hash == stored_hash
 }

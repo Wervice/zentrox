@@ -1,9 +1,9 @@
-# This file is intended to be started by Zentrox
+#!/bin/bash
 
 update_toml() {
     local key=$1
     local value=$2
-    local toml_file="$HOME/zentrox_data/zentrox_store.toml"
+    local toml_file="$HOME/.local/share/zentrox/zentrox_store.toml"
 
     # Check if the file exists
     if [[ ! -f "$toml_file" ]]; then
@@ -128,20 +128,8 @@ read ENABLE_2FA
 echo -n "🥏 Please enter a name for your zentrox server (e.g. glorious_server) "
 read ZENTROX_SERVER_NAME
 
-if [[ $ACTUAL_USERNAME != "root" ]]; then
-	USERNAME_PATH="/home/$ACTUAL_USERNAME"
-else
-	USERNAME_PATH="/root"
-fi
-
-if [ -d "$USERNAME_PATH" ]; then
-	echo "✅ Using $USERNAME_PATH/zentrox and $USERNAME_PATH/zentrox_data to install and run zentrox"
-	ZENTROX_PATH="$USERNAME_PATH/zentrox"
-	ZENTROX_DATA_PATH="$USERNAME_PATH/zentrox_data"
-else
-	echo "❌ Please enter your correct username or make sure, this username is used for your /home directory."
-	exit 1
-fi
+ZENTROX_PATH="$HOME/.local/bin/zentrox"
+ZENTROX_DATA_PATH="$HOME/.local/share/zentrox"
 
 mkdir -p "$ZENTROX_DATA_PATH" &> /dev/null || true
 
@@ -206,16 +194,9 @@ echo "✅ Generated .key, .crt and .pem file"
 
 # Sets up all folders and files for Zentrox
 echo "📁 Creating file structure"
-touch "$ZENTROX_DATA_PATH/admin.txt" &> /dev/null
-touch "$ZENTROX_DATA_PATH/setupDone.txt" &> /dev/null
 mkdir -p "$ZENTROX_DATA_PATH/upload_vault" &> /dev/null
-mkdir -p "$ZENTROX_DATA_PATH/vault_extract" &> /dev/null
-touch "$ZENTROX_DATA_PATH/zentrox.txt" &> /dev/null
-touch "$ZENTROX_DATA_PATH/vault.vlt" &> /dev/null
-
-touch "$ZENTROX_DATA_PATH"/locked.db
-
 touch ~/zentrox_data/zentrox_store.toml
+
 update_toml "server_name" "$ZENTROX_SERVER_NAME"
 update_toml "reg_mode" "linkInvite"
 update_toml "server_name" "$ZENTROX_SERVER_NAME"

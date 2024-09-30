@@ -10,7 +10,9 @@ use std::path;
 pub fn read(key: &str) -> String {
     let config_file = path::Path::new("")
         .join(dirs::home_dir().unwrap())
-        .join("zentrox_data")
+        .join(".local")
+        .join("share")
+        .join("zentrox")
         .join("zentrox_store.toml");
 
     match fs::read_to_string(config_file)
@@ -36,12 +38,16 @@ pub fn read(key: &str) -> String {
 pub fn write(key: &str, value: &str) -> Result<(), std::io::Error> {
     let config_file = path::Path::new("")
         .join(dirs::home_dir().unwrap())
-        .join("zentrox_data")
+        .join(".local")
+        .join("share")
+        .join("zentrox")
         .join("zentrox_store.toml");
 
     let config_file_swap = path::Path::new("")
         .join(dirs::home_dir().unwrap())
-        .join("zentrox_data")
+        .join(".local")
+        .join("share")
+        .join("zentrox")
         .join("zentrox_store_swap.toml");
 
     let mut config_file_parsed = fs::read_to_string(&config_file)

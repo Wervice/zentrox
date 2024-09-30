@@ -17,6 +17,23 @@ pub struct SudoOuput {
     pub stderr: String,
 }
 
+pub fn get_tool() -> Option<String> {
+    if Command::new("doas").spawn().is_ok() {
+        return Some(String::from("doas"));
+    } else if Command::new("sudo").spawn().is_ok() {
+        return Some(String::from("sudo"));
+    }
+
+    let run0 = Command::new("run0").spawn();
+    
+    if run0.is_ok() {
+        run0.unwrap().kill();
+        return Some("run0".to_string())
+    } else {
+        return None
+    }
+}
+
 impl SwitchedUserCommand {
     /// Create new SwitchedUserCommand.
     /// * `password` - The password used for `sudo`
@@ -56,10 +73,16 @@ impl SwitchedUserCommand {
         let args = self.args.clone();
         let password = self.password.clone();
         let command = self.command.clone();
+        let tool = get_tool();
+
+        if tool.is_none() { return Err("No supported privilege escalation tool found".to_string()) }
 
         // Command Thread, handles the actual command
         let thread_handle = thread::spawn(move || {
-            let mut command_handle = Command::new("sudo")
+            let mut command_handle;
+
+            if tool.clone().unwrap() == "sudo" {
+            command_handle = Command::new("sudo")
                 .arg("-S")
                 .arg("-k")
                 .args(command.clone().split(" "))
@@ -69,6 +92,18 @@ impl SwitchedUserCommand {
                 // .stdout(Stdio::piped())
                 .spawn()
                 .expect("Failed to spawn process");
+            } else if tool.unwrap() == "doas" {
+                 command_handle = Command::new("doas")
+                .args(command.clone().split(" "))
+                .args(args)
+                .stdin(Stdio::piped())
+                // .stderr(Stdio::piped())
+                // .stdout(Stdio::piped())
+                .spawn()
+                .expect("Failed to spawn process");
+            } else {
+                return Err("Tool not supported".to_string())
+            }
 
             let password = password;
             let mut stdinput = command_handle.stdin.take().unwrap();
@@ -102,19 +137,38 @@ impl SwitchedUserCommand {
         let args = self.args.clone();
         let password = self.password.clone();
         let command = self.command.clone();
+        let tool = get_tool();
+
+        if tool.is_none() { return Err("No supported privilege escalation tool found".to_string()) }
+
 
         // Command Thread, handles the actual command
         let thread_handle = thread::spawn(move || {
-            let mut command_handle = Command::new("sudo")
-                .arg("-S") // Read password from stdin
-                .arg("-k") // Force sudo to prompt for the password
+             let mut command_handle;
+
+            if tool.clone().unwrap() == "sudo" {
+            command_handle = Command::new("sudo")
+                .arg("-S")
+                .arg("-k")
                 .args(command.clone().split(" "))
                 .args(args)
                 .stdin(Stdio::piped())
-                .stderr(Stdio::piped())
-                .stdout(Stdio::piped())
+                // .stderr(Stdio::piped())
+                // .stdout(Stdio::piped())
                 .spawn()
                 .expect("Failed to spawn process");
+            } else if tool.unwrap() == "doas" {
+                 command_handle = Command::new("doas")
+                .args(command.clone().split(" "))
+                .args(args)
+                .stdin(Stdio::piped())
+                // .stderr(Stdio::piped())
+                // .stdout(Stdio::piped())
+                .spawn()
+                .expect("Failed to spawn process");
+            } else {
+                return Err("Tool not supported".to_string())
+            }
 
             // Capture output and errors
 

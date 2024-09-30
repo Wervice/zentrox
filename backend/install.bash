@@ -3,13 +3,14 @@
 
 echo "Installing Zentrox"
 echo "This may take a while."
-mkdir ~/zentrox &> /dev/null
+EXE_DIR=$HOME/.local/bin/zentrox
+mkdir -p $EXE_DIR &> /dev/null
 cargo build --release
-cp ./target/release/zentrox ~/zentrox/zentrox
-cp ./ftp.py ~/zentrox/ftp.py
-cp ./setup.bash ~/zentrox/setup.bash
-cp ./robots.txt ~/zentrox/robots.txt
-cp -r static/ ~/zentrox/static
+cp ./target/release/zentrox ~$EXE_DIR/zentrox
+cp ./ftp.py $EXE_DIR/ftp.py
+cp ./setup.bash $EXE_DIR/setup.bash
+cp ./robots.txt $EXE_DIR/robots.txt
+cp -r static/ $EXE_DIR/static
 rm -rf ./*
 
 echo "✅ Finished Zentrox installation"
