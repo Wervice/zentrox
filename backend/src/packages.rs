@@ -64,14 +64,26 @@ pub fn get_package_manager() -> Option<String> {
 pub fn auto_remove(password: String) -> Result<(), String> {
     let package_mamager = get_package_manager().unwrap();
 
-    let command;
+    let command: String;
 
     if package_mamager == "apt" {
-        command = "apt autoremove";
+        command = "apt autoremove".to_string();
     } else if package_mamager == "dnf" {
-        command = "dnf autoremove";
+        command = "dnf autoremove".to_string();
     } else if package_mamager == "pacman" {
-        command = "pacman -R $(pacman -Qdtq)";
+        let packages = String::from_utf8(
+            std::process::Command::new("pacman")
+                .arg("-Qdtq")
+                .output()
+                .unwrap()
+                .stdout,
+        )
+        .unwrap()
+        .replace("\n", " ");
+
+        command = format!("pacman -Rc {}", packages);
+
+        dbg!(&command);
     } else {
         return Err("Unknow package manager".to_string());
     }

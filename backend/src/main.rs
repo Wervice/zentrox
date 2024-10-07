@@ -1,18 +1,20 @@
 use actix_cors::Cors;
 use actix_files as afs;
+use actix_multipart::form::json::Json;
 use actix_multipart::form::{tempfile::TempFile, text::Text, MultipartForm};
 use actix_rt::time::interval;
 use actix_session::{storage::CookieSessionStore, Session, SessionMiddleware};
-use rustls;
 use actix_web::cookie::Key;
 use actix_web::{get, http::StatusCode, middleware, post, web, App, HttpResponse, HttpServer};
 use base64::{engine::general_purpose::STANDARD as b64, Engine as _};
+use rustls;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
-    env, fs::{self, File},
-    io::{Read, BufReader},
+    env,
+    fs::{self, File},
+    io::{BufReader, Read},
     path,
     process::Command,
     sync::{Arc, Mutex},
@@ -27,6 +29,7 @@ mod config_file;
 mod crypto_utils;
 mod drives;
 mod is_admin;
+mod logs;
 mod otp;
 mod packages;
 mod setup;
@@ -1239,9 +1242,9 @@ async fn vault_configure(
     }
 
     let vault_path = path::Path::new(&dirs::home_dir().unwrap())
-                .join(".local")
-                .join("share")
-                .join("zentrox")
+        .join(".local")
+        .join("share")
+        .join("zentrox")
         .join("vault_directory");
 
     if config_file::read("vault_enabled") == "0" && !vault_path.exists() {
@@ -1298,9 +1301,9 @@ async fn vault_configure(
         ) {
             Some(_) => vault::encrypt_file(
                 std::path::Path::new(&dirs::home_dir().unwrap())
-                .join(".local")
-                .join("share")
-                .join("zentrox")
+                    .join(".local")
+                    .join("share")
+                    .join("zentrox")
                     .join("vault_directory")
                     .join(".vault")
                     .to_string_lossy()
@@ -1465,9 +1468,9 @@ async fn vault_tree(
         ) {
             Some(_) => vault::encrypt_file(
                 std::path::Path::new(&dirs::home_dir().unwrap())
-                .join(".local")
-                .join("share")
-                .join("zentrox")
+                    .join(".local")
+                    .join("share")
+                    .join("zentrox")
                     .join("vault_directory")
                     .join(".vault")
                     .to_string_lossy()
@@ -1528,9 +1531,9 @@ async fn delete_vault_file(
     }
 
     let path = path::Path::new(&dirs::home_dir().unwrap().to_string_lossy().to_string())
-                .join(".local")
-                .join("share")
-                .join("zentrox")
+        .join(".local")
+        .join("share")
+        .join("zentrox")
         .join("vault_directory")
         .join(
             sent_path
@@ -1602,9 +1605,9 @@ async fn vault_new_folder(
     }
 
     let path = path::Path::new(&dirs::home_dir().unwrap().to_string_lossy().to_string())
-                .join(".local")
-                .join("share")
-                .join("zentrox")
+        .join(".local")
+        .join("share")
+        .join("zentrox")
         .join("vault_directory")
         .join(
             sent_path
@@ -1658,9 +1661,9 @@ async fn upload_vault(
     }
 
     let base_path = path::Path::new(&dirs::home_dir().unwrap())
-                .join(".local")
-                .join("share")
-                .join("zentrox")
+        .join(".local")
+        .join("share")
+        .join("zentrox")
         .join("vault_directory");
 
     let encrypted_path = form
@@ -1731,9 +1734,9 @@ async fn rename_vault_file(
     }
 
     let path = path::Path::new(&dirs::home_dir().unwrap().to_string_lossy().to_string())
-                .join(".local")
-                .join("share")
-                .join("zentrox")
+        .join(".local")
+        .join("share")
+        .join("zentrox")
         .join("vault_directory")
         .join(
             sent_path
@@ -1746,9 +1749,9 @@ async fn rename_vault_file(
 
     let sent_new_path = &json.newName;
     let new_path = path::Path::new(&dirs::home_dir().unwrap().to_string_lossy().to_string())
-                .join(".local")
-                .join("share")
-                .join("zentrox")
+        .join(".local")
+        .join("share")
+        .join("zentrox")
         .join("vault_directory")
         .join(
             sent_new_path
@@ -1811,9 +1814,9 @@ async fn vault_file_download(
     }
 
     let path = path::Path::new(&dirs::home_dir().unwrap().to_string_lossy().to_string())
-                .join(".local")
-                .join("share")
-                .join("zentrox")
+        .join(".local")
+        .join("share")
+        .join("zentrox")
         .join("vault_directory")
         .join(
             sent_path
@@ -2007,7 +2010,8 @@ async fn update_account_details(
                 new_lines.push(
                     [b64.encode(new_username), {
                         if !password.is_empty() {
-                            hex::encode(crypto_utils::argon2_derive_key(password).unwrap()).to_string()
+                            hex::encode(crypto_utils::argon2_derive_key(password).unwrap())
+                                .to_string()
                         } else {
                             line.split(": ").nth(1).unwrap().to_string()
                         }
@@ -2034,9 +2038,9 @@ async fn profile_picture(session: Session, state: web::Data<AppState>) -> HttpRe
 
     let f = fs::read(
         path::Path::new(&dirs::home_dir().unwrap())
-                .join(".local")
-                .join("share")
-                .join("zentrox")
+            .join(".local")
+            .join("share")
+            .join("zentrox")
             .join("profile.png"),
     );
 
@@ -2067,9 +2071,9 @@ async fn upload_profile_picture(
     }
 
     let profile_picture_path = path::Path::new(&dirs::home_dir().unwrap())
-                .join(".local")
-                .join("share")
-                .join("zentrox")
+        .join(".local")
+        .join("share")
+        .join("zentrox")
         .join("profile.png");
 
     let tmp_file_path = form.file.file.path().to_owned();
@@ -2081,6 +2085,46 @@ async fn upload_profile_picture(
             eprintln!("❌ Failed to remove temp file.\n{}", e);
             HttpResponse::InternalServerError().finish()
         }
+    }
+}
+
+#[derive(Serialize)]
+struct MessagesLog {
+    logs: Vec<(String, String, String, String, String)>,
+}
+
+#[derive(Serialize)]
+struct LastLog {
+    logs: Vec<(String, String, String, String)>,
+}
+
+#[post("/api/logs/{log}/{duration}")]
+async fn logs_request(
+    session: Session,
+    state: web::Data<AppState>,
+    json: web::Json<SudoPasswordOnlyRequest>,
+    path: web::Path<(String, u64)>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    let pii = path.into_inner();
+    let log = pii.0;
+    let duration = pii.1;
+
+    if log == "messages" {
+        let messages = logs::log_messages(json.sudoPassword.clone(), duration / 1000);
+
+        match messages {
+            Ok(v) => return HttpResponse::Ok().json(MessagesLog { logs: v }),
+            Err(e) => {
+                eprintln!("❌ {}", e);
+                return HttpResponse::InternalServerError().body("Failed to get message logs");
+            }
+        }
+    } else {
+        return HttpResponse::BadRequest().body("The requested logs do not exist");
     }
 }
 
@@ -2106,8 +2150,14 @@ async fn main() -> std::io::Result<()> {
         let _ = env::set_current_dir(dirs::home_dir().unwrap().join("zentrox"));
     }
 
-    if !dirs::home_dir().unwrap().join(".local").join("share").join("zentrox").exists() {
-        setup::run_setup();
+    if !dirs::home_dir()
+        .unwrap()
+        .join(".local")
+        .join("share")
+        .join("zentrox")
+        .exists()
+    {
+        let _ = setup::run_setup();
     }
 
     // Resetting variables to default state
@@ -2137,16 +2187,31 @@ async fn main() -> std::io::Result<()> {
         println!(include_str!("../notes/cert_note.txt"));
     }
 
-
-
-
-      rustls::crypto::aws_lc_rs::default_provider()
+    rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .unwrap();
-    let data_path = dirs::home_dir().unwrap().join(".local").join("share").join("zentrox");
+    let data_path = dirs::home_dir()
+        .unwrap()
+        .join(".local")
+        .join("share")
+        .join("zentrox");
 
-    let mut certs_file = BufReader::new(File::open(data_path.join("certificates").join(config_file::read("tls_cert"))).unwrap());
-    let mut key_file = BufReader::new(File::open(data_path.join("certificates").join(config_file::read("tls_cert"))).unwrap());
+    let mut certs_file = BufReader::new(
+        File::open(
+            data_path
+                .join("certificates")
+                .join(config_file::read("tls_cert")),
+        )
+        .unwrap(),
+    );
+    let mut key_file = BufReader::new(
+        File::open(
+            data_path
+                .join("certificates")
+                .join(config_file::read("tls_cert")),
+        )
+        .unwrap(),
+    );
 
     // load TLS certs and key
     // to create a self-signed temporary cert for testing:
@@ -2164,11 +2229,6 @@ async fn main() -> std::io::Result<()> {
         .with_no_client_auth()
         .with_single_cert(tls_certs, rustls::pki_types::PrivateKeyDer::Pkcs8(tls_key))
         .unwrap();
-
-
-
-
-
 
     println!("🚀 Serving Zentrox on Port 8080");
 
@@ -2246,6 +2306,8 @@ async fn main() -> std::io::Result<()> {
             .service(update_account_details)
             .service(profile_picture)
             .service(upload_profile_picture)
+            // Logs
+            .service(logs_request)
             // General services and blocks
             .service(dashboard_asset_block)
             .service(robots_txt)

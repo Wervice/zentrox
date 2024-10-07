@@ -50,6 +50,8 @@ import {
 	LoaderIcon,
 	DeleteIcon,
 	PenLineIcon,
+	ClockIcon,
+	Table,
 } from "lucide-react";
 import { useEffect, useState, useRef } from "react";
 import { Label } from "@/components/ui/label";
@@ -1203,7 +1205,7 @@ function Firewall() {
 									</label>
 									<Input
 										id="ruleFrom"
-										placeholder="IP Adress"
+										placeholder="IP Address"
 										ref={newRuleFrom}
 									/>
 									<label htmlFor="ruleAction">
@@ -1241,10 +1243,8 @@ function Firewall() {
 												onClick={() => {
 													setPreventRefetch(false);
 													if (
-														newRuleFrom.current.value.length === 0 ||
 														newRuleTo.current.value.length === 0 ||
-														typeof newRuleTo.current.value === "undefined" ||
-														typeof newRuleFrom.current.value === "undefined"
+														typeof newRuleTo.current.value === "undefined"
 													) {
 														toast({
 															title: "Can not create firewall rule",
@@ -1256,7 +1256,7 @@ function Firewall() {
 													fetch(
 														fetchURLPrefix +
 															"/api/newFireWallRule/" +
-															encodeURIComponent(newRuleFrom.current.value) +
+															encodeURIComponent(newRuleFrom.current.value.length === 0 ? "any" : newRuleFrom.current.value) +
 															"/" +
 															encodeURIComponent(newRuleTo.current.value) +
 															"/" +
@@ -2465,8 +2465,8 @@ function Account() {
 		const password = accountPasswordInput.current?.value;
 
 		setAccount({
-			username: username
-		})
+			username: username,
+		});
 
 		fetch("/api/updateAccountDetails", {
 			method: "POST",
@@ -2653,6 +2653,301 @@ function Account() {
 	);
 }
 
+function Logs() {
+	const [selectedLog, setSelectedLog] = useState("");
+	const [sudoPasswordModal, setSudoPasswordModal] = useState(true);
+	const [sudoPassword, setSudoPassword] = useState("");
+	const [logRefreshKeyValue, setLogRefreshKeyValue] = useState(0);
+	const [tableFilter, setTableFilter] = useState("");
+	const [since, setSince] = useState(function () {
+		let currentDate = new Date();
+		currentDate.setHours(currentDate.getHours() - 4);
+		return currentDate
+	}());
+	let sudoPasswordInput = useRef();
+	let searchInput = useRef();
+
+	const LogTable = ({ log, logFilter }) => {
+		const [logEntries, setLogEntries] = useState([["", "", "", ""]]);
+		const [logInfo, setLogInfo] = useState("");
+		const [logMessageColor, setLogMessageColor] = useState("white");
+
+		const Td = ({ children, orientation = "center", className }) => {
+			return (
+				<td
+					className={
+						"p-2 hover:bg-neutral-900 rounded cursor-default text-" +
+						orientation +
+						" " +
+						className
+					}
+				>
+					{children}
+				</td>
+			);
+		};
+
+		const fetchLog = (log, sudo, duration) => {
+			setLogInfo(`Fetching for logs since ${duration} (This may take a while)`);
+			setLogMessageColor("blue");
+			fetch(fetchURLPrefix + "/api/logs/" + log + "/" + Date.parse(duration), {
+				method: "POST",
+				body: JSON.stringify({
+					sudoPassword: sudo,
+				}),
+				headers: {
+					"Content-Type": "application/json",
+				},
+			}).then((res) => {
+				if (res.ok) {
+					res.json().then((j) => {
+						setLogEntries(j.logs);
+					});
+					setLogInfo(
+						`Log from ${new Date().getTime()} since ${duration}`,
+					);
+					setLogMessageColor("green");
+				} else {
+					setLogEntries([["", "", "", ""]]);
+					setLogInfo(`Failed to fetch log at ${new Date().getTime()}`);
+					setLogMessageColor("red");
+				}
+			});
+		};
+
+		useEffect(() => {
+			if (sudoPassword != "") {
+				fetchLog(log, sudoPassword, since);
+			} else {
+				setLogInfo(`Missing sudo password`);
+				setLogMessageColor("yellow");
+			}
+		}, []);
+
+		function formatTimestamp(timestamp) {
+			if (parseInt(timestamp) < 1000 || timestamp == "") {
+				return "";
+			}
+
+			// Convert the timestamp string to an integer
+			const date = new Date(parseInt(Math.floor(timestamp / 1000))); // Multiply by 1000 to convert seconds to milliseconds
+
+			// Format the date to a human-readable format
+			const formattedDate = date.toLocaleString("en-US", {
+				weekday: "short", // e.g. "Monday"
+				year: "numeric", // e.g. "2024"
+				month: "long", // e.g. "October"
+				day: "numeric", // e.g. "6"
+				hour: "2-digit", // e.g. "10"
+				minute: "2-digit", // e.g. "45"
+				second: "2-digit", // e.g. "30"
+				hour12: true, // 12-hour clock with AM/PM
+			});
+
+			return formattedDate;
+		}
+		return (
+			<>
+				<span className={`m-2 mt-1 mb-1 block text-${logMessageColor}-500`}>
+					{logInfo}
+				</span>
+				<div className="overflow-scroll no-scroll">
+					<table className="mt-2">
+						<tr>
+							<Td className="font-bold">Time</Td>
+							<Td className="font-bold">Application</Td>
+							<Td className="font-bold">Message</Td>
+						</tr>
+						{logEntries.filter((e) => {
+							if (tableFilter.length != 0) {
+								return (e[2].toLowerCase().includes(tableFilter.toLowerCase()) || e[3].toLowerCase().includes(tableFilter.toLowerCase()) || e[4] == tableFilter)
+							} else {
+								return true
+							}
+						}).reverse().map((logEntry) => {
+							return (
+								<tr>
+									<Td orientation="left">{formatTimestamp(logEntry[0])}</Td>
+									<Td orientation="left">{logEntry[2]}</Td>
+									<Td
+										orientation="left"
+										className={(function () {
+											var level = logEntry[4];
+											if (level == "8") {
+												return "text-neutral-600";
+											} else if (level == "7") {
+												return "text-white-500";
+											} else if (level == "6") {
+												return "text-blue-500";
+											} else if (level == "5") {
+												return "text-green-500";
+											} else if (level == "4") {
+												return "text-yellow-500";
+											} else if (level == "3") {
+												return "text-orange-500";
+											} else if (level == "2") {
+												return "text-red-500";
+											} else if (level == "1") {
+												return "text-purple-500 text-bold";
+											} else if (level == "0") {
+												return "text-black bg-red-500 text-bold hover:bg-orange-500";
+											}
+										})()}
+									>
+										{logEntry[3]}
+									</Td>
+								</tr>
+							);
+						})}
+					</table>
+				</div>
+			</>
+		);
+	};
+
+	const CurrentTimer = () => {
+		const [timeFormat, setTimeFormat] = useState("unix");
+		const [time, setTime] = useState(currentTime());
+
+		const formats = ["unix", "human.dot", "human.slash", "human.dash"];
+
+		useEffect(() => {
+			if (localStorage.getItem("logsTimeFormat") != undefined) {
+				setTimeFormat(localStorage.getItem("logsTimeFormat"));
+			}
+		}, []);
+
+		function currentTime() {
+			const z = (v) => {
+				if (v < 10) {
+					return "0" + v;
+				} else {
+					return v;
+				}
+			};
+
+			console.log(timeFormat);
+			if (timeFormat == "unix") {
+				return new Date().getTime();
+			} else if (timeFormat.startsWith("human.")) {
+				let date = new Date();
+				let day = z(date.getDate());
+				let month = z(date.getMonth() + 1);
+				let year = date.getFullYear();
+				let minute = z(date.getMinutes());
+				let hour = z(date.getHours());
+				let second = z(date.getSeconds());
+
+				if (timeFormat == "human.dot") {
+					return `${day}.${month}.${year} ${hour}:${minute}:${second}`; // Used in post soviet countries
+				} else if (timeFormat == "human.slash") {
+					return `${month}/${day}/${year} ${hour}:${minute}:${second}`;
+				} else if (timeFormat == "human.dash") {
+					return `${month}-${day}-${year} ${hour}:${minute}:${second}`;
+				}
+			}
+		}
+
+		useEffect(() => {
+			const interval = setInterval(() => {
+				setTime(currentTime());
+			}, 250);
+
+			return () => clearInterval(interval);
+		}, []);
+
+		return (
+			<span
+				onClick={() => {
+					let currentFormatIndex = formats.indexOf(timeFormat);
+					if (currentFormatIndex > formats.length - 2) {
+						currentFormatIndex = 0;
+					} else {
+						currentFormatIndex++;
+					}
+					localStorage.setItem("logsTimeFormat", formats[currentFormatIndex]);
+					setTimeFormat(formats[currentFormatIndex]);
+					console.log(timeFormat);
+				}}
+				className="cursor-pointer inline-flex"
+			>
+				{currentTime()}
+			</span>
+		);
+	};
+
+	return (
+		<Page name="Logs">
+			<Dialog open={sudoPasswordModal} onOpenChange={setSudoPasswordModal}>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Sudo password</DialogTitle>
+						<DialogDescription>
+							Please enter your sudo password to view your log files.
+						</DialogDescription>
+					</DialogHeader>
+					<Input
+						type="password"
+						placeholder="Sudo password"
+						ref={sudoPasswordInput}
+					/>
+
+					<DialogFooter>
+						<DialogClose>
+							<Button variant="outline">Cancle</Button>
+						</DialogClose>
+						<DialogClose>
+							<Button
+								onClick={() => {
+									setSudoPassword(sudoPasswordInput.current.value);
+									setSelectedLog("messages");
+								}}
+							>
+								Proceed
+							</Button>
+						</DialogClose>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
+
+			<span className="m-1 block"></span>
+			<Button
+				onClick={() => {
+					setLogRefreshKeyValue(new Date().getTime());
+				}}
+				className="mr-1"
+				variant="secondary"
+			>
+				Refresh
+			</Button>
+			<Input
+				type="text"
+				placeholder="Search"
+				ref={searchInput}
+				className="inline-flex mr-1 ml-1"
+				onKeyPress={(event) => {
+					if (event.key == "Enter") {
+						setTableFilter(searchInput.current.value);
+					}
+				}}
+			/>
+			<Input type="datetime-local" className="inline-flex mr-1" onChange={
+				(event) => {
+					console.log(event.target.value);
+					setSince(event.target.value)
+				}
+			} />
+			<CurrentTimer />
+			<br />
+			<LogTable
+				log={selectedLog}
+				refreshKey={logRefreshKeyValue}
+				tableFilter={tableFilter}
+			/>
+		</Page>
+	);
+}
+
 export default function Dashboard() {
 	const [activeTab, setActiveTab] = useState("Overview");
 
@@ -2671,6 +2966,8 @@ export default function Dashboard() {
 			return Vault();
 		} else if (activeTab == "Servers") {
 			return Servers();
+		} else if (activeTab == "Logs") {
+			return Logs();
 		}
 	}
 
@@ -2753,6 +3050,15 @@ export default function Dashboard() {
 					isActive={activeTab == "Servers"}
 				>
 					Servers
+				</TabButton>
+				<TabButton
+					onClick={() => {
+						setActiveTab("Logs");
+					}}
+					isDefault={false}
+					isActive={activeTab == "Logs"}
+				>
+					Logs
 				</TabButton>
 				<Account />
 			</TopBar>

@@ -145,3 +145,6 @@ backend/Cargo.lock/
 release/
 backend/static/
 *.tar.gz
+*.key
+*.pem
+*.crt
