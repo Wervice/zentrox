@@ -3,9 +3,6 @@ use std::io::{Read, Write};
 use std::process::Command;
 use std::process::Stdio;
 use std::thread;
-use std::time::Duration;
-
-use tokio::time::sleep;
 
 pub struct SwitchedUserCommand {
     password: String,

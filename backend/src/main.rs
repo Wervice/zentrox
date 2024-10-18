@@ -122,6 +122,25 @@ async fn index(session: Session, state: web::Data<AppState>) -> HttpResponse {
     }
 }
 
+#[get("/alerts")]
+async fn alerts(session: Session, state: web::Data<AppState>) -> HttpResponse {
+    // is_admin session value is != true (None or false), the user is served the login screen
+    // otherwise, the user is redirected to /
+    if is_admin_state(&session, state) {
+        HttpResponse::build(StatusCode::OK)
+            .body(std::fs::read_to_string("static/alerts.html").expect("Failed to read alerts page"))
+    } else {
+        HttpResponse::Found()
+            .append_header(("Location", "/?app=true"))
+            .finish()
+    }
+}
+
+#[get("/alerts/manifest.json")]
+async fn alerts_manifest() -> HttpResponse {
+    HttpResponse::Ok().body(fs::read_to_string("manifest.json").expect("Failed to read manifest.json file"))
+}
+
 /// The dashboard route.
 ///
 /// If the user is logged in, the dashboard is shown, otherwise they get redirected to root.
@@ -1357,6 +1376,22 @@ async fn vault_configure(
     HttpResponse::Ok().json(EmptyJson {})
 }
 
+#[get("/api/isVaultConfigured")]
+async fn is_vault_configured(
+    session: Session,
+    state: web::Data<AppState>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    if config_file::read("vault_enabled") == "1" {
+        return HttpResponse::Ok().body("1")
+    } else {
+        return HttpResponse::Ok().body("0")
+    }
+}
+
 // Vault Tree
 
 #[derive(Serialize)]
@@ -2098,12 +2133,12 @@ struct LastLog {
     logs: Vec<(String, String, String, String)>,
 }
 
-#[post("/api/logs/{log}/{duration}")]
+#[post("/api/logs/{log}/{since}/{until}")]
 async fn logs_request(
     session: Session,
     state: web::Data<AppState>,
     json: web::Json<SudoPasswordOnlyRequest>,
-    path: web::Path<(String, u64)>,
+    path: web::Path<(String, u64, u64)>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
@@ -2111,16 +2146,17 @@ async fn logs_request(
 
     let pii = path.into_inner();
     let log = pii.0;
-    let duration = pii.1;
+    let since = pii.1;
+    let until = pii.2;
 
     if log == "messages" {
-        let messages = logs::log_messages(json.sudoPassword.clone(), duration / 1000);
+        let messages = logs::log_messages(json.sudoPassword.clone(), since / 1000, until / 1000);
 
         match messages {
             Ok(v) => return HttpResponse::Ok().json(MessagesLog { logs: v }),
             Err(e) => {
-                eprintln!("❌ {}", e);
-                return HttpResponse::InternalServerError().body("Failed to get message logs");
+                eprintln!("❌ Failed to fetch for logs");
+                return HttpResponse::InternalServerError().body(format!("Failed to get message logs {}", e));
             }
         }
     } else {
@@ -2253,6 +2289,8 @@ async fn main() -> std::io::Result<()> {
             // Landing
             .service(dashboard)
             .service(index)
+            .service(alerts)
+            .service(alerts_manifest)
             // Login, OTP and Logout
             .service(login) // Login user using username, password and otp token if enabled
             .service(logout) // Remove admin status and redirect to /
@@ -2290,6 +2328,7 @@ async fn main() -> std::io::Result<()> {
             .service(drive_information)
             // Vault API
             .service(vault_configure)
+            .service(is_vault_configured)
             .service(vault_tree)
             .service(vault_new_folder)
             .service(upload_vault)

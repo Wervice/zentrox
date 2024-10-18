@@ -21,11 +21,13 @@ It provides you with important and helpful tools for managing your device.
 - File sharing (FTPS at the time)
 - Block device overview
 
-*Zentrox is still being developed and features listed above are still being developed*
+_Zentrox is still being developed and features listed above are still being developed_
 
 ## 🛠️ Installation
+
 **Zentrox is not yet intended for active use, but for testing.**
 Zentrox has the following requirements
+
 - OpenSSL
 - Uncomplicated Firewall
 - Python 3.11+
@@ -33,7 +35,9 @@ Zentrox has the following requirements
 - Cargo
 
 Zentrox can be installed in one of the following two ways:
+
 ### Building Zentrox
+
 At the time, Zentrox can only be installed by building it your self.
 
 I am currently working on adding support for pre-built binaries or an easier way to install the project.
@@ -46,14 +50,17 @@ I am currently working on adding support for pre-built binaries or an easier way
 6. Add Zentrox to your path: `export PATH=$PATH:$HOME/zentrox`
 
 ### Post installation
+
 While installing Zentrox, `install.bash` has done the following changes to your computer:
+
 1. Adding a UFW rule to allow Zentrox to be accessed from outside your computer. The rule allows Port 8080 for IPv4 and IPv6 traffic.
 2. Creating two directories in your home directory: `~/zentrox/` and `~/zentrox_data/`.
-> [!WARNING]  
-> The ~/zentrox_data/ directory also contains vault files and other sensitive information.
-> This directory and its contents should not be modified or deleted, as doing so may break Zentrox.
+   > [!WARNING]  
+   > The ~/zentrox_data/ directory also contains vault files and other sensitive information.
+   > This directory and its contents should not be modified or deleted, as doing so may break Zentrox.
 
 #### Removing Zentrox
+
 Zentrox can be removed by reverting the changes mentioned above and by deleting the `~/zentrox_data/` and `~/zentrox/` directory.
 Doing so, will also remove your Zentrox vault files.
 

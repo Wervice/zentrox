@@ -1,32 +1,32 @@
 ::-webkit-scrollbar {
-	width: 8px; /* Make the scrollbar thinner */
+ width: 8px; /* Make the scrollbar thinner */
 }
 
 ::-webkit-scrollbar-track {
-	background: #333; /* Dark background for the track */
-	border-radius: 10px; /* Round the corners */
+ background: #333; /* Dark background for the track */
+ border-radius: 10px; /* Round the corners */
 }
 
 ::-webkit-scrollbar-thumb {
-	background: #555; /* Dark color for the thumb */
-	border-radius: 10px; /* Round the corners */
+ background: #555; /* Dark color for the thumb */
+ border-radius: 10px; /* Round the corners */
 }
 
 ::-webkit-scrollbar-thumb:hover {
-	background: #777; /* Slightly lighter color when hovered */
+ background: #777; /* Slightly lighter color when hovered */
 }
 
 /* For Firefox */
 * {
-	scrollbar-width: thin; /* Make the scrollbar thinner */
-	scrollbar-color: #555 #333; /* Thumb color and track color */
+ scrollbar-width: thin; /* Make the scrollbar thinner */
+ scrollbar-color: #555 #333; /* Thumb color and track color */
 }
 
 .no-scroll {
-	-ms-overflow-style: none; /* IE and Edge */
-	scrollbar-width: none; /* Firefox */
+ -ms-overflow-style: none; /* IE and Edge */
+ scrollbar-width: none; /* Firefox */
 }
 
 .no-scroll::-webkit-scrollbar {
-	display: none;
+ display: none;
 }
