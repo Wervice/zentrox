@@ -1,6 +1,5 @@
 use crate::sudo::SwitchedUserCommand;
-use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 /// Every entry in journalctl is parsed into this struct.

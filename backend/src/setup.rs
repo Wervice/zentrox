@@ -1,17 +1,15 @@
 use crate::config_file;
 use crate::crypto_utils::argon2_derive_key;
 use crate::sudo::SwitchedUserCommand;
-use base64;
 use dirs::{self, home_dir};
 use rcgen::{generate_simple_self_signed, CertifiedKey};
 use rpassword::prompt_password;
 use sha2::{Digest, Sha512};
 use std::fs;
 use std::io::{self, BufRead, Write};
-use whoami;
 
 fn f() {
-    io::stdout().flush();
+    let _ = io::stdout().flush();
 }
 
 fn read() -> String {
@@ -39,7 +37,7 @@ fn hostname() -> Option<String> {
 }
 
 pub fn run_setup() -> Result<(), String> {
-    let installation_path = home_dir()
+    let _installation_path = home_dir()
         .unwrap()
         .join(".local")
         .join("bin")
@@ -51,9 +49,9 @@ pub fn run_setup() -> Result<(), String> {
         .join("zentrox");
 
     let _ = fs::create_dir_all(&data_path);
-    fs::write(&data_path.join("zentrox_store.toml"), "");
+    let _ = fs::write(&data_path.join("zentrox_store.toml"), "");
 
-    let system_username = whoami::username_os().to_string_lossy().to_string();
+    let _system_username = whoami::username_os().to_string_lossy().to_string();
     println!("Installing Zentrox...");
     println!("");
     println!("Configuring admin account: ");

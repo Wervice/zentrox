@@ -4,13 +4,11 @@ use actix_multipart::form::{tempfile::TempFile, text::Text, MultipartForm};
 use actix_rt::time::interval;
 use actix_session::{storage::CookieSessionStore, Session, SessionMiddleware};
 use actix_web::cookie::Key;
-use actix_web::dev::Path;
 use actix_web::{
     get, http::header, http::StatusCode, middleware, post, web, App, HttpResponse, HttpServer,
 };
-use actix_web::{HttpMessage, HttpRequest};
+use actix_web::HttpRequest;
 use base64::{engine::general_purpose::STANDARD as b64, Engine as _};
-use rustls;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -24,7 +22,6 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use sysinfo::System as SysInfoSystem;
-use systemstat;
 use systemstat::{Platform, System};
 use tokio::task;
 
@@ -2132,11 +2129,6 @@ struct MessagesLog {
     logs: Vec<(String, String, String, String, String)>,
 }
 
-#[derive(Serialize)]
-struct LastLog {
-    logs: Vec<(String, String, String, String)>,
-}
-
 #[post("/api/logs/{log}/{since}/{until}")]
 async fn logs_request(
     session: Session,
@@ -2208,9 +2200,13 @@ async fn video_request(
     let file_path_url = url_decode::url_decode(&pii);
     let file_path = std::path::Path::new(&file_path_url);
 
-    let mime = mime::guess_mime(file_path.to_path_buf());
-
     if file_path.exists() {
+        let mime = mime::guess_mime(file_path.to_path_buf());
+        
+        if file_path.is_dir() {
+            return HttpResponse::BadRequest().body("A video can not be a directory.")
+        }
+
         match range {
             None => {
                 // Does the file even exist

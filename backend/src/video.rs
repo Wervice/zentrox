@@ -5,6 +5,7 @@ use uuid::Uuid;
 /// Compresses a video or audio filvideo or audio fileng ffmpeg
 /// * `video_path` &Path Path of the video file to compress
 /// The function returns a temporary file location, somewhere in /tmp
+#[allow(dead_code)]
 pub fn compress_media(media_path: &Path) -> Result<PathBuf, String> {
     // Check if ffmpeg is installed
     let ffmpeg_command = Command::new("ffmpeg").arg("-version").spawn();
@@ -71,12 +72,15 @@ pub fn compress_media(media_path: &Path) -> Result<PathBuf, String> {
     return Ok(PathBuf::from(output_location.to_string_lossy().to_string()));
 }
 
+#[allow(dead_code)]
 fn is_video(extension: &str) -> bool {
     matches!(
         extension.to_lowercase().as_str(),
         "mp4" | "mkv" | "webm" | "avi" | "mov" | "flv" | "wmv"
     )
 }
+
+#[allow(dead_code)]
 fn is_audio(extension: &str) -> bool {
     matches!(
         extension.to_lowercase().as_str(),

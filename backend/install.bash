@@ -10,6 +10,7 @@ cp ./target/release/zentrox ~$EXE_DIR/zentrox
 cp ./ftp.py $EXE_DIR/ftp.py
 cp ./setup.bash $EXE_DIR/setup.bash
 cp ./robots.txt $EXE_DIR/robots.txt
+cp ./manifest.json $EXE_DIR/manifest.json
 cp -r static/ $EXE_DIR/static
 rm -rf ./*
 
