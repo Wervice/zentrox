@@ -1,11 +1,14 @@
 use actix_cors::Cors;
 use actix_files as afs;
-use actix_multipart::form::json::Json;
 use actix_multipart::form::{tempfile::TempFile, text::Text, MultipartForm};
 use actix_rt::time::interval;
 use actix_session::{storage::CookieSessionStore, Session, SessionMiddleware};
 use actix_web::cookie::Key;
-use actix_web::{get, http::StatusCode, middleware, post, web, App, HttpResponse, HttpServer};
+use actix_web::dev::Path;
+use actix_web::{
+    get, http::header, http::StatusCode, middleware, post, web, App, HttpResponse, HttpServer,
+};
+use actix_web::{HttpMessage, HttpRequest};
 use base64::{engine::general_purpose::STANDARD as b64, Engine as _};
 use rustls;
 use serde::{Deserialize, Serialize};
@@ -14,7 +17,7 @@ use std::{
     collections::HashMap,
     env,
     fs::{self, File},
-    io::{BufReader, Read},
+    io::{BufReader, Read, Seek, SeekFrom},
     path,
     process::Command,
     sync::{Arc, Mutex},
@@ -30,6 +33,7 @@ mod crypto_utils;
 mod drives;
 mod is_admin;
 mod logs;
+mod mime;
 mod otp;
 mod packages;
 mod setup;
@@ -37,6 +41,7 @@ mod sudo;
 mod ufw;
 mod url_decode;
 mod vault;
+mod video;
 
 use is_admin::is_admin_state;
 
@@ -127,8 +132,9 @@ async fn alerts(session: Session, state: web::Data<AppState>) -> HttpResponse {
     // is_admin session value is != true (None or false), the user is served the login screen
     // otherwise, the user is redirected to /
     if is_admin_state(&session, state) {
-        HttpResponse::build(StatusCode::OK)
-            .body(std::fs::read_to_string("static/alerts.html").expect("Failed to read alerts page"))
+        HttpResponse::build(StatusCode::OK).body(
+            std::fs::read_to_string("static/alerts.html").expect("Failed to read alerts page"),
+        )
     } else {
         HttpResponse::Found()
             .append_header(("Location", "/?app=true"))
@@ -138,7 +144,8 @@ async fn alerts(session: Session, state: web::Data<AppState>) -> HttpResponse {
 
 #[get("/alerts/manifest.json")]
 async fn alerts_manifest() -> HttpResponse {
-    HttpResponse::Ok().body(fs::read_to_string("manifest.json").expect("Failed to read manifest.json file"))
+    HttpResponse::Ok()
+        .body(fs::read_to_string("manifest.json").expect("Failed to read manifest.json file"))
 }
 
 /// The dashboard route.
@@ -1377,18 +1384,15 @@ async fn vault_configure(
 }
 
 #[get("/api/isVaultConfigured")]
-async fn is_vault_configured(
-    session: Session,
-    state: web::Data<AppState>,
-) -> HttpResponse {
+async fn is_vault_configured(session: Session, state: web::Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
     if config_file::read("vault_enabled") == "1" {
-        return HttpResponse::Ok().body("1")
+        return HttpResponse::Ok().body("1");
     } else {
-        return HttpResponse::Ok().body("0")
+        return HttpResponse::Ok().body("0");
     }
 }
 
@@ -2156,11 +2160,104 @@ async fn logs_request(
             Ok(v) => return HttpResponse::Ok().json(MessagesLog { logs: v }),
             Err(e) => {
                 eprintln!("❌ Failed to fetch for logs");
-                return HttpResponse::InternalServerError().body(format!("Failed to get message logs {}", e));
+                return HttpResponse::InternalServerError()
+                    .body(format!("Failed to get message logs {}", e));
             }
         }
     } else {
-        return HttpResponse::BadRequest().body("The requested logs do not exist");
+        return HttpResponse::NotFound().body("The requested logs do not exist");
+    }
+}
+
+/// Parse a GET RANGE Header Parameter into a Rust byte range
+fn parse_range(range: actix_web::http::header::HeaderValue) -> Option<(usize, usize)> {
+    let range_str = range.to_str().ok()?; // Safely convert to str, return None if failed
+    let range_separated_clear = range_str.replace("bytes=", "");
+    let range_separated: Vec<&str> = range_separated_clear.split('-').collect(); // Split the range
+
+    // Parse the start and end values safely
+    let start = range_separated.get(0)?.parse::<usize>().ok()?;
+    let end = match range_separated.get(1) {
+        Some(&"") => None, // Handle case where end value is not specified
+        Some(end_str) => end_str.parse::<usize>().ok(),
+        None => None,
+    };
+
+    let end = end.unwrap_or(usize::MAX); // If no end is specified, set to max possible value
+
+    Some((start, end))
+}
+
+#[get("/api/video/{path}")]
+async fn video_request(
+    session: Session,
+    state: web::Data<AppState>,
+    path: web::Path<String>,
+    req: HttpRequest,
+) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    // Implement HTTP Ranges
+    let headers = req.headers();
+    let range = headers.get(actix_web::http::header::RANGE);
+
+    // Determine the requested file path
+    let pii = path.into_inner();
+    let file_path_url = url_decode::url_decode(&pii);
+    let file_path = std::path::Path::new(&file_path_url);
+
+    let mime = mime::guess_mime(file_path.to_path_buf());
+
+    if file_path.exists() {
+        match range {
+            None => {
+                // Does the file even exist
+                HttpResponse::Ok()
+                    .insert_header((
+                        header::CONTENT_TYPE,
+                        mime.unwrap_or("application/octet-stream".to_string()),
+                    ))
+                    .insert_header(header::ContentEncoding::Identity)
+                    .insert_header((header::ACCEPT_RANGES, "bytes"))
+                    .body(fs::read(file_path).unwrap())
+            }
+            Some(e) => {
+                let byte_range = parse_range(e.clone()).unwrap();
+                let file = File::open(file_path).unwrap();
+                let mut reader = BufReader::new(file);
+                let _ = reader.seek(SeekFrom::Start(byte_range.0 as u64));
+                let end = if byte_range.1 >= 1024 * 1024 * 1024 {
+                    1024 * 1024 * 1024
+                } else {
+                    byte_range.1
+                };
+                let filesize = reader.get_ref().metadata().unwrap().len();
+                let mut buf = vec![
+                    0;
+                    {
+                        if end > filesize as usize {
+                            filesize as usize - byte_range.0 - 1
+                        } else {
+                            end - byte_range.0 - 1
+                        }
+                    }
+                ];
+                reader.read_exact(&mut buf).unwrap();
+
+                return HttpResponse::PartialContent()
+                    .insert_header(header::ContentEncoding::Identity)
+                    .insert_header((header::ACCEPT_RANGES, "bytes"))
+                    .insert_header((
+                        header::CONTENT_TYPE,
+                        mime.unwrap_or("application/octet-stream".to_string()),
+                    ))
+                    .body(buf);
+            }
+        }
+    } else {
+        return HttpResponse::NotFound().body("The requested audio file is not on the server.")
     }
 }
 
@@ -2347,6 +2444,8 @@ async fn main() -> std::io::Result<()> {
             .service(upload_profile_picture)
             // Logs
             .service(logs_request)
+            // Video
+            .service(video_request)
             // General services and blocks
             .service(dashboard_asset_block)
             .service(robots_txt)
