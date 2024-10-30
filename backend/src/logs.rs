@@ -18,7 +18,7 @@ struct JournalEntry {
 
     #[serde(rename = "_UID")]
     uid: Option<String>,
-    
+
     #[serde(rename = "USER")]
     user: Option<String>,
 
@@ -34,7 +34,9 @@ struct JournalEntry {
 /// * `since` A UNIX timestamp where the log starts
 /// * `until` A UNIX timestamp where the log ends
 pub fn log_messages(
-    sudo_password: String, since: u64, until: u64
+    sudo_password: String,
+    since: u64,
+    until: u64,
 ) -> Result<Vec<(String, String, String, String, String)>, String> {
     let jctl = SwitchedUserCommand::new(sudo_password, "journalctl".to_string())
         .arg("-o".to_string())
@@ -44,14 +46,12 @@ pub fn log_messages(
         .arg("--until".to_string())
         .arg("@".to_string() + &until.to_string())
         .output();
-    
+
     match jctl {
-        Ok(_) => {},
-        Err(_) => {
-            return Err("Failed to invoke journalctl".to_string())
-        }
+        Ok(_) => {}
+        Err(_) => return Err("Failed to invoke journalctl".to_string()),
     };
-    
+
     let o = jctl.unwrap().stdout;
     let mut vect = Vec::new();
     for l in o.lines() {
@@ -64,9 +64,9 @@ pub fn log_messages(
                 if entry.user.is_some() {
                     entry.user.unwrap()
                 } else if entry.username.is_some() {
-                     entry.username.unwrap()
+                    entry.username.unwrap()
                 } else if entry.uid.is_some() {
-                     entry.uid.unwrap()
+                    entry.uid.unwrap()
                 } else {
                     String::from("Unknown Username").to_string()
                 }
