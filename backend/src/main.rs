@@ -4,10 +4,10 @@ use actix_multipart::form::{tempfile::TempFile, text::Text, MultipartForm};
 use actix_rt::time::interval;
 use actix_session::{storage::CookieSessionStore, Session, SessionMiddleware};
 use actix_web::cookie::Key;
+use actix_web::HttpRequest;
 use actix_web::{
     get, http::header, http::StatusCode, middleware, post, web, App, HttpResponse, HttpServer,
 };
-use actix_web::HttpRequest;
 use base64::{engine::general_purpose::STANDARD as b64, Engine as _};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -16,7 +16,7 @@ use std::{
     env,
     fs::{self, File},
     io::{BufReader, Read, Seek, SeekFrom},
-    path,
+    path::{self, Path, PathBuf},
     process::Command,
     sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
@@ -24,6 +24,7 @@ use std::{
 use sysinfo::System as SysInfoSystem;
 use systemstat::{Platform, System};
 use tokio::task;
+use dirs::{self, home_dir};
 
 mod config_file;
 mod crypto_utils;
@@ -2202,9 +2203,9 @@ async fn video_request(
 
     if file_path.exists() {
         let mime = mime::guess_mime(file_path.to_path_buf());
-        
+
         if file_path.is_dir() {
-            return HttpResponse::BadRequest().body("A video can not be a directory.")
+            return HttpResponse::BadRequest().body("A video can not be a directory.");
         }
 
         match range {
@@ -2253,8 +2254,106 @@ async fn video_request(
             }
         }
     } else {
-        return HttpResponse::NotFound().body("The requested audio file is not on the server.")
+        return HttpResponse::NotFound().body("The requested audio file is not on the server.");
     }
+}
+
+#[derive(Deserialize)]
+struct VideoSourceJson {
+    locations: Vec<(PathBuf, String, bool)>
+}
+
+#[post("/api/updateVideoSourceList")]
+async fn update_video_source_list(
+    session: Session,
+    state: web::Data<AppState>,
+    json: web::Json<VideoSourceJson>
+) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    let sources_file = Path::new("")
+        .join(home_dir().unwrap())
+        .join(".local")
+        .join("share")
+        .join("zentrox")
+        .join("zentrox_media_locations.toml");
+
+    let sources_file_swap = Path::new("")
+        .join(home_dir().unwrap())
+        .join(".local")
+        .join("share")
+        .join("zentrox")
+        .join("zentrox_media_locations_swap.toml");
+
+    let mut sources_list_content = String::new();
+
+    let locations = &json.locations;
+
+    for l in locations {
+        let line = format!("{};{};{}\n", l.0.to_str().unwrap_or(""), l.1, l.2).to_string();
+        sources_list_content = sources_list_content + &line;
+    }
+
+    let _ = fs::write(&sources_file_swap, sources_list_content);
+    let _ = fs::rename(sources_file_swap, sources_file);
+
+    HttpResponse::Ok().body("")
+}
+
+#[derive(Serialize)]
+struct VideoSourcesListResponseJson {
+    locations: Vec<(String, String, bool)>
+}
+
+#[get("/api/getVideoSourceList")]
+async fn get_video_source_list(
+    session: Session,
+    state: web::Data<AppState>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    let sources_file = Path::new("")
+        .join(home_dir().unwrap())
+        .join(".local")
+        .join("share")
+        .join("zentrox")
+        .join("zentrox_media_locations.toml");
+
+    let sources_file_read = fs::read_to_string(sources_file);
+
+    let mut sources: Vec<(String, String, bool)> = Vec::new();
+
+    match sources_file_read {
+        Ok(v) => {
+            let lines = v.lines();
+
+            for l in lines {
+                let l_split: Vec<&str> = l.split(";").collect();
+
+                if l_split.len() != 3 {
+                    return HttpResponse::InternalServerError().body("Malformed entry")
+                }
+
+                let path = String::from(l_split[0]);
+                let name = String::from(l_split[1]);
+                let enabled: bool = l_split[2] == "true";
+
+                sources.push((path, name.into(), enabled));
+            }
+        },
+        Err(e) => {
+            eprintln!("Failed to read video sources: {}", e);
+            return HttpResponse::InternalServerError().body("Faield to read video sources")
+        }
+    }
+
+    HttpResponse::Ok().json(VideoSourcesListResponseJson {
+        locations: sources
+    })
 }
 
 // ======================================================================
@@ -2442,6 +2541,8 @@ async fn main() -> std::io::Result<()> {
             .service(logs_request)
             // Video
             .service(video_request)
+            .service(get_video_source_list)
+            .service(update_video_source_list)
             // General services and blocks
             .service(dashboard_asset_block)
             .service(robots_txt)

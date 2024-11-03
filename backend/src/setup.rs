@@ -50,6 +50,7 @@ pub fn run_setup() -> Result<(), String> {
 
     let _ = fs::create_dir_all(&data_path);
     let _ = fs::write(&data_path.join("zentrox_store.toml"), "");
+    let _ = fs::write(&data_path.join("zentrox_media_locations.toml"), "");
 
     let _system_username = whoami::username_os().to_string_lossy().to_string();
     println!("Installing Zentrox...");
