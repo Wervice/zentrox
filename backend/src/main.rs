@@ -9,6 +9,7 @@ use actix_web::{
     get, http::header, http::StatusCode, middleware, post, web, App, HttpResponse, HttpServer,
 };
 use base64::{engine::general_purpose::STANDARD as b64, Engine as _};
+use dirs::{self, home_dir};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -24,7 +25,6 @@ use std::{
 use sysinfo::System as SysInfoSystem;
 use systemstat::{Platform, System};
 use tokio::task;
-use dirs::{self, home_dir};
 
 mod config_file;
 mod crypto_utils;
@@ -2181,6 +2181,16 @@ fn parse_range(range: actix_web::http::header::HeaderValue) -> Option<(usize, us
     Some((start, end))
 }
 
+fn is_whitelisted(l: Vec<PathBuf>, p: PathBuf) -> bool {
+    let mut r = false;
+    l.iter().for_each(|le| {
+        if !r && p.starts_with(le) {
+            r = true
+        }
+    });
+    r
+}
+
 #[get("/api/video/{path}")]
 async fn video_request(
     session: Session,
@@ -2199,10 +2209,32 @@ async fn video_request(
     // Determine the requested file path
     let pii = path.into_inner();
     let file_path_url = url_decode::url_decode(&pii);
-    let file_path = std::path::Path::new(&file_path_url);
+    let file_path = PathBuf::from(&file_path_url);
 
     if file_path.exists() {
         let mime = mime::guess_mime(file_path.to_path_buf());
+
+        let whitelist = fs::read_to_string(
+            home_dir()
+                .unwrap()
+                .join(".local")
+                .join("share")
+                .join("zentrox")
+                .join("zentrox_media_locations.toml"),
+        );
+        let whitelist_vector: Vec<PathBuf> = whitelist
+            .unwrap_or("".to_string())
+            .to_string()
+            .lines()
+            .map(|x| PathBuf::from(x.split(";").nth(0).unwrap().to_string()))
+            .collect();
+
+        if !is_whitelisted(
+            whitelist_vector,
+            fs::canonicalize(file_path.clone()).unwrap(),
+        ) {
+            return HttpResponse::Forbidden().body("This is not a white-listed location.");
+        }
 
         if file_path.is_dir() {
             return HttpResponse::BadRequest().body("A video can not be a directory.");
@@ -2260,14 +2292,14 @@ async fn video_request(
 
 #[derive(Deserialize)]
 struct VideoSourceJson {
-    locations: Vec<(PathBuf, String, bool)>
+    locations: Vec<(PathBuf, String, bool)>,
 }
 
 #[post("/api/updateVideoSourceList")]
 async fn update_video_source_list(
     session: Session,
     state: web::Data<AppState>,
-    json: web::Json<VideoSourceJson>
+    json: web::Json<VideoSourceJson>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
@@ -2292,7 +2324,16 @@ async fn update_video_source_list(
     let locations = &json.locations;
 
     for l in locations {
-        let line = format!("{};{};{}\n", l.0.to_str().unwrap_or(""), l.1, l.2).to_string();
+        let line = format!(
+            "{};{};{}\n",
+            fs::canonicalize(l.0.to_str().unwrap_or("/this_path_does_not_exist"))
+                .unwrap_or("/this_path_does_not_exist".into())
+                .to_string_lossy()
+                .to_string(),
+            l.1,
+            l.2
+        )
+        .to_string();
         sources_list_content = sources_list_content + &line;
     }
 
@@ -2304,14 +2345,11 @@ async fn update_video_source_list(
 
 #[derive(Serialize)]
 struct VideoSourcesListResponseJson {
-    locations: Vec<(String, String, bool)>
+    locations: Vec<(String, String, bool)>,
 }
 
 #[get("/api/getVideoSourceList")]
-async fn get_video_source_list(
-    session: Session,
-    state: web::Data<AppState>,
-) -> HttpResponse {
+async fn get_video_source_list(session: Session, state: web::Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
@@ -2335,7 +2373,7 @@ async fn get_video_source_list(
                 let l_split: Vec<&str> = l.split(";").collect();
 
                 if l_split.len() != 3 {
-                    return HttpResponse::InternalServerError().body("Malformed entry")
+                    return HttpResponse::InternalServerError().body("Malformed entry");
                 }
 
                 let path = String::from(l_split[0]);
@@ -2344,16 +2382,14 @@ async fn get_video_source_list(
 
                 sources.push((path, name.into(), enabled));
             }
-        },
+        }
         Err(e) => {
             eprintln!("Failed to read video sources: {}", e);
-            return HttpResponse::InternalServerError().body("Faield to read video sources")
+            return HttpResponse::InternalServerError().body("Faield to read video sources");
         }
     }
 
-    HttpResponse::Ok().json(VideoSourcesListResponseJson {
-        locations: sources
-    })
+    HttpResponse::Ok().json(VideoSourcesListResponseJson { locations: sources })
 }
 
 // ======================================================================

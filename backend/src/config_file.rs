@@ -1,6 +1,6 @@
+use dirs::home_dir;
 use std::fs;
 use std::path;
-use dirs::home_dir;
 use toml_edit::{self, value, DocumentMut};
 
 /// Read from a key-value config file.
