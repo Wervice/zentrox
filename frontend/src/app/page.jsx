@@ -207,7 +207,11 @@ export default function Login() {
          duration: 4000,
         });
        } else {
-        location.href = "/dashboard";
+        if (new URL(location.href).searchParams.get("app") !== "true") {
+         location.href = "/dashboard";
+        } else {
+         location.href = "/alerts";
+        }
        }
       });
      }}

@@ -9,6 +9,14 @@ module.exports = {
  ],
  prefix: "",
  theme: {
+  backgroundSize: {
+   auto: "auto",
+   cover: "cover",
+   contain: "contain",
+   "120%": "120%",
+   "100%": "100%",
+   16: "4rem",
+  },
   container: {
    center: true,
    padding: "2rem",
@@ -17,6 +25,12 @@ module.exports = {
    },
   },
   extend: {
+   transitionProperty: {
+    height: "height",
+   },
+   aspectRatio: {
+    "3/4": "3 / 4",
+   },
    colors: {
     border: "hsl(var(--border))",
     input: "hsl(var(--input))",
@@ -65,21 +79,34 @@ module.exports = {
      to: { height: "0" },
     },
     "fade-in": {
-     "0%": {
+     from: {
       opacity: 0,
      },
-     "100%": {
+     to: {
       opacity: 1,
      },
     },
     "fade-out": {
-     "0%": {
-      opacity: 1,
-     },
-     "100%": {
+     to: {
       opacity: 0,
      },
     },
+    "move-up": {
+     "0%": {
+      bottom: "-1vh",
+      opacity: 0,
+     },
+     to: {
+      opacity: 1,
+     },
+    },
+    "move-down": {
+     to: {
+      bottom: "-1vh",
+      opacity: 0,
+     },
+    },
+
     "color-change": {
      "0%": {
       background: "#ffffff00",
@@ -91,8 +118,10 @@ module.exports = {
     "expand-width": "expand-width 0.75s ease-in-out",
     "accordion-down": "accordion-down 0.2s ease-out",
     "accordion-up": "accordion-up 0.2s ease-out",
-    fadein: "fade-in ease-in",
-    fadeout: "fade-out ease-out",
+    fadein: "fade-in ease-in 0.2s",
+    moveup: "move-up ease-in 0.2s",
+    fadeout: "fade-out ease-out 0.2s",
+    movedown: "move-down ease-out 0.2s",
     colorchange: "color-change ease-in",
    },
    borderRadius: {

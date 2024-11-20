@@ -72,7 +72,7 @@ export default function CalendarButton({
    <>
     <span
      className="fixed z-10 top-0 left-0 w-screen h-screen"
-     onClick={toggleCalendar}
+     onClick={() => toggleCalendar()}
      hidden={!calendarModalVisible}
     ></span>
     <div
@@ -252,6 +252,8 @@ export default function CalendarButton({
      left: rect.left - 35 + "px",
      display: "block",
      width: "fit-content",
+     opacity: "1",
+     visibility: "visible",
     });
    }, 80);
    setCalendarModalVisible(true);
@@ -261,12 +263,13 @@ export default function CalendarButton({
     left: rect.left - 35 + "px",
     display: "block",
     width: "fit-content",
-    animation: "fade-out ease-out 200ms",
+    opacity: "0",
+    transition: "all 0.2s ease-out",
    });
    setTimeout(() => {
     setCalendarModalStyle({ display: "none" });
     setCalendarModalVisible(false);
-   }, 160);
+   }, 200);
   }
  };
 

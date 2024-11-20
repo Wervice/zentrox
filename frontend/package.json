@@ -31,6 +31,7 @@
   "lucide-react": "^0.408.0",
   "module-alias": "^2.2.3",
   "next": "^14.2.15",
+  "qrcode.react": "^4.0.1",
   "react": "^18",
   "react-day-picker": "^8.10.1",
   "react-dom": "^18",
@@ -45,6 +46,7 @@
   "@types/node": "22.5.5",
   "@types/react": "18.3.3",
   "postcss": "^8",
+  "react-scan": "^0.0.6",
   "tailwindcss": "^3.4.1",
   "typescript": "5.5.3"
  }

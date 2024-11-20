@@ -1,9 +1,11 @@
 "use client";
 
+import { QRCodeSVG } from "qrcode.react";
 import { Checkbox } from "@/components/ui/checkbox.jsx";
 import { Switch } from "@/components/ui/switch.jsx";
 import { Button } from "@/components/ui/button.jsx";
 import { CalendarButton } from "@/components/ui/calendar.jsx";
+import { DataTable } from "@/components/ui/dataTable.jsx";
 import {
  ComputerIcon,
  CpuIcon,
@@ -54,6 +56,8 @@ import {
  ClockIcon,
  Table,
  CogIcon,
+ QrCodeIcon,
+ PlusIcon,
 } from "lucide-react";
 import { useEffect, useState, useRef } from "react";
 import { Label } from "@/components/ui/label";
@@ -401,72 +405,6 @@ function Overview() {
        </tr>
       </tbody>
      </table>
-    </div>
-    <div className="inline-block align-top w-48 h-full p-4 rounded-2xl border border-neutral-700 m-2">
-     <Label className="text-lg">Servers</Label>
-     <br />
-     <Dialog>
-      <DialogTrigger asChild>
-       <Checkbox
-        checked={ftpEnabled}
-        id="ftpEnabled"
-        onClick={(e) => {
-         e.target.disabled = true;
-         setTimeout(() => {
-          e.target.disabled = false;
-         }, 3000);
-        }}
-       />
-      </DialogTrigger>
-      <DialogContent>
-       <DialogHeader>
-        <DialogTitle>Elevated privileges</DialogTitle>
-        <DialogDescription>
-         Zentrox requires your sudo password for this action.
-        </DialogDescription>
-       </DialogHeader>
-       <Input
-        type="password"
-        ref={enableFtpSudoPasswordInput}
-        placeholder="Password"
-       />
-       <DialogFooter>
-        <DialogClose asChild>
-         <Button
-          onClick={() => {
-           fetch(fetchURLPrefix + "/api/updateFTPConfig", {
-            method: "POST",
-            headers: {
-             "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-             enableFTP: !ftpEnabled,
-             enableDisable: true,
-             sudoPassword: enableFtpSudoPasswordInput.current.value,
-            }),
-           }).then((res) => {
-            if (res.ok) {
-             setTimeout(() => {
-              ftpStatusFetch();
-             }, 1000);
-            } else {
-             toast({
-              title: "Failed to toggle FTP server",
-              description: "Zentrox failed to toggle FTP",
-             });
-            }
-           });
-          }}
-         >
-          <KeyIcon className="w-4 h-4 inline mr-1" /> Proceed
-         </Button>
-        </DialogClose>
-       </DialogFooter>
-      </DialogContent>
-     </Dialog>
-     <label htmlFor="ftpEnabled">
-      <Share2 className="inline-block h-4 w-4 ml-1" /> FTP Server
-     </label>
     </div>
    </div>
   </Page>
@@ -2090,7 +2028,7 @@ function Vault() {
  );
 }
 
-function Servers() {
+function Sharing() {
  var ftpUserNameInput = useRef();
  var ftpPassWordInput = useRef();
  var ftpRootInput = useRef();
@@ -2134,7 +2072,7 @@ function Servers() {
  useEffect(fetchData, []);
 
  return (
-  <Page name="Servers">
+  <Page name="Sharing">
    <h1 className="text-xl">
     Certificates{" "}
     <InfoButton
@@ -2205,6 +2143,7 @@ function Servers() {
     onClick={() => {
      tlsCertFileInput.current.click();
     }}
+    className="mr-1"
    >
     Upload
    </Button>{" "}
@@ -2933,7 +2872,35 @@ function Logs() {
     onValueChange={setUntil}
     confirmMode={true}
    />
+   <Dialog>
+    <DialogTrigger asChild>
+     <Button
+      variant="secondary"
+      className="mr-1"
+      title="Show QR code for Alerts app"
+     >
+      Alerts App
+     </Button>
+    </DialogTrigger>
 
+    <DialogContent>
+     <DialogHeader>
+      <DialogTitle>Alerts App</DialogTitle>
+      <DialogDescription>
+       Zentrox Alerts lets you view current system statistics and logs.
+      </DialogDescription>
+      <QRCodeSVG
+       value={"https://" + location.host + "/alerts"}
+       className="w-48 h-48"
+      />
+      <DialogFooter>
+       <DialogClose asChild>
+        <Button>Close</Button>
+       </DialogClose>
+      </DialogFooter>
+     </DialogHeader>
+    </DialogContent>
+   </Dialog>
    <CurrentTimer />
    <br />
    <LogTable
@@ -2946,7 +2913,57 @@ function Logs() {
 }
 
 function Media() {
- return <Page name="Media"></Page>;
+ const [mediaEnabled, setMediaEnabled] = useState(false);
+ const [locations, setLocations] = useState([["", "", true]]);
+ const [fetchedLocations, setFetchedLocations] = useState(false);
+
+ useEffect(() => {
+  if (!fetchedLocations) {
+   fetch(`${fetchURLPrefix}/api/getVideoSourceList`).then((res) => {
+    if (res.ok) {
+     res.json().then((j) => setLocations(j.locations));
+    } else {
+     toast({
+      title: "Failed to fetch video location list",
+      description: "Zentrox failed to fetch the list of video locations",
+     });
+    }
+   });
+   setFetchedLocations(true);
+  }
+ }, [fetchedLocations]);
+
+ const updateList = () => {
+  fetch(`${fetchURLPrefix}/api/updateVideoSourceList`, {
+   method: "POST",
+   headers: {
+    "Content-Type": "application/json",
+   },
+   body: JSON.stringify({
+    locations,
+   }),
+  });
+ };
+
+ return (
+  <Page name="Media">
+   <Toaster />
+   <div className="flex items-center">
+    <Checkbox
+     onValueChange={setMediaEnabled}
+     value={mediaEnabled}
+     className="inline-block mr-1 align-middle"
+    />{" "}
+    Enabled
+   </div>
+
+   <DataTable entries={locations} onEntriesChange={setLocations}>
+    <Button className="ml-1" onClick={() => updateList()}>
+     Apply
+    </Button>
+   </DataTable>
+  </Page>
+ );
 }
 
 export default function Dashboard() {
@@ -2965,8 +2982,8 @@ export default function Dashboard() {
    return Storage();
   } else if (activeTab == "Vault") {
    return Vault();
-  } else if (activeTab == "Servers") {
-   return Servers();
+  } else if (activeTab == "Sharing") {
+   return Sharing();
   } else if (activeTab == "Logs") {
    return Logs();
   } else if (activeTab == "Media") {
@@ -3047,12 +3064,12 @@ export default function Dashboard() {
     </TabButton>
     <TabButton
      onClick={() => {
-      setActiveTab("Servers");
+      setActiveTab("Sharing");
      }}
      isDefault={false}
-     isActive={activeTab == "Servers"}
+     isActive={activeTab == "Sharing"}
     >
-     Servers
+     Sharing
     </TabButton>
     <TabButton
      onClick={() => {
