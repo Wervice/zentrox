@@ -25,6 +25,8 @@ use std::{
 use sysinfo::System as SysInfoSystem;
 use systemstat::{Platform, System};
 use tokio::task;
+extern crate inflector;
+use inflector::Inflector;
 
 mod config_file;
 mod crypto_utils;
@@ -127,7 +129,7 @@ async fn index(session: Session, state: web::Data<AppState>) -> HttpResponse {
 
 #[get("/alerts")]
 async fn alerts(session: Session, state: web::Data<AppState>) -> HttpResponse {
-    // is_admin session value is != true (None or false), the user is served the login screen
+    // is_admin session value is != true (None or false), the user is served the alerts screen
     // otherwise, the user is redirected to /
     if is_admin_state(&session, state) {
         HttpResponse::build(StatusCode::OK).body(
@@ -136,6 +138,20 @@ async fn alerts(session: Session, state: web::Data<AppState>) -> HttpResponse {
     } else {
         HttpResponse::Found()
             .append_header(("Location", "/?app=true"))
+            .finish()
+    }
+}
+
+#[get("/media")]
+async fn media(session: Session, state: web::Data<AppState>) -> HttpResponse {
+    // is_admin session value is != true (None or false), the user is served the media screen
+    // otherwise, the user is redirected to /
+    if is_admin_state(&session, state) {
+        HttpResponse::build(StatusCode::OK)
+            .body(std::fs::read_to_string("static/media.html").expect("Failed to read alerts page"))
+    } else {
+        HttpResponse::Found()
+            .append_header(("Location", "/"))
             .finish()
     }
 }
@@ -220,7 +236,7 @@ async fn login(
         hasher.update(peer_addr.ip().to_string());
         ip = hex::encode(hasher.finalize()).to_string();
     } else {
-        eprintln!("❌ Failed to retrieve IP address during login. Early return.");
+        eprintln!("Failed to retrieve IP address during login. Early return.");
         return HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body("");
     }
 
@@ -301,7 +317,7 @@ async fn login(
 
                         return HttpResponse::build(StatusCode::OK).json(web::Json(EmptyJson {}));
                     } else {
-                        println!("❌ Wrong OTP while authenticating");
+                        println!("Wrong OTP while authenticating");
                     }
                 } else {
                     // for hashes
@@ -313,16 +329,16 @@ async fn login(
                     return HttpResponse::build(StatusCode::OK).json(web::Json(EmptyJson {}));
                 }
             } else {
-                println!("❌ Wrong Password while authenticating");
+                println!("Wrong Password while authenticating");
                 return HttpResponse::build(StatusCode::FORBIDDEN).body("Missing permissions");
             }
         }
         if !found_user {
-            println!("❌ User not found while authenticating");
+            println!("User not found while authenticating");
             return HttpResponse::build(StatusCode::FORBIDDEN).body("Missing permissions");
         }
     }
-    println!("❌ Drop Thru while authenticating");
+    println!("Drop Thru while authenticating");
     HttpResponse::build(StatusCode::FORBIDDEN).body("Missing permissions")
 }
 
@@ -403,7 +419,7 @@ async fn cpu_percent(session: Session, state: web::Data<AppState>) -> HttpRespon
             cpu.user * 100.0
         }
         Err(err) => {
-            eprintln!("❌ CPU Ussage Error (Returned f32 0.0) {}", err);
+            eprintln!("CPU Ussage Error (Returned f32 0.0) {}", err);
             0.0
         }
     };
@@ -429,7 +445,7 @@ async fn ram_percent(session: Session, state: web::Data<AppState>) -> HttpRespon
                 / memory.total.as_u64() as f64
         }
         Err(err) => {
-            eprintln!("❌ Memory Ussage Error (Returned f64 0.0) {}", err);
+            eprintln!("Memory Ussage Error (Returned f64 0.0) {}", err);
             0.0
         }
     };
@@ -462,7 +478,7 @@ async fn disk_percent(session: Session, state: web::Data<AppState>) -> HttpRespo
             }
         }
         Err(err) => {
-            eprintln!("❌ Disk Ussage Error (Returned f64 0.0) {}", err);
+            eprintln!("Disk Ussage Error (Returned f64 0.0) {}", err);
             0.0
         }
     };
@@ -703,7 +719,7 @@ async fn package_database(session: Session, state: web::Data<AppState>) -> HttpR
     let installed = match packages::list_installed_packages() {
         Ok(packages) => packages,
         Err(err) => {
-            eprintln!("❌ Listing installed packages failed: {}", err);
+            eprintln!("Listing installed packages failed: {}", err);
             Vec::new()
         }
     };
@@ -854,7 +870,7 @@ async fn firewall_information(
             HttpResponse::Ok().json(FireWallInformationResponseJson { enabled, rules })
         }
         Err(err) => {
-            eprintln!("❌ UFW Status error {err}");
+            eprintln!("UFW Status error {err}");
             HttpResponse::BadRequest().body(err)
         }
     }
@@ -890,13 +906,13 @@ async fn switch_ufw(
                     println!("✅ Started UFW");
                     return HttpResponse::Ok().finish();
                 } else {
-                    println!("❌ Failed to start UFW (Status != 0)");
+                    println!("Failed to start UFW (Status != 0)");
                     return HttpResponse::InternalServerError()
                         .body("Failed to start UFW (Return value unequal 0)");
                 }
             }
             Err(_) => {
-                println!("❌ Failed to start UFW (Err)");
+                println!("Failed to start UFW (Err)");
                 return HttpResponse::InternalServerError()
                     .body("Failed to start UFW because to command error");
             }
@@ -914,13 +930,13 @@ async fn switch_ufw(
                     println!("✅ Stopped UFW");
                     return HttpResponse::Ok().finish();
                 } else {
-                    println!("❌ Failed to stop UFW (Status != 0)");
+                    println!("Failed to stop UFW (Status != 0)");
                     return HttpResponse::InternalServerError()
                         .body("Failed to stop UFW (Return value unequal 0)");
                 }
             }
             Err(_) => {
-                println!("❌ Failed to stop UFW (Err)");
+                println!("Failed to stop UFW (Err)");
                 return HttpResponse::InternalServerError()
                     .body("Failed to stop UFW because of command error");
             }
@@ -952,7 +968,7 @@ async fn new_firewall_rule(
     let (mut from, mut to, action) = path.into_inner();
 
     if action.is_empty() {
-        println!("❌ User provided insufficent firewall rule settings");
+        println!("User provided insufficent firewall rule settings");
         return HttpResponse::BadRequest()
             .body("The UFW configuration provided by the user was insufficent.");
     }
@@ -1192,7 +1208,7 @@ async fn list_drives(session: Session, state: web::Data<AppState>) -> HttpRespon
     let drives_out = drives::device_list();
 
     let drives_out_blkdv = drives_out
-        .expect("❌ Failed to get block devices.")
+        .expect("Failed to get block devices.")
         .blockdevices;
 
     HttpResponse::Ok().json(DriveListJson {
@@ -1226,7 +1242,7 @@ async fn drive_information(
     HttpResponse::Ok().json(DriveInformationJson {
         drives: info.unwrap(),
         ussage: drives::drive_statistics(drive.to_string())
-            .expect("❌ Failed to get drive statistics"),
+            .expect("Failed to get drive statistics"),
     })
 }
 
@@ -1281,7 +1297,7 @@ async fn vault_configure(
         match fs::create_dir_all(&vault_path) {
             Ok(_) => {}
             Err(e) => {
-                eprintln!("❌ Failed to create vault_directory.\n{}", e);
+                eprintln!("Failed to create vault_directory.\n{}", e);
                 return HttpResponse::InternalServerError()
                     .body("Failed to create vault_directory.");
             }
@@ -1302,7 +1318,7 @@ async fn vault_configure(
         match fs::write(vault_path.join(".vault"), vault_file_contents) {
             Ok(_) => {}
             Err(e) => {
-                eprintln!("❌ Failed to write vault file.\n{}", e);
+                eprintln!("Failed to write vault file.\n{}", e);
                 return HttpResponse::InternalServerError().body(e.to_string());
             }
         }
@@ -1596,7 +1612,7 @@ async fn delete_vault_file(
         match fs::remove_file(path) {
             Ok(_) => {}
             Err(e) => {
-                eprintln!("❌ Failed to remove vault file.\n{}", e);
+                eprintln!("Failed to remove vault file.\n{}", e);
                 return HttpResponse::InternalServerError().finish();
             }
         };
@@ -1605,7 +1621,7 @@ async fn delete_vault_file(
         match fs::remove_dir_all(path) {
             Ok(_) => {}
             Err(e) => {
-                eprintln!("❌ Failed to remove vault directory.\n{}", e);
+                eprintln!("Failed to remove vault directory.\n{}", e);
                 return HttpResponse::InternalServerError().finish();
             }
         };
@@ -1934,7 +1950,7 @@ async fn upload_tls(
     match fs::remove_file(&tmp_file_path) {
         Ok(_) => {}
         Err(e) => {
-            eprintln!("❌ Failed to remove temp file.\n{}", e);
+            eprintln!("Failed to remove temp file.\n{}", e);
             return HttpResponse::InternalServerError().finish();
         }
     };
@@ -2033,7 +2049,7 @@ async fn update_account_details(
     let users_txt_contents = match fs::read_to_string(&users_txt_path) {
         Ok(v) => v.to_string(),
         Err(err) => {
-            eprintln!("❌ Can't read users {err}");
+            eprintln!("Can't read users {err}");
             return HttpResponse::InternalServerError().finish();
         }
     };
@@ -2119,7 +2135,7 @@ async fn upload_profile_picture(
     match fs::remove_file(&tmp_file_path) {
         Ok(_) => HttpResponse::Ok().finish(),
         Err(e) => {
-            eprintln!("❌ Failed to remove temp file.\n{}", e);
+            eprintln!("Failed to remove temp file.\n{}", e);
             HttpResponse::InternalServerError().finish()
         }
     }
@@ -2152,7 +2168,7 @@ async fn logs_request(
         match messages {
             Ok(v) => return HttpResponse::Ok().json(MessagesLog { logs: v }),
             Err(e) => {
-                eprintln!("❌ Failed to fetch for logs");
+                eprintln!("Failed to fetch for logs");
                 return HttpResponse::InternalServerError()
                     .body(format!("Failed to get message logs {}", e));
             }
@@ -2181,10 +2197,10 @@ fn parse_range(range: actix_web::http::header::HeaderValue) -> Option<(usize, us
     Some((start, end))
 }
 
-fn is_whitelisted(l: Vec<PathBuf>, p: PathBuf) -> bool {
+fn is_whitelisted(l: Vec<(bool, PathBuf)>, p: PathBuf) -> bool {
     let mut r = false;
     l.iter().for_each(|le| {
-        if !r && p.starts_with(le) {
+        if !r && p.starts_with(&le.1) && le.0 {
             r = true
         }
     });
@@ -2220,13 +2236,18 @@ async fn video_request(
                 .join(".local")
                 .join("share")
                 .join("zentrox")
-                .join("zentrox_media_locations.toml"),
+                .join("zentrox_media_locations.txt"),
         );
-        let whitelist_vector: Vec<PathBuf> = whitelist
+        let whitelist_vector: Vec<(bool, PathBuf)> = whitelist
             .unwrap_or("".to_string())
             .to_string()
             .lines()
-            .map(|x| PathBuf::from(x.split(";").nth(0).unwrap().to_string()))
+            .map(|x| {
+                (
+                    x.split(";").nth(2).unwrap() == "true",
+                    PathBuf::from(x.split(";").nth(0).unwrap().to_string()),
+                )
+            })
             .collect();
 
         if !is_whitelisted(
@@ -2310,14 +2331,14 @@ async fn update_video_source_list(
         .join(".local")
         .join("share")
         .join("zentrox")
-        .join("zentrox_media_locations.toml");
+        .join("zentrox_media_locations.txt");
 
     let sources_file_swap = Path::new("")
         .join(home_dir().unwrap())
         .join(".local")
         .join("share")
         .join("zentrox")
-        .join("zentrox_media_locations_swap.toml");
+        .join("zentrox_media_locations_swap.txt");
 
     let mut sources_list_content = String::new();
 
@@ -2330,7 +2351,7 @@ async fn update_video_source_list(
                 .unwrap_or("/this_path_does_not_exist".into())
                 .to_string_lossy()
                 .to_string(),
-            l.1,
+            l.1.replace(";", "&semi;"),
             l.2
         )
         .to_string();
@@ -2359,7 +2380,7 @@ async fn get_video_source_list(session: Session, state: web::Data<AppState>) -> 
         .join(".local")
         .join("share")
         .join("zentrox")
-        .join("zentrox_media_locations.toml");
+        .join("zentrox_media_locations.txt");
 
     let sources_file_read = fs::read_to_string(sources_file);
 
@@ -2377,7 +2398,7 @@ async fn get_video_source_list(session: Session, state: web::Data<AppState>) -> 
                 }
 
                 let path = String::from(l_split[0]);
-                let name = String::from(l_split[1]);
+                let name = String::from(l_split[1]).replace("&semi;", ";");
                 let enabled: bool = l_split[2] == "true";
 
                 sources.push((path, name.into(), enabled));
@@ -2385,11 +2406,228 @@ async fn get_video_source_list(session: Session, state: web::Data<AppState>) -> 
         }
         Err(e) => {
             eprintln!("Failed to read video sources: {}", e);
-            return HttpResponse::InternalServerError().body("Faield to read video sources");
+            return HttpResponse::InternalServerError().body("Faild to read video sources");
         }
     }
 
     HttpResponse::Ok().json(VideoSourcesListResponseJson { locations: sources })
+}
+
+// 1. Video & Media list and metadata
+// 2. G̶e̶n̶r̶e̶ ̶l̶i̶s̶t̶
+// 3. M̶a̶k̶e̶ ̶g̶e̶n̶r̶e̶
+// 4. Change metadata
+
+#[derive(Serialize)]
+struct VideoGenreListResponseJson {
+    genres: Vec<String>,
+}
+
+/// Get a `Vec<String>` in JSON of media center genres.
+/// The genres are stored in ~/.local/share/zentrox/zentrox_media_genres.txt as a line-seperated
+/// string.
+#[get("/api/getGenreList")]
+async fn get_genre_list(session: Session, state: web::Data<AppState>) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    let genres_file = Path::new("")
+        .join(home_dir().unwrap())
+        .join(".local")
+        .join("share")
+        .join("zentrox")
+        .join("zentrox_media_genres.txt");
+
+    match fs::read_to_string(genres_file) {
+        Ok(v) => {
+            let genres_vector: Vec<String> = v.to_string().lines().map(|x| x.to_string()).collect();
+            HttpResponse::Ok().json(VideoGenreListResponseJson {
+                genres: genres_vector,
+            })
+        }
+        Err(_e) => {
+            eprintln!("Failed to read genres file.");
+            HttpResponse::InternalServerError().body("Failed to read genres file.")
+        }
+    };
+
+    return HttpResponse::Ok().finish();
+}
+
+/// Add a genre to the list of genres. The genre is sent using a GET parameter.
+/// The genres are stored in ~/.local/share/zentrox/zentrox_media_genres.txt as a line-seperated
+/// string.
+#[get("/api/addGenreList/{genre_name}")]
+async fn add_genre_list(
+    session: Session,
+    state: web::Data<AppState>,
+    path: web::Path<String>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    let genres_file = Path::new("")
+        .join(home_dir().unwrap())
+        .join(".local")
+        .join("share")
+        .join("zentrox")
+        .join("zentrox_media_genres.txt");
+
+    match fs::read_to_string(&genres_file) {
+        Ok(v) => {
+            let new_file_contents = format!("{}\n{}", v.to_string(), path).to_string();
+            match fs::write(genres_file, new_file_contents) {
+                Ok(_v) => HttpResponse::Ok().finish(),
+                Err(_e) => {
+                    eprintln!("Failed to write genres file.");
+                    HttpResponse::InternalServerError().body("Failed to write genres file.")
+                }
+            }
+        }
+        Err(_e) => {
+            eprintln!("Failed to read genres file.");
+            HttpResponse::InternalServerError().body("Failed to read genres file.")
+        }
+    };
+
+    return HttpResponse::Ok().finish();
+}
+
+#[derive(Serialize)]
+struct MediaListResponseJson {
+    media: HashMap<PathBuf, (String, String, String, String)>,
+}
+
+/// HashMap all media files including name, filename, cover and genre.
+/// A metadata file is used to keep track of values configured by the user.
+/// If no name is configured in the metadata file, the name is generated automatically.
+/// If no cover is configured, a default cover is sent.
+#[get("/api/getMediaList")]
+async fn get_media_list(session: Session, state: web::Data<AppState>) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    let sources_file = Path::new("")
+        .join(home_dir().unwrap())
+        .join(".local")
+        .join("share")
+        .join("zentrox")
+        .join("zentrox_media_locations.txt");
+
+    let media_directory_vector: Vec<PathBuf> = fs::read_to_string(sources_file)
+        .unwrap_or(String::new())
+        .lines()
+        .filter(|x| !x.is_empty())
+        .map(|x| {
+            let p = x.split(";").nth(0).unwrap_or("");
+            PathBuf::from(p)
+        })
+        .collect();
+
+    let video_files_vector: Vec<Vec<PathBuf>> = media_directory_vector
+        .clone()
+        .into_iter()
+        .filter(|p| p.exists())
+        .map(|p| {
+            fs::read_dir(p)
+                .unwrap()
+                .into_iter()
+                .map(|x| x.unwrap().path())
+                .filter(|x| {
+                    !x.is_dir() && x.file_name().expect("Failed to get filename.") != ".mcmetadata"
+                })
+                // Remove directories and metadata files.
+                .collect()
+        })
+        .collect();
+
+    let mut all_media_files: Vec<PathBuf> = Vec::new();
+
+    for mut paths in video_files_vector {
+        all_media_files.append(&mut paths);
+    }
+
+    // Create hashmap of all metadata files
+
+    let metadata_files = media_directory_vector
+        .into_iter()
+        .map(|p| p.join(".mcmetadata"));
+    // Assume every directory contains a metadata file. If the file does not exists later on, the
+    // code will act as if it is empty "".
+
+    let mut media_info_hashmap: HashMap<PathBuf, (String, String, String, String)> = HashMap::new(); // Make empty hashmap
+                                                                                                     // Every media files' path is asigned the information from the metadata files.
+
+    // The metadata file is a file designed the same way as the source directory file.
+    // It is a line-separated file where every line corresponds to a media file.
+    // The individual segments are as follows:
+    // - path: The path in the server filesystem.
+    // - name: The corresponding name of the video (e.g., Big Buck Bunny).
+    // - path: The path the frontend has to ask for to get the media file.
+    // - cover: The filename the frontend has to ask for to get the cover image.
+    // - genre: The genre the media file belongs to (e.g., Animation).
+    // These segments are separated using semicolons.
+
+    for file in metadata_files {
+        let file_contents = fs::read_to_string(file)
+            .unwrap_or("".to_string())
+            .to_string();
+        let lines = file_contents.lines().filter(|x| !x.is_empty());
+        // Get line of file and ignore files that do not exist.
+        for l in lines {
+            let segments: Vec<&str> = l.split(";").collect();
+            let internal_path: PathBuf = segments[0].into(); // The path on the system
+            let name = segments[1].to_string(); // The name configured by the user
+            let cover = segments[2].to_string(); // The file name of the cover image
+            let genre = segments[3].to_string(); // The name of the genre
+            media_info_hashmap.insert(
+                internal_path.clone(),
+                (
+                    name,
+                    internal_path.to_string_lossy().to_string(),
+                    cover,
+                    genre,
+                ),
+            );
+        }
+    }
+
+    // For every file, check if it is in the hashmap, if it isn't add it by guessing a name, adding
+    // a blank cover, generating the source path and adding a blank genre.
+
+    for f in all_media_files {
+        if !media_info_hashmap.contains_key(&f) {
+            let name = f
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .to_string()
+                .replace("_", " ")
+                .replace("-", " ")
+                .replace("HD", "")
+                .replace("4K", "")
+                .to_title_case();
+            // Automatically generates a name
+
+            media_info_hashmap.insert(
+                f.clone().into(),
+                (
+                    name,
+                    f.to_string_lossy().to_string(),
+                    "empty_cover.svg".to_string(),
+                    "no_genre".to_string(),
+                ),
+            );
+        }
+    }
+
+    return HttpResponse::Ok().json(MediaListResponseJson {
+        media: media_info_hashmap,
+        // The frontend is passed a hashmap with the percise path, name, cover and genre.
+    });
 }
 
 // ======================================================================
@@ -2576,6 +2814,7 @@ async fn main() -> std::io::Result<()> {
             // Logs
             .service(logs_request)
             // Video
+            .service(media)
             .service(video_request)
             .service(get_video_source_list)
             .service(update_video_source_list)

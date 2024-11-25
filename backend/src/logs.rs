@@ -54,7 +54,17 @@ pub fn log_messages(
     let o = jctl.unwrap().stdout;
     let mut vect = Vec::new();
     for l in o.lines() {
-        let entry: JournalEntry = serde_json::from_str(l).unwrap();
+        let entry: JournalEntry = serde_json::from_str(l).unwrap_or(JournalEntry {
+            realtime_timestamp: Some(String::new()),
+            application: Some(String::new()),
+            message: Some(String::from(
+                "This appears to be an error in the logs' data",
+            )),
+            priority: Some(String::new()),
+            uid: Some(String::new()),
+            user: Some(String::new()),
+            username: Some(String::new()),
+        });
         vect.push((
             entry.realtime_timestamp.unwrap_or(String::from("")),
             {
