@@ -118,17 +118,11 @@ pub fn run_setup() -> Result<(), String> {
         { prompt("Add UFW rule to allow port 8080 for Zentrox [y/n]: ").to_lowercase() == "y" };
     if allow_8080 {
         let ip_addr = prompt("Only allow port 8080 for specific IP [enter ip/leave empty]: ");
-        let ip_arg;
-        if ip_addr.len() < 5 {
-            ip_arg = "any"
-        } else {
-            ip_arg = &ip_addr
-        }
         let sudo_password =
             rpassword::prompt_password("Please enter your sudo password to run UFW: ");
         let ufw_command =
             SwitchedUserCommand::new(sudo_password.unwrap().to_string(), "/sbin/ufw".to_string())
-                .args(vec!["allow", "from", ip_arg, "to", "8080"])
+                .args(if ip_addr.is_empty() { vec!["allow", "8080"] } else { vec!["allow", "from", &ip_addr, "to", "8080"] })
                 .spawn();
 
         match ufw_command {

@@ -2458,8 +2458,8 @@ async fn get_genre_list(session: Session, state: web::Data<AppState>) -> HttpRes
 /// Add a genre to the list of genres. The genre is sent using a GET parameter.
 /// The genres are stored in ~/.local/share/zentrox/zentrox_media_genres.txt as a line-seperated
 /// string.
-#[get("/api/addGenreList/{genre_name}")]
-async fn add_genre_list(
+#[get("/api/addGenre/{genre_name}")]
+async fn add_genre(
     session: Session,
     state: web::Data<AppState>,
     path: web::Path<String>,
@@ -2818,6 +2818,9 @@ async fn main() -> std::io::Result<()> {
             .service(video_request)
             .service(get_video_source_list)
             .service(update_video_source_list)
+            .service(get_genre_list)
+            .service(get_media_list)
+            .service(add_genre)
             // General services and blocks
             .service(dashboard_asset_block)
             .service(robots_txt)
