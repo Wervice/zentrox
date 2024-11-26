@@ -545,50 +545,80 @@ function Key({ children }) {
 }
 
 function Desktop() {
- const [queryInputValue, setQueryInputValue] = useState("");
- const [musicPlayerSrc, setMusicPlayerSrc] = useState("");
- const [musicPlayerHidden, setMusicPlayerHidden] = useState(true);
- const [musicPlayerName, setMusicPlayerName] = useState("");
- const [musicPlayerCover, setMusicPlayerCover] = useState("");
- const [videoPlayerSrc, setVideoPlayerSrc] = useState("");
- const [videoPlayerName, setVideoPlayerName] = useState("");
- const [videoPlayerHidden, setVideoPlayerHidden] = useState(true);
- const [helpHidden, setHelpHidden] = useState(true);
- const [videos, setVideos] = useState([
-  {
-   cover:
-    "",
-   name: "",
-   video:
-    "",
-   genre: "",
-   folder: "",
-  },
-  ]);
+ const [queryInputValue, setQueryInputValue] = useState(""); // What value is in the query input?
+ const [musicPlayerSrc, setMusicPlayerSrc] = useState(""); // What source does the music-player get the music from?
+ const [musicPlayerHidden, setMusicPlayerHidden] = useState(true); // Is the music-player hidden?
+ const [musicPlayerName, setMusicPlayerName] = useState(""); // What name does the music-player show the user?
+ const [musicPlayerCover, setMusicPlayerCover] = useState(""); // What is the cover the music-player shows the user
+ const [videoPlayerSrc, setVideoPlayerSrc] = useState(""); // What source does the video-player get the video from?
+ const [videoPlayerName, setVideoPlayerName] = useState(""); // What name does the video-player show the user?
+ const [videoPlayerHidden, setVideoPlayerHidden] = useState(true); // Is the video-player hidden?
+ const [helpHidden, setHelpHidden] = useState(true); // Is the help modal hidden?
+ const [selectedGenre, setSelectedGenre] = useState(""); // What is the selected genre?
+ const [helpFadingOut, setHelpFadingOut] = useState(false); // Is the help modal fading out?
+ 
+ const [videos, setVideos] = useState([]); // Array of objects that represent videos
+ const [music, setMusic] = useState([]); // Array of objects that represent music
+ 
+ const [genres, setGenres] = useState([]); // Array of all genres
 
- const [music, setMusic] = useState([
-  {
-   cover: "",
-   name: "",
-   source:
-    "",
-   genre: "",
-   folder: "",
-  },
- ]);
+ var queryInput = useRef(); // Reference to the query input
+ 
+ useEffect(() => {
+	 
+	fetch("/api/getMediaList").then((res) => {
+		if (res.ok) {
+			res.json().then((json) => {
+				let m = json.media;
+				for (const [path, info] of Object.entries(m)) {
+					let pathSegments = path.split(".");
+					let extension = pathSegments[pathSegments.length - 1].toLowerCase();
+					let m = v = []
 
- const [genres, setGenres] = useState([
-  "Action",
-  "Animation",
-  "Science",
-  "Documentary",
-  "Opera",
- ]);
- const [selectedGenre, setSelectedGenre] = useState("");
- const [folders, setFolders] = useState(["Music", "Videos", "Pictures"]);
- const [selectedFolder, setSelectedFolder] = useState("");
+					switch (extension) {
+						case "wav":
+						case "heic":
+						case "m4a":
+						case "flac":
+						case "ogg":
+						case "opus":
+						case "oga":
+						case "webm":
+						case "mp3":
+							m.push({
+								cover: "/api/cover/"+info[1],
+								name: info[0],
+								source: path,
+								genre: info[2]
+							})
+						default:
+							v.push({
+								cover: "/api/cover/"+info[1],
+								name: info[0],
+								source: path,
+								genre: info[2]
+							})
+					}
 
- var queryInput = useRef();
+					setMusic(m);
+					setVideos(v);
+				}
+			})	
+		}
+	})
+
+ }, [videos, music])
+
+	useEffect(() => {
+		fetch("/api/getGenreList").then((res) => {
+			if (res.ok) {
+				res.json((json) => {
+					let g = json.genres;
+					setGenres(g)
+				})
+			}
+		})
+	}, [genres])
 
  function playVideo(src, name) {
   setVideoPlayerHidden(false);
@@ -608,7 +638,8 @@ function Desktop() {
    if (e.key === "s" || e.key === "/") {
     queryInput.current.focus();
    } else if ((e.key === "Escape" || e.key === "q") && !helpHidden) {
-    setHelpHidden(true);
+	   setHelpFadingOut(true)
+    setTimeout(() => {setHelpHidden(true);setHelpFadingOut(false)}, 190)
    }
   });
  }, [helpHidden]);
@@ -616,7 +647,7 @@ function Desktop() {
  return (
   <>
    <span
-    className="fixed bg-black/20 w-screen h-screen top-0 left-0 z-20 animate-moveup duration-200 ease-in-out"
+    className={"fixed bg-black/20 backdrop-grayscale w-screen h-screen top-0 left-0 z-20 duration-200 ease-in-out " + (helpFadingOut ? "animate-movedown" : "animate-moveup")}
     hidden={helpHidden}
    >
     <span className="m-8 p-2 rounded w-[calc(100vw-4em)] h-[calc(100vh-4em)] block bg-zinc-950 border border-1 border-neutral-600 shadow-black/20 shadow-lg">
@@ -728,22 +759,6 @@ function Desktop() {
       </SelectGroup>
      </SelectContent>
     </Select>{" "}
-    <Select value={selectedFolder} onValueChange={(e) => setSelectedFolder(e)}>
-     <SelectTrigger className="w-[180px] inline-flex bg-transparent ml-1">
-      Folder
-     </SelectTrigger>
-     <SelectContent>
-      <SelectGroup>
-       {folders.map((e, i) => {
-        return (
-         <SelectItem key={i} value={e.toLowerCase()}>
-          {e}
-         </SelectItem>
-        );
-       })}
-      </SelectGroup>
-     </SelectContent>
-    </Select>
     <Input
      type="text"
      placeholder="Search by name"
@@ -760,7 +775,6 @@ function Desktop() {
      className="ml-2 focus-visible:outline-white focus-visible:outline-2 focus-visible:outline"
      onClick={() => {
       setSelectedGenre("");
-      setSelectedFolder("");
       queryInput.current.value = "";
      }}
     >
@@ -768,8 +782,7 @@ function Desktop() {
     </Button>
     <br />
     <h2 className="font-semibold p-2">
-     <VideoIcon className="inline-block h-6 w-6 align-middle" /> Recently added
-     videos
+     <VideoIcon className="inline-block h-6 w-6 align-middle" /> Videos in your library
     </h2>
     {videos.length === 0 ? (
      <span className="opacity-50 m-2">
@@ -782,13 +795,6 @@ function Desktop() {
      .filter((e) => {
       if (selectedGenre !== "") {
        return selectedGenre.toLowerCase() == e.genre.toLowerCase();
-      } else {
-       return true;
-      }
-     })
-     .filter((e) => {
-      if (selectedFolder !== "") {
-       return selectedFolder.toLowerCase() == e.folder.toLowerCase();
       } else {
        return true;
       }
@@ -811,8 +817,7 @@ function Desktop() {
       );
      })}
     <h2 className="font-semibold p-2">
-     <MusicIcon className="inline-block h-6 w-6 align-middle" /> Music you
-     listened to
+     <MusicIcon className="inline-block h-6 w-6 align-middle" /> Music in your library
     </h2>
     {music.length === 0 ? (
      <span className="opacity-50 m-2">
@@ -825,13 +830,6 @@ function Desktop() {
      .filter((e) => {
       if (selectedGenre !== "") {
        return selectedGenre.toLowerCase() == e.genre.toLowerCase();
-      } else {
-       return true;
-      }
-     })
-     .filter((e) => {
-      if (selectedFolder !== "") {
-       return selectedFolder.toLowerCase() == e.folder.toLowerCase();
       } else {
        return true;
       }
