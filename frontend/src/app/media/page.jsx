@@ -145,12 +145,12 @@ function VideoPlayer({ src, name, closePlayer }) {
      setOverlayVisible(false);
      setNotYetStarted(false);
      v.current.play();
-     console.log("Playing");
+     
     } else {
      setPlaying(false);
      setNotYetStarted(false);
      v.current.pause();
-     console.log("Pausing");
+     
     }
    } else if (e.key === "f") {
     try {
@@ -541,7 +541,11 @@ function MusicPlayer({ src, cover, name, closePlayer = () => {} }) {
 }
 
 function Key({ children }) {
-	return <span className="p-1 rounded bg-white/5 text-white border-b-2 border-bottom-neutral-500">{children}</span>
+ return (
+  <span className="p-1 rounded bg-white/5 text-white border-b-2 border-bottom-neutral-500">
+   {children}
+  </span>
+ );
 }
 
 function Desktop() {
@@ -556,73 +560,81 @@ function Desktop() {
  const [helpHidden, setHelpHidden] = useState(true); // Is the help modal hidden?
  const [selectedGenre, setSelectedGenre] = useState(""); // What is the selected genre?
  const [helpFadingOut, setHelpFadingOut] = useState(false); // Is the help modal fading out?
- 
+ const [lastMediaFetch, setLastMediaFetch] = useState(0); // Set last media fetch?
+ const [lastGenresFetch, setLastGenresFetch] = useState(0); // Set last genres fetch?
+
  const [videos, setVideos] = useState([]); // Array of objects that represent videos
  const [music, setMusic] = useState([]); // Array of objects that represent music
- 
+
  const [genres, setGenres] = useState([]); // Array of all genres
 
  var queryInput = useRef(); // Reference to the query input
- 
+
  useEffect(() => {
-	 
-	fetch("/api/getMediaList").then((res) => {
-		if (res.ok) {
-			res.json().then((json) => {
-				let m = json.media;
-				for (const [path, info] of Object.entries(m)) {
-					let pathSegments = path.split(".");
-					let extension = pathSegments[pathSegments.length - 1].toLowerCase();
-					let m = []
-					let v = []
+  setLastMediaFetch(Date.now());
 
-					switch (extension) {
-						case "wav":
-						case "heic":
-						case "m4a":
-						case "flac":
-						case "ogg":
-						case "opus":
-						case "oga":
-						case "webm":
-						case "mp3":
-							m.push({
-								cover: "/api/cover/"+info[1],
-								name: info[0],
-								source: path,
-								genre: info[2]
-							})
-						default:
-							v.push({
-								cover: "/api/cover/"+info[1],
-								name: info[0],
-								source: path,
-								genre: info[2]
-							})
-					}
+  if (Date.now() - lastMediaFetch < 60 * 1000) {
+   return;
+  }
 
-					setMusic(m);
-					setVideos(v);
-				}
-			})	
-		}
-	})
+  fetch("/api/getMediaList").then((res) => {
+   if (res.ok) {
+    res.json().then((json) => {
+     let m = json.media;
+     for (const [path, info] of Object.entries(m)) {
+		 console.log(path)
+      let pathSegments = path.split(".");
+      let extension = pathSegments[pathSegments.length - 1].toLowerCase();
+      let m = [];
+      let v = [];
 
- }, [videos, music])
+      switch (extension) {
+       case "wav":
+       case "heic":
+       case "m4a":
+       case "flac":
+       case "ogg":
+       case "opus":
+       case "oga":
+       case "webm":
+       case "mp3":
+        m.push({
+         cover: "/api/cover/" + info[1],
+         name: info[0],
+         source: path,
+         genre: info[2],
+        });
+       default:
+        v.push({
+         cover: "/api/cover/" + info[1],
+         name: info[0],
+         source: path,
+         genre: info[2],
+        });
+      setMusic(m);
+      setVideos(v);
+     }
+    });
+   }
+  });
+ }, [videos, music, lastMediaFetch]);
 
-	useEffect(() => {
-		fetch("/api/getGenreList").then((res) => {
-			console.log("Getting genre list")
-			if (res.ok) {
-				console.log("Genre list is ok")
-				res.json((json) => {
-					let g = json.genres;
-					console.log("Genre list is ok")
-					setGenres(g)
-				})
-			}
-		})
-	}, [genres])
+ useEffect(() => {
+  setLastGenresFetch(Date.now());
+
+  if (Date.now() - lastGenresFetch < 60 * 1000) {
+   return;
+  }
+
+  fetch("/api/getGenreList").then((res) => {
+   if (res.ok) {
+    res.json((json) => {
+     let g = json.genres;
+     setGenres(g);
+    });
+   }
+  });
+ }, [genres, lastGenresFetch]);
 
  function playVideo(src, name) {
   setVideoPlayerHidden(false);
@@ -642,8 +654,11 @@ function Desktop() {
    if (e.key === "s" || e.key === "/") {
     queryInput.current.focus();
    } else if ((e.key === "Escape" || e.key === "q") && !helpHidden) {
-	   setHelpFadingOut(true)
-    setTimeout(() => {setHelpHidden(true);setHelpFadingOut(false)}, 190)
+    setHelpFadingOut(true);
+    setTimeout(() => {
+     setHelpHidden(true);
+     setHelpFadingOut(false);
+    }, 190);
    }
   });
  }, [helpHidden]);
@@ -651,7 +666,10 @@ function Desktop() {
  return (
   <>
    <span
-    className={"fixed bg-black/20 backdrop-grayscale w-screen h-screen top-0 left-0 z-20 duration-200 ease-in-out " + (helpFadingOut ? "animate-movedown" : "animate-moveup")}
+    className={
+     "fixed bg-black/20 backdrop-grayscale w-screen h-screen top-0 left-0 z-20 duration-200 ease-in-out " +
+     (helpFadingOut ? "animate-movedown" : "animate-moveup")
+    }
     hidden={helpHidden}
    >
     <span className="m-8 p-2 rounded w-[calc(100vw-4em)] h-[calc(100vh-4em)] block bg-zinc-950 border border-1 border-neutral-600 shadow-black/20 shadow-lg">
@@ -677,38 +695,51 @@ function Desktop() {
 
      <h2 className="text-lg font-semibold mt-2">Keybindings</h2>
      <p className="text-lg">
-		Media Center has a few built in keybinds to make using the interface easier. <br />
-		<table>
-			<tr>
-				<td className="p-1">Shortcut</td>
-				<td className="p-1">Action</td>
-			</tr>
-			<tr>
-				<td className="p-1"><Key>q</Key></td>
-				<td className="p-1">Quits and closes players and popovers</td>
-			</tr>
-			<tr>
-				<td className="p-1"><Key>k</Key> <Key>Space</Key></td>
-				<td className="p-1">Pause or play a player</td>
-			</tr>
-			<tr>
-				<td className="p-1"><Key>s</Key></td>
-				<td className="p-1">Focuses search input</td>
-			</tr>
-			<tr>
-				<td className="p-1"><Key>f</Key> <Key>Escape</Key></td>
-				<td className="p-1">Enter / Exit fullscreen</td>
-			</tr>
-			<tr>
-				<td className="p-1"><Key>Arrow Left</Key> <Key>Arrow Right</Key></td>
-				<td className="p-1">Skip forwards or backwards</td>
-			</tr>
-			<tr>
-				<td className="p-1"><Key>Arrow Up</Key> <Key>Down</Key></td>
-				<td className="p-1">Increase or decrease volume</td>
-			</tr>
-		</table>
-	 </p>
+      Media Center has a few built in keybinds to make using the interface
+      easier. <br />
+      <table>
+       <tr>
+        <td className="p-1">Shortcut</td>
+        <td className="p-1">Action</td>
+       </tr>
+       <tr>
+        <td className="p-1">
+         <Key>q</Key>
+        </td>
+        <td className="p-1">Quits and closes players and popovers</td>
+       </tr>
+       <tr>
+        <td className="p-1">
+         <Key>k</Key> <Key>Space</Key>
+        </td>
+        <td className="p-1">Pause or play a player</td>
+       </tr>
+       <tr>
+        <td className="p-1">
+         <Key>s</Key>
+        </td>
+        <td className="p-1">Focuses search input</td>
+       </tr>
+       <tr>
+        <td className="p-1">
+         <Key>f</Key> <Key>Escape</Key>
+        </td>
+        <td className="p-1">Enter / Exit fullscreen</td>
+       </tr>
+       <tr>
+        <td className="p-1">
+         <Key>Arrow Left</Key> <Key>Arrow Right</Key>
+        </td>
+        <td className="p-1">Skip forwards or backwards</td>
+       </tr>
+       <tr>
+        <td className="p-1">
+         <Key>Arrow Up</Key> <Key>Down</Key>
+        </td>
+        <td className="p-1">Increase or decrease volume</td>
+       </tr>
+      </table>
+     </p>
     </span>
    </span>
    {!videoPlayerHidden ? (
@@ -786,7 +817,8 @@ function Desktop() {
     </Button>
     <br />
     <h2 className="font-semibold p-2">
-     <VideoIcon className="inline-block h-6 w-6 align-middle" /> Videos in your library
+     <VideoIcon className="inline-block h-6 w-6 align-middle" /> Videos in your
+     library
     </h2>
     {videos.length === 0 ? (
      <span className="opacity-50 m-2">
@@ -816,12 +848,13 @@ function Desktop() {
         src={e.cover}
         name={e.name}
         key={i}
-        onClick={() => playVideo(e.video, e.name)}
+        onClick={() => playVideo(e.source, e.name)}
        />
       );
      })}
     <h2 className="font-semibold p-2">
-     <MusicIcon className="inline-block h-6 w-6 align-middle" /> Music in your library
+     <MusicIcon className="inline-block h-6 w-6 align-middle" /> Music in your
+     library
     </h2>
     {music.length === 0 ? (
      <span className="opacity-50 m-2">
