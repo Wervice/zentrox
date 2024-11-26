@@ -573,7 +573,8 @@ function Desktop() {
 				for (const [path, info] of Object.entries(m)) {
 					let pathSegments = path.split(".");
 					let extension = pathSegments[pathSegments.length - 1].toLowerCase();
-					let m = v = []
+					let m = []
+					let v = []
 
 					switch (extension) {
 						case "wav":
@@ -611,9 +612,12 @@ function Desktop() {
 
 	useEffect(() => {
 		fetch("/api/getGenreList").then((res) => {
+			console.log("Getting genre list")
 			if (res.ok) {
+				console.log("Genre list is ok")
 				res.json((json) => {
 					let g = json.genres;
+					console.log("Genre list is ok")
 					setGenres(g)
 				})
 			}
