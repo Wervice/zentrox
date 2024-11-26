@@ -2207,8 +2207,8 @@ fn is_whitelisted(l: Vec<(bool, PathBuf)>, p: PathBuf) -> bool {
     r
 }
 
-#[get("/api/video/{path}")]
-async fn video_request(
+#[get("/api/getMedia/{path}")]
+async fn media_request(
     session: Session,
     state: web::Data<AppState>,
     path: web::Path<String>,
@@ -2497,7 +2497,7 @@ async fn add_genre(
 
 #[derive(Serialize)]
 struct MediaListResponseJson {
-    media: HashMap<PathBuf, (String, String, String, String)>,
+    media: HashMap<PathBuf, (String, String, String)>,
 }
 
 /// HashMap all media files including name, filename, cover and genre.
@@ -2558,7 +2558,7 @@ async fn get_media_list(session: Session, state: web::Data<AppState>) -> HttpRes
     // Assume every directory contains a metadata file. If the file does not exists later on, the
     // code will act as if it is empty "".
 
-    let mut media_info_hashmap: HashMap<PathBuf, (String, String, String, String)> = HashMap::new(); // Make empty hashmap
+    let mut media_info_hashmap: HashMap<PathBuf, (String, String, String)> = HashMap::new(); // Make empty hashmap
                                                                                                      // Every media files' path is asigned the information from the metadata files.
 
     // The metadata file is a file designed the same way as the source directory file.
@@ -2587,7 +2587,6 @@ async fn get_media_list(session: Session, state: web::Data<AppState>) -> HttpRes
                 internal_path.clone(),
                 (
                     name,
-                    internal_path.to_string_lossy().to_string(),
                     cover,
                     genre,
                 ),
@@ -2605,6 +2604,10 @@ async fn get_media_list(session: Session, state: web::Data<AppState>) -> HttpRes
                 .unwrap()
                 .to_string_lossy()
                 .to_string()
+                .split(".")
+                .nth(0)
+                .unwrap_or("")
+                .to_string()
                 .replace("_", " ")
                 .replace("-", " ")
                 .replace("HD", "")
@@ -2616,7 +2619,6 @@ async fn get_media_list(session: Session, state: web::Data<AppState>) -> HttpRes
                 f.clone().into(),
                 (
                     name,
-                    f.to_string_lossy().to_string(),
                     "empty_cover.svg".to_string(),
                     "no_genre".to_string(),
                 ),
@@ -2815,7 +2817,7 @@ async fn main() -> std::io::Result<()> {
             .service(logs_request)
             // Video
             .service(media)
-            .service(video_request)
+            .service(media_request)
             .service(get_video_source_list)
             .service(update_video_source_list)
             .service(get_genre_list)
