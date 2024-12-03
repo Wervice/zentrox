@@ -111,7 +111,7 @@ function VideoPlayer({ src, name, closePlayer }) {
  var vr = useRef();
  const [playing, setPlaying] = useState(false);
  const [controlsVisible, setControlsVisible] = useState(true);
- const [overlayVisible, setOverlayVisible] = useState(false);
+ const [overlayVisible, setOverlayVisible] = useState(true);
  const [notYetStarted, setNotYetStarted] = useState(true);
  const [isFullscreen, setIsFullscreen] = useState(false);
  const [isVideoLoaded, setVideoLoaded] = useState(false);
@@ -145,12 +145,10 @@ function VideoPlayer({ src, name, closePlayer }) {
      setOverlayVisible(false);
      setNotYetStarted(false);
      v.current.play();
-     
     } else {
      setPlaying(false);
      setNotYetStarted(false);
      v.current.pause();
-     
     }
    } else if (e.key === "f") {
     try {
@@ -244,7 +242,7 @@ function VideoPlayer({ src, name, closePlayer }) {
    )}
    <video
     className="w-full h-full block"
-    src={src}
+    src={`/api/getMedia/${encodeURIComponent(src)}`}
     ref={v}
     hidden={!playerVisible}
     autoPlay={false}
@@ -258,7 +256,7 @@ function VideoPlayer({ src, name, closePlayer }) {
    <div
     className={
      "w-screen h-screen fixed top-0 left-0 z-30 transition-all duration-100 bg-black/80" +
-     (overlayVisible ? "" : " opacity-0")
+     (overlayVisible && errorMessage === "" ? "" : " opacity-0")
     }
    >
     <span className="font-bold fixed top-1/3 left-32">
@@ -560,8 +558,8 @@ function Desktop() {
  const [helpHidden, setHelpHidden] = useState(true); // Is the help modal hidden?
  const [selectedGenre, setSelectedGenre] = useState(""); // What is the selected genre?
  const [helpFadingOut, setHelpFadingOut] = useState(false); // Is the help modal fading out?
- const [lastMediaFetch, setLastMediaFetch] = useState(0); // Set last media fetch?
- const [lastGenresFetch, setLastGenresFetch] = useState(0); // Set last genres fetch?
+ const [lastMediaFetch, setLastMediaFetch] = useState(false); // Should the frontend fetch media data again?
+ const [lastGenresFetch, setLastGenresFetch] = useState(false); // Should the frontend fetch genre data again?
 
  const [videos, setVideos] = useState([]); // Array of objects that represent videos
  const [music, setMusic] = useState([]); // Array of objects that represent music
@@ -571,22 +569,22 @@ function Desktop() {
  var queryInput = useRef(); // Reference to the query input
 
  useEffect(() => {
-  setLastMediaFetch(Date.now());
-
-  if (Date.now() - lastMediaFetch < 60 * 1000) {
+  if (lastMediaFetch) {
    return;
   }
+
+  setLastMediaFetch(true);
 
   fetch("/api/getMediaList").then((res) => {
    if (res.ok) {
     res.json().then((json) => {
-     let m = json.media;
-     for (const [path, info] of Object.entries(m)) {
-		 console.log(path)
-      let pathSegments = path.split(".");
-      let extension = pathSegments[pathSegments.length - 1].toLowerCase();
+     let med = json.media;
       let m = [];
       let v = [];
+	for (const [path, info] of Object.entries(med)) {
+      console.log(path);
+      let pathSegments = path.split(".");
+      let extension = pathSegments[pathSegments.length - 1].toLowerCase();
 
       switch (extension) {
        case "wav":
@@ -599,32 +597,32 @@ function Desktop() {
        case "webm":
        case "mp3":
         m.push({
-         cover: "/api/cover/" + info[1],
+         cover: "/api/cover/" + encodeURIComponent(info[1]),
          name: info[0],
          source: path,
          genre: info[2],
         });
        default:
         v.push({
-         cover: "/api/cover/" + info[1],
+         cover: "/api/cover/" + encodeURIComponent(info[1]),
          name: info[0],
          source: path,
          genre: info[2],
         });
+      }
+     }
       setMusic(m);
       setVideos(v);
-     }
     });
    }
   });
  }, [videos, music, lastMediaFetch]);
 
  useEffect(() => {
-  setLastGenresFetch(Date.now());
-
-  if (Date.now() - lastGenresFetch < 60 * 1000) {
+  if (lastGenresFetch) {
    return;
   }
+  setLastGenresFetch(true);
 
   fetch("/api/getGenreList").then((res) => {
    if (res.ok) {
