@@ -122,7 +122,11 @@ pub fn run_setup() -> Result<(), String> {
             rpassword::prompt_password("Please enter your sudo password to run UFW: ");
         let ufw_command =
             SwitchedUserCommand::new(sudo_password.unwrap().to_string(), "/sbin/ufw".to_string())
-                .args(if ip_addr.is_empty() { vec!["allow", "8080"] } else { vec!["allow", "from", &ip_addr, "to", "8080"] })
+                .args(if ip_addr.is_empty() {
+                    vec!["allow", "8080"]
+                } else {
+                    vec!["allow", "from", &ip_addr, "to", "8080"]
+                })
                 .spawn();
 
         match ufw_command {

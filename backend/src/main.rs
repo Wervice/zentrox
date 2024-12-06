@@ -6,10 +6,13 @@ use actix_session::{storage::CookieSessionStore, Session, SessionMiddleware};
 use actix_web::cookie::Key;
 use actix_web::HttpRequest;
 use actix_web::{
-    get, http::header, http::StatusCode, middleware, post, web, App, HttpResponse, HttpServer,
+    get, http::header, http::StatusCode, middleware, post, web, web::Data, App, HttpResponse,
+    HttpServer,
 };
 use base64::{engine::general_purpose::STANDARD as b64, Engine as _};
 use dirs::{self, home_dir};
+use rand::Rng;
+use rustls::compress::CompressionLevel;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -25,6 +28,7 @@ use std::{
 use sysinfo::System as SysInfoSystem;
 use systemstat::{Platform, System};
 use tokio::task;
+use hex_color::hex_color;
 extern crate inflector;
 use inflector::Inflector;
 
@@ -42,6 +46,7 @@ mod ufw;
 mod url_decode;
 mod vault;
 mod video;
+mod hex_color;
 
 use is_admin::is_admin_state;
 
@@ -114,7 +119,7 @@ impl AppState {
 ///
 /// If the user is logged in, they get redireced to /dashboard, otherwise the login is shown.
 #[get("/")]
-async fn index(session: Session, state: web::Data<AppState>) -> HttpResponse {
+async fn index(session: Session, state: Data<AppState>) -> HttpResponse {
     // is_admin session value is != true (None or false), the user is served the login screen
     // otherwise, the user is redirected to /
     if is_admin_state(&session, state) {
@@ -128,7 +133,7 @@ async fn index(session: Session, state: web::Data<AppState>) -> HttpResponse {
 }
 
 #[get("/alerts")]
-async fn alerts(session: Session, state: web::Data<AppState>) -> HttpResponse {
+async fn alerts(session: Session, state: Data<AppState>) -> HttpResponse {
     // is_admin session value is != true (None or false), the user is served the alerts screen
     // otherwise, the user is redirected to /
     if is_admin_state(&session, state) {
@@ -143,7 +148,7 @@ async fn alerts(session: Session, state: web::Data<AppState>) -> HttpResponse {
 }
 
 #[get("/media")]
-async fn media(session: Session, state: web::Data<AppState>) -> HttpResponse {
+async fn media(session: Session, state: Data<AppState>) -> HttpResponse {
     // is_admin session value is != true (None or false), the user is served the media screen
     // otherwise, the user is redirected to /
     if is_admin_state(&session, state) {
@@ -158,15 +163,14 @@ async fn media(session: Session, state: web::Data<AppState>) -> HttpResponse {
 
 #[get("/alerts/manifest.json")]
 async fn alerts_manifest() -> HttpResponse {
-    HttpResponse::Ok()
-        .body(fs::read_to_string("manifest.json").expect("Failed to read manifest.json file"))
+    HttpResponse::Ok().body(include_str!("../manifest.json"))
 }
 
 /// The dashboard route.
 ///
 /// If the user is logged in, the dashboard is shown, otherwise they get redirected to root.
 #[get("/dashboard")]
-async fn dashboard(session: Session, state: web::Data<AppState>) -> HttpResponse {
+async fn dashboard(session: Session, state: Data<AppState>) -> HttpResponse {
     // is_admin session value is != true (None or false), the user is redirected to /
     // otherwise, the user is served the dashboard.html file
     if is_admin_state(&session, state) {
@@ -224,7 +228,7 @@ async fn login(
     session: Session,
     json: web::Json<Login>,
     req: actix_web::HttpRequest,
-    state: web::Data<AppState>,
+    state: Data<AppState>,
 ) -> HttpResponse {
     let username = &json.username;
     let password = &json.password;
@@ -349,7 +353,7 @@ async fn login(
 /// To prevent the user from re-using the current cookie, the state is replaced by a new random
 /// token that is longer than the one that would normally be used to log in.
 #[post("/logout")]
-async fn logout(session: Session, state: web::Data<AppState>) -> HttpResponse {
+async fn logout(session: Session, state: Data<AppState>) -> HttpResponse {
     if is_admin_state(&session, state.clone()) {
         session.purge();
         *state.login_token.lock().unwrap() =
@@ -367,7 +371,7 @@ async fn logout(session: Session, state: web::Data<AppState>) -> HttpResponse {
 /// This function will only return the users OTP secret when the web page is viewed for the first
 /// time. To keep track of this status, a key knows_otp_secret is used.
 #[post("/login/otpSecret")]
-async fn otp_secret_request(_state: web::Data<AppState>) -> HttpResponse {
+async fn otp_secret_request(_state: Data<AppState>) -> HttpResponse {
     #[derive(Serialize)]
     struct SecretJsonResponse {
         secret: String,
@@ -387,7 +391,7 @@ async fn otp_secret_request(_state: web::Data<AppState>) -> HttpResponse {
 ///
 /// This function returns a boolean depending on the user using OTP or not.
 #[post("/login/useOtp")]
-async fn use_otp(_state: web::Data<AppState>) -> HttpResponse {
+async fn use_otp(_state: Data<AppState>) -> HttpResponse {
     #[derive(Serialize)]
     struct JsonResponse {
         used: bool,
@@ -402,7 +406,7 @@ async fn use_otp(_state: web::Data<AppState>) -> HttpResponse {
 
 /// Return the CPU ussage percentage.
 #[get("/api/cpuPercent")]
-async fn cpu_percent(session: Session, state: web::Data<AppState>) -> HttpResponse {
+async fn cpu_percent(session: Session, state: Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state.clone()) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     };
@@ -429,7 +433,7 @@ async fn cpu_percent(session: Session, state: web::Data<AppState>) -> HttpRespon
 
 /// Return the the RAM ussage percentage.
 #[get("/api/ramPercent")]
-async fn ram_percent(session: Session, state: web::Data<AppState>) -> HttpResponse {
+async fn ram_percent(session: Session, state: Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state.clone()) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     };
@@ -457,7 +461,7 @@ async fn ram_percent(session: Session, state: web::Data<AppState>) -> HttpRespon
 
 /// Return the main disk ussage percentage.
 #[get("/api/diskPercent")]
-async fn disk_percent(session: Session, state: web::Data<AppState>) -> HttpResponse {
+async fn disk_percent(session: Session, state: Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state.clone()) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     };
@@ -497,7 +501,7 @@ async fn disk_percent(session: Session, state: web::Data<AppState>) -> HttpRespo
 /// * `zentrox_pid` {u16} - The PID of the current running Zentrox instance.
 /// * `process_number` {u32} - The number of active running processes
 #[get("/api/deviceInformation")]
-async fn device_information(session: Session, state: web::Data<AppState>) -> HttpResponse {
+async fn device_information(session: Session, state: Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     };
@@ -598,7 +602,7 @@ async fn device_information(session: Session, state: web::Data<AppState>) -> Htt
 ///
 /// This includes the ftp username, password and status (is the server on or off)
 #[get("/api/fetchFTPconfig")]
-async fn fetch_ftp_config(session: Session, state: web::Data<AppState>) -> HttpResponse {
+async fn fetch_ftp_config(session: Session, state: Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     };
@@ -643,7 +647,7 @@ struct JsonRequest {
 async fn update_ftp_config(
     session: Session,
     json: web::Json<JsonRequest>,
-    state: web::Data<AppState>,
+    state: Data<AppState>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
@@ -711,7 +715,7 @@ struct PackageResponseJson {
 /// This returns a list of every installed packages, every app the has a .desktop file and all
 /// available packages that are listed in the package manager.
 #[get("/api/packageDatabase")]
-async fn package_database(session: Session, state: web::Data<AppState>) -> HttpResponse {
+async fn package_database(session: Session, state: Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
@@ -759,7 +763,7 @@ struct PackageDatabaseAutoremoveJson {
 
 /// Return a list of all packages that would be affected by an autoremove.
 #[get("/api/packageDatabaseAutoremove")]
-async fn package_database_autoremove(session: Session, state: web::Data<AppState>) -> HttpResponse {
+async fn package_database_autoremove(session: Session, state: Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
@@ -784,7 +788,7 @@ struct PackageActionRequest {
 async fn install_package(
     session: Session,
     json: web::Json<PackageActionRequest>,
-    state: web::Data<AppState>,
+    state: Data<AppState>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
@@ -807,7 +811,7 @@ async fn install_package(
 async fn remove_package(
     session: Session,
     json: web::Json<PackageActionRequest>,
-    state: web::Data<AppState>,
+    state: Data<AppState>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
@@ -827,7 +831,7 @@ async fn remove_package(
 async fn clear_auto_remove(
     session: Session,
     json: web::Json<SudoPasswordOnlyRequest>,
-    state: web::Data<AppState>,
+    state: Data<AppState>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
@@ -853,7 +857,7 @@ struct FireWallInformationResponseJson {
 /// Returns general information about the current UFW firewall configuration.
 async fn firewall_information(
     session: Session,
-    state: web::Data<AppState>,
+    state: Data<AppState>,
     json: web::Json<SudoPasswordOnlyRequest>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
@@ -883,7 +887,7 @@ async fn firewall_information(
 /// In addtion to that the request has to server the user with a sudo password.
 async fn switch_ufw(
     session: Session,
-    state: web::Data<AppState>,
+    state: Data<AppState>,
     path: web::Path<String>,
     json: web::Json<SudoPasswordOnlyRequest>,
 ) -> HttpResponse {
@@ -956,7 +960,7 @@ async fn switch_ufw(
 /// This requires a sudo password.
 async fn new_firewall_rule(
     session: Session,
-    state: web::Data<AppState>,
+    state: Data<AppState>,
     json: web::Json<SudoPasswordOnlyRequest>,
     path: web::Path<(String, String, String)>,
 ) -> HttpResponse {
@@ -992,7 +996,7 @@ async fn new_firewall_rule(
 /// Delete a firewall rule by its index.
 async fn delete_firewall_rule(
     session: Session,
-    state: web::Data<AppState>,
+    state: Data<AppState>,
     json: web::Json<SudoPasswordOnlyRequest>,
     path: web::Path<i32>,
 ) -> HttpResponse {
@@ -1016,7 +1020,7 @@ async fn delete_firewall_rule(
 /// This does not work for files that can not be read by the current user.
 async fn call_file(
     session: Session,
-    state: web::Data<AppState>,
+    state: Data<AppState>,
     path: web::Path<String>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
@@ -1049,7 +1053,7 @@ struct FilesListJson {
 /// The path provided in the URL has to be url encoded.
 async fn files_list(
     session: Session,
-    state: web::Data<AppState>,
+    state: Data<AppState>,
     path: web::Path<String>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
@@ -1088,7 +1092,7 @@ async fn files_list(
 /// The path provided in the requests URL has to be url encoded.
 async fn delete_file(
     session: Session,
-    state: web::Data<AppState>,
+    state: Data<AppState>,
     path: web::Path<String>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
@@ -1128,7 +1132,7 @@ async fn delete_file(
 /// The paths provided in the URL have to be url encoded.
 async fn rename_file(
     session: Session,
-    state: web::Data<AppState>,
+    state: Data<AppState>,
     path: web::Path<(String, String)>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
@@ -1161,7 +1165,7 @@ async fn rename_file(
 /// The path provided in the URL has to be url encoded.
 async fn burn_file(
     session: Session,
-    state: web::Data<AppState>,
+    state: Data<AppState>,
     path: web::Path<String>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
@@ -1200,7 +1204,7 @@ struct DriveListJson {
 #[get("/api/driveList")]
 /// List all block devices connected to the current machine including partition and virtual block
 /// devices.
-async fn list_drives(session: Session, state: web::Data<AppState>) -> HttpResponse {
+async fn list_drives(session: Session, state: Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
@@ -1228,7 +1232,7 @@ struct DriveInformationJson {
 /// size, path, owner...
 async fn drive_information(
     session: Session,
-    state: web::Data<AppState>,
+    state: Data<AppState>,
     path: web::Path<String>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
@@ -1274,7 +1278,7 @@ struct VaultConfigurationMessageResponseJson {
 /// also requires the current password.
 async fn vault_configure(
     session: Session,
-    state: web::Data<AppState>,
+    state: Data<AppState>,
     json: web::Json<VaultConfigurationJson>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
@@ -1398,7 +1402,7 @@ async fn vault_configure(
 }
 
 #[get("/api/isVaultConfigured")]
-async fn is_vault_configured(session: Session, state: web::Data<AppState>) -> HttpResponse {
+async fn is_vault_configured(session: Session, state: Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
@@ -1499,7 +1503,7 @@ fn list_paths(directory: String, key: String) -> Vec<String> {
 /// wrong.
 async fn vault_tree(
     session: Session,
-    state: web::Data<AppState>,
+    state: Data<AppState>,
     json: web::Json<VaultKeyRequest>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
@@ -1570,7 +1574,7 @@ struct VaultDeleteRequest {
 /// provided by the user to be correct.
 async fn delete_vault_file(
     session: Session,
-    state: web::Data<AppState>,
+    state: Data<AppState>,
     json: web::Json<VaultDeleteRequest>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
@@ -1644,7 +1648,7 @@ struct VaultNewFolderRequest {
 /// if the directory name is longer than 64 characters.
 async fn vault_new_folder(
     session: Session,
-    state: web::Data<AppState>,
+    state: Data<AppState>,
     json: web::Json<VaultNewFolderRequest>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
@@ -1694,7 +1698,7 @@ struct VaultUploadForm {
 /// then extracted and stored in the users file system.
 async fn upload_vault(
     session: Session,
-    state: web::Data<AppState>,
+    state: Data<AppState>,
     MultipartForm(form): MultipartForm<VaultUploadForm>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
@@ -1773,7 +1777,7 @@ struct VaultRenameRequest {
 /// The new name will be encrypted. The original name must be provided in non-encrypted form.
 async fn rename_vault_file(
     session: Session,
-    state: web::Data<AppState>,
+    state: Data<AppState>,
     json: web::Json<VaultRenameRequest>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
@@ -1852,7 +1856,7 @@ struct VaultFileDownloadJson {
 /// The file will not be provided in encrypted form.
 async fn vault_file_download(
     session: Session,
-    state: web::Data<AppState>,
+    state: Data<AppState>,
     json: web::Json<VaultFileDownloadJson>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
@@ -1922,7 +1926,7 @@ struct TlsUploadForm {
 /// The name of then new certificate is stored in the configuration file.
 async fn upload_tls(
     session: Session,
-    state: web::Data<AppState>,
+    state: Data<AppState>,
     MultipartForm(form): MultipartForm<TlsUploadForm>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
@@ -1965,7 +1969,7 @@ struct CertNamesJson {
 
 #[get("/api/certNames")]
 /// Return the name of the current certificate.
-async fn cert_names(session: Session, state: web::Data<AppState>) -> HttpResponse {
+async fn cert_names(session: Session, state: Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
@@ -1980,7 +1984,7 @@ async fn cert_names(session: Session, state: web::Data<AppState>) -> HttpRespons
 /// Powers off the system.
 async fn power_off(
     session: Session,
-    state: web::Data<AppState>,
+    state: Data<AppState>,
     json: web::Json<SudoPasswordOnlyRequest>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
@@ -2001,7 +2005,7 @@ struct AccountDetailsJson {
 
 #[post("/api/accountDetails")]
 /// Return the users account details, which is currently limited to the users username.
-async fn account_details(session: Session, state: web::Data<AppState>) -> HttpResponse {
+async fn account_details(session: Session, state: Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state.clone()) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
@@ -2026,7 +2030,7 @@ struct UpdateAccountJson {
 /// Update the users username and password.
 async fn update_account_details(
     session: Session,
-    state: web::Data<AppState>,
+    state: Data<AppState>,
     json: web::Json<UpdateAccountJson>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state.clone()) {
@@ -2084,7 +2088,7 @@ async fn update_account_details(
 
 #[get("/api/profilePicture")]
 /// Return the current profile picture.
-async fn profile_picture(session: Session, state: web::Data<AppState>) -> HttpResponse {
+async fn profile_picture(session: Session, state: Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
@@ -2116,7 +2120,7 @@ struct ProfilePictureUploadForm {
 /// The picture may not be larger than 2MB in order to keep loading time down.
 async fn upload_profile_picture(
     session: Session,
-    state: web::Data<AppState>,
+    state: Data<AppState>,
     MultipartForm(form): MultipartForm<ProfilePictureUploadForm>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
@@ -2149,7 +2153,7 @@ struct MessagesLog {
 #[post("/api/logs/{log}/{since}/{until}")]
 async fn logs_request(
     session: Session,
-    state: web::Data<AppState>,
+    state: Data<AppState>,
     json: web::Json<SudoPasswordOnlyRequest>,
     path: web::Path<(String, u64, u64)>,
 ) -> HttpResponse {
@@ -2210,7 +2214,7 @@ fn is_whitelisted(l: Vec<(bool, PathBuf)>, p: PathBuf) -> bool {
 #[get("/api/getMedia/{path}")]
 async fn media_request(
     session: Session,
-    state: web::Data<AppState>,
+    state: Data<AppState>,
     path: web::Path<String>,
     req: HttpRequest,
 ) -> HttpResponse {
@@ -2319,7 +2323,7 @@ struct VideoSourceJson {
 #[post("/api/updateVideoSourceList")]
 async fn update_video_source_list(
     session: Session,
-    state: web::Data<AppState>,
+    state: Data<AppState>,
     json: web::Json<VideoSourceJson>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
@@ -2370,7 +2374,7 @@ struct VideoSourcesListResponseJson {
 }
 
 #[get("/api/getVideoSourceList")]
-async fn get_video_source_list(session: Session, state: web::Data<AppState>) -> HttpResponse {
+async fn get_video_source_list(session: Session, state: Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
@@ -2427,7 +2431,7 @@ struct VideoGenreListResponseJson {
 /// The genres are stored in ~/.local/share/zentrox/zentrox_media_genres.txt as a line-seperated
 /// string.
 #[get("/api/getGenreList")]
-async fn get_genre_list(session: Session, state: web::Data<AppState>) -> HttpResponse {
+async fn get_genre_list(session: Session, state: Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
@@ -2450,9 +2454,7 @@ async fn get_genre_list(session: Session, state: web::Data<AppState>) -> HttpRes
             eprintln!("Failed to read genres file.");
             HttpResponse::InternalServerError().body("Failed to read genres file.")
         }
-    };
-
-    return HttpResponse::Ok().finish();
+    }
 }
 
 /// Add a genre to the list of genres. The genre is sent using a GET parameter.
@@ -2461,7 +2463,7 @@ async fn get_genre_list(session: Session, state: web::Data<AppState>) -> HttpRes
 #[get("/api/addGenre/{genre_name}")]
 async fn add_genre(
     session: Session,
-    state: web::Data<AppState>,
+    state: Data<AppState>,
     path: web::Path<String>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
@@ -2490,9 +2492,7 @@ async fn add_genre(
             eprintln!("Failed to read genres file.");
             HttpResponse::InternalServerError().body("Failed to read genres file.")
         }
-    };
-
-    return HttpResponse::Ok().finish();
+    }
 }
 
 #[derive(Serialize)]
@@ -2505,7 +2505,7 @@ struct MediaListResponseJson {
 /// If no name is configured in the metadata file, the name is generated automatically.
 /// If no cover is configured, a default cover is sent.
 #[get("/api/getMediaList")]
-async fn get_media_list(session: Session, state: web::Data<AppState>) -> HttpResponse {
+async fn get_media_list(session: Session, state: Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
@@ -2537,7 +2537,7 @@ async fn get_media_list(session: Session, state: web::Data<AppState>) -> HttpRes
                 .into_iter()
                 .map(|x| x.unwrap().path())
                 .filter(|x| {
-                    !x.is_dir() && x.file_name().expect("Failed to get filename.") != ".mcmetadata"
+                    x.is_file() && x.file_name().expect("Failed to get filename.") != ".mcmetadata"
                 })
                 // Remove directories and metadata files.
                 .collect()
@@ -2559,7 +2559,7 @@ async fn get_media_list(session: Session, state: web::Data<AppState>) -> HttpRes
     // code will act as if it is empty "".
 
     let mut media_info_hashmap: HashMap<PathBuf, (String, String, String)> = HashMap::new(); // Make empty hashmap
-                                                                                                     // Every media files' path is asigned the information from the metadata files.
+                                                                                             // Every media files' path is asigned the information from the metadata files.
 
     // The metadata file is a file designed the same way as the source directory file.
     // It is a line-separated file where every line corresponds to a media file.
@@ -2579,18 +2579,14 @@ async fn get_media_list(session: Session, state: web::Data<AppState>) -> HttpRes
         // Get line of file and ignore files that do not exist.
         for l in lines {
             let segments: Vec<&str> = l.split(";").collect();
+            if (segments.len() != 4) {
+                continue;
+            }
             let internal_path: PathBuf = segments[0].into(); // The path on the system
             let name = segments[1].to_string(); // The name configured by the user
             let cover = segments[2].to_string(); // The file name of the cover image
             let genre = segments[3].to_string(); // The name of the genre
-            media_info_hashmap.insert(
-                internal_path.clone(),
-                (
-                    name,
-                    cover,
-                    genre,
-                ),
-            );
+            media_info_hashmap.insert(internal_path.clone(), (name, cover, genre));
         }
     }
 
@@ -2617,11 +2613,11 @@ async fn get_media_list(session: Session, state: web::Data<AppState>) -> HttpRes
 
             media_info_hashmap.insert(
                 f.clone().into(),
-                (
-                    name,
-                    "empty_cover.svg".to_string(),
-                    "no_genre".to_string(),
-                ),
+                // Using playceholders.
+                // The cover can not actually exist in that way, so no user could accidentally
+                // create this cover name. The genre is possible, but it will not really do
+                // anything except be ignored on the frontend side.
+                (name, "UNKNOWN_COVER".to_string(), "UNKNOWN_GENRE".to_string()),
             );
         }
     }
@@ -2632,11 +2628,72 @@ async fn get_media_list(session: Session, state: web::Data<AppState>) -> HttpRes
     });
 }
 
+#[get("/api/cover/{cover_uri}")]
+async fn get_cover(
+    session: Session,
+    state: Data<AppState>,
+    path: web::Path<String>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    let sources_file = Path::new("")
+        .join(home_dir().unwrap())
+        .join(".local")
+        .join("share")
+        .join("zentrox")
+        .join("zentrox_media_locations.txt");
+
+    let sources_file_contents = fs::read_to_string(sources_file)
+        .unwrap_or(String::new())
+        .to_string();
+    let sources: Vec<String> = sources_file_contents
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| {
+            let mut line_segments = l.split(";");
+            line_segments.nth(0).unwrap().to_string()
+        })
+        .collect();
+
+    let cover_uri = &url_decode::url_decode(&path);
+
+    if cover_uri == "music" {
+        let cover = include_str!("../music_default.svg");
+        HttpResponse::Ok()
+            .insert_header((header::CONTENT_TYPE, "image/svg+xml".to_string()))
+            .body(cover.bytes().collect::<Vec<u8>>())
+    }
+    else if cover_uri == "video" {
+        let cover = include_str!("../video_default.svg");
+        HttpResponse::Ok()
+            .insert_header((header::CONTENT_TYPE, "image/svg+xml".to_string()))
+            .body(cover.bytes().collect::<Vec<u8>>())
+    } else if cover_uri == "badtype" {
+        let cover = include_str!("../unknown_default.svg");
+        HttpResponse::Ok()
+            .insert_header((header::CONTENT_TYPE, "image/svg+xml".to_string()))
+            .body(cover.bytes().collect::<Vec<u8>>())
+    } else {
+        let cover_path = PathBuf::from(cover_uri)
+            .canonicalize()
+            .unwrap_or(PathBuf::from(cover_uri));
+        let parent = cover_path.parent();
+        if !sources.contains(&parent.unwrap().to_string_lossy().to_string()) {
+            HttpResponse::Forbidden().body("This cover is not in a source folder.")
+        } else {
+            let fh = fs::read(cover_path).unwrap_or("".into());
+            HttpResponse::Ok().body(fh.bytes().map(|x| x.unwrap_or(0_u8)).collect::<Vec<u8>>())
+        }
+    }
+}
+
 // ======================================================================
 // Blocks (Used to prevent users from accessing certain static resources)
 
 #[get("/dashboard.html")]
-async fn dashboard_asset_block(session: Session, state: web::Data<AppState>) -> HttpResponse {
+async fn dashboard_asset_block(session: Session, state: Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state) {
         HttpResponse::Forbidden().body("This resource is blocked.")
     } else {
@@ -2738,7 +2795,7 @@ async fn main() -> std::io::Result<()> {
 
     HttpServer::new(move || {
         App::new()
-            .app_data(web::Data::new(app_state.clone()))
+            .app_data(Data::new(app_state.clone()))
             .wrap(
                 SessionMiddleware::builder(
                     CookieSessionStore::default(),
@@ -2823,6 +2880,7 @@ async fn main() -> std::io::Result<()> {
             .service(get_genre_list)
             .service(get_media_list)
             .service(add_genre)
+            .service(get_cover)
             // General services and blocks
             .service(dashboard_asset_block)
             .service(robots_txt)
