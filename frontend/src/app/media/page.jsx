@@ -33,6 +33,16 @@ import {
 } from "lucide-react";
 import { SelectGroup } from "@radix-ui/react-select";
 
+const saveVolume = (v) => {
+ // Do not pass values greater 1
+ if (v > 1 || v < 0) throw new Error("The volume has to be between 0 and 1.");
+ localStorage.setItem("playerVolume", v * 100); // Stores a value in the player volume variable.
+};
+const getVolume = () => {
+ let s = localStorage.getItem("playerVolume");
+ return s === null ? 60 : Number(s); // The returned volume is either a value between 0 and 100 or a default fo 60
+};
+
 scan({
  enabled: false,
  log: true, // logs render info to console (default: false)
@@ -57,7 +67,7 @@ function VideoCard({ name, src, onClick }) {
  return (
   <button
    title={name}
-   className="inline-block ml-2 h-40 w-40 rounded bg-100% bg-no-repeat overflow-hidden transition-all duration-200 delay-150 focus-visible:outline focus-visible:outline-white focus-visible:outline-4 focus-visible:brightness-90"
+   className="inline-block mb-2 ml-2 h-40 w-40 rounded bg-100% bg-no-repeat overflow-hidden transition-all duration-200 delay-150 focus-visible:outline focus-visible:outline-white focus-visible:outline-4 focus-visible:brightness-90"
    onClick={() => {
     setActive(true);
     setTimeout(() => onClick(), 200);
@@ -84,7 +94,7 @@ function MusicCard({ name, cover, onClick = () => {} }) {
  return (
   <button
    title={name}
-   className="inline-block ml-2 h-40 w-40 rounded bg-100% bg-no-repeat overflow-hidden transition-all duration-200 delay-150 focus-visible:outline focus-visible:outline-white focus-visible:outline-4 focus-visible:brightness-90"
+   className="inline-block mb-2 ml-2 h-40 w-40 rounded bg-100% bg-no-repeat overflow-hidden transition-all duration-200 delay-150 focus-visible:outline focus-visible:outline-white focus-visible:outline-4 focus-visible:brightness-90"
    onClick={() => {
     setTimeout(() => onClick(), 200);
    }}
@@ -134,6 +144,9 @@ function VideoPlayer({ src, name, closePlayer }) {
  }, [playing, overlayVisible]);
 
  useEffect(() => {
+  vr.current.value = getVolume();
+  v.current.volume = getVolume() / 100;
+
   const handleKeyDown = (e) => {
    if (e.key === " " || e.key === "k") {
     if (v.current.paused) {
@@ -171,11 +184,13 @@ function VideoPlayer({ src, name, closePlayer }) {
     let valueToBeApplied = volumePlusTen > 1 ? v.current.volume : volumePlusTen;
     vr.current.value = valueToBeApplied * 100;
     v.current.volume = valueToBeApplied;
+    saveVolume(valueToBeApplied);
    } else if (e.key === "ArrowDown") {
     let volumePlusTen = v.current.volume - 0.1;
     let valueToBeApplied = volumePlusTen < 0 ? v.current.volume : volumePlusTen;
     vr.current.value = valueToBeApplied * 100;
     v.current.volume = valueToBeApplied;
+    saveVolume(valueToBeApplied);
    }
   };
 
@@ -185,6 +200,7 @@ function VideoPlayer({ src, name, closePlayer }) {
    document.removeEventListener("keydown", handleKeyDown);
   };
  }, [notYetStarted, playing, v, isFullscreen]);
+
  useEffect(() => {
   var interval = 0;
   if (typeof v.current != "undefined") {
@@ -341,6 +357,7 @@ function VideoPlayer({ src, name, closePlayer }) {
      defaultValue={100}
      onChange={(e) => {
       v.current.volume = e.target.value / 100;
+      saveVolume(e.target.value / 100);
      }}
     />
 
@@ -374,7 +391,7 @@ function MusicPlayer({ src, cover, name, closePlayer = () => {} }) {
  const [playing, setPlaying] = useState(true);
  const [time, setTime] = useState(0);
  const [playerBig, setPlayerBig] = useState(false);
- const [volume, setVolume] = useState(100);
+ const [volume, setVolume] = useState(getVolume()); // Value from 0 - 100 representing the value.
  var playerTag = useRef();
 
  function exitPlayer() {
@@ -392,9 +409,15 @@ function MusicPlayer({ src, cover, name, closePlayer = () => {} }) {
    }
   }, 1000);
 
+  playerTag.current.volume = volume / 100; // Set the volume of the audio player to 1/100 of the volume state (which is set to the stored value by default).
+
   document.body.onkeydown = (e) => {
    let key = e.key;
    if (key === " " || key === "k") {
+    let ae = document.activeElement.tagName.toLowerCase();
+    if (ae !== "input" && ae !== "textarea") {
+     e.preventDefault();
+    }
     if (playing) {
      setPlaying(false);
      playerTag.current.pause();
@@ -409,16 +432,18 @@ function MusicPlayer({ src, cover, name, closePlayer = () => {} }) {
    } else if (key === "Escape") {
     setPlayerBig(false);
    } else if (e.key === "ArrowUp") {
+    e.preventDefault();
     let volumePlusTen = playerTag.current.volume + 0.1;
-    let valueToBeApplied =
-     volumePlusTen > 1 ? playerTag.current.volume : volumePlusTen;
+    let valueToBeApplied = volumePlusTen > 1 ? 1 : volumePlusTen;
     playerTag.current.volume = valueToBeApplied;
+    saveVolume(Math.round(valueToBeApplied * 100) / 100);
     setVolume(Math.floor(valueToBeApplied * 100));
    } else if (e.key === "ArrowDown") {
+    e.preventDefault();
     let volumePlusTen = playerTag.current.volume - 0.1;
-    let valueToBeApplied =
-     volumePlusTen < 0 ? playerTag.current.volume : volumePlusTen;
+    let valueToBeApplied = volumePlusTen < 0 ? 0 : volumePlusTen;
     playerTag.current.volume = valueToBeApplied;
+    saveVolume(Math.round(valueToBeApplied * 100) / 100);
     setVolume(Math.floor(valueToBeApplied * 100));
    } else if (e.key === "ArrowLeft") {
     let tMinusFive = playerTag.current.currentTime - 5;
@@ -439,7 +464,7 @@ function MusicPlayer({ src, cover, name, closePlayer = () => {} }) {
  return (
   <>
    <audio
-    src={src}
+    src={`/api/getMedia/${encodeURIComponent(src)}`}
     autoPlay
     ref={playerTag}
     onError={() => exitPlayer()}
@@ -447,7 +472,7 @@ function MusicPlayer({ src, cover, name, closePlayer = () => {} }) {
    />
    <div
     className={
-     "fixed bottom-8 right-8 min-w-72 max-w-72 duration-200 rounded bg-white text-black cursor-pointer shadow-black shadow-lg transition-all ease-in-out " +
+     "fixed bottom-8 right-8 min-w-72 max-w-72 duration-200 rounded bg-white text-black cursor-pointer shadow-black shadow-lg transition-all ease-in-out overflow-ellipsis overflow-hidden whitespace-nowrap z-50 " +
      (fadingOut ? "animate-movedown" : "animate-moveup") +
      (playerBig ? " h-[20.5em] p-2" : " h-14 p-1")
     }
@@ -579,40 +604,105 @@ function Desktop() {
    if (res.ok) {
     res.json().then((json) => {
      let med = json.media;
-      let m = [];
-      let v = [];
-	for (const [path, info] of Object.entries(med)) {
-      console.log(path);
+     let m = [];
+     let v = [];
+     console.log("Before", Object.entries(med));
+     // Sort the array alphabetically to ensure a consistent display
+     var e = Object.entries(med).toSorted(function (c, n) {
+      // c: Current
+      // n: Next
+      let a = c[1][0]; // Get first value of info of current element
+      let b = n[1][0]; // Get first value of info of next element
+      console.log("Comparing", a, b, a === b);
+      if (a < b) {
+       return -1;
+      }
+      if (a > b) {
+       return 1;
+      }
+      return 0;
+     });
+     console.log("After", e);
+     for (const [path, info] of e) {
       let pathSegments = path.split(".");
       let extension = pathSegments[pathSegments.length - 1].toLowerCase();
 
-      switch (extension) {
-       case "wav":
-       case "heic":
-       case "m4a":
-       case "flac":
-       case "ogg":
-       case "opus":
-       case "oga":
-       case "webm":
-       case "mp3":
-        m.push({
-         cover: "/api/cover/" + encodeURIComponent(info[1]),
-         name: info[0],
-         source: path,
-         genre: info[2],
-        });
-       default:
-        v.push({
-         cover: "/api/cover/" + encodeURIComponent(info[1]),
-         name: info[0],
-         source: path,
-         genre: info[2],
-        });
+      if (
+       [
+        "wav",
+        "heic",
+        "m4a",
+        "flac",
+        "ogg",
+        "opus",
+        "oga",
+        "webm",
+        "mp3",
+       ].includes(extension)
+      ) {
+       m.push({
+        cover:
+         info[1] !== "UNKNOWN_COVER"
+          ? "/api/cover/" + encodeURIComponent(info[1])
+          : "/api/cover/music",
+        name: info[0],
+        source: path,
+        genre: info[2],
+       });
+      } else if (
+       [
+        "mp4",
+        "mov",
+        "webm",
+        "avi",
+        "wmv",
+        "ogv",
+        "m4p",
+        "m4v",
+        "mpg",
+        "mp2",
+        "mpeg",
+        "mpv",
+        "mkv",
+       ].includes(extension)
+      ) {
+       v.push({
+        cover:
+         info[1] !== "UNKNOWN_COVER"
+          ? "/api/cover/" + encodeURIComponent(info[1])
+          : "/api/cover/video",
+        name: info[0],
+        source: path,
+        genre: info[2],
+       });
+      } else if (
+       [
+        "png",
+        "jpeg",
+        "jpg",
+        "gif",
+        "webp",
+        "bmp",
+        "svg",
+        "avif",
+        "tiff",
+       ].includes(extension)
+      ) {
+       // Do nothing (ignored).
+      } else {
+       v.push({
+        cover:
+         info[1] !== "UNKNOWN_COVER"
+          ? "/api/cover/" + encodeURIComponent(info[1])
+          : "/api/cover/badtype",
+        name: info[0],
+        source: path,
+        genre: info[2],
+       });
       }
      }
-      setMusic(m);
-      setVideos(v);
+     setMusic(m);
+     setVideos(v);
     });
    }
   });
