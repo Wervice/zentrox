@@ -1,12 +1,12 @@
 use crate::config_file;
 use crate::crypto_utils::argon2_derive_key;
 use crate::sudo::SwitchedUserCommand;
-use dirs::{self, home_dir};
+use dirs::{self, home_dir, video_dir};
 use rcgen::{generate_simple_self_signed, CertifiedKey};
 use rpassword::prompt_password;
 use sha2::{Digest, Sha512};
-use std::fs;
 use std::io::{self, BufRead, Write};
+use std::{fs, path};
 
 fn f() {
     let _ = io::stdout().flush();
@@ -50,8 +50,26 @@ pub fn run_setup() -> Result<(), String> {
 
     let _ = fs::create_dir_all(&data_path);
     let _ = fs::write(&data_path.join("zentrox_store.toml"), "");
-    let _ = fs::write(&data_path.join("zentrox_media_locations.txt"), "");
-    let _ = fs::write(&data_path.join("zentrox_media_genres.txt"), "");
+    let hd = home_dir().unwrap();
+    let mut vd: Option<path::PathBuf> = None;
+    let options = ["Video", "video", "Videos", "videos", "Movie", "Movies"].into_iter(); // Guess vid dir
+    options.for_each(|o| {
+        if hd.join(o).exists() {
+            vd = Some(hd.join(o));
+        }
+    });
+    let _ = fs::write(
+        &data_path.join("zentrox_media_locations.txt"),
+        if vd.is_some() {
+            format!(
+                "{};Video Directory;true",
+                vd.unwrap().to_string_lossy().to_string()
+            )
+            .to_string()
+        } else {
+            "".to_string()
+        },
+    );
 
     let _system_username = whoami::username_os().to_string_lossy().to_string();
     println!("Installing Zentrox...");
@@ -66,12 +84,19 @@ pub fn run_setup() -> Result<(), String> {
     let servername = prompt(" | Server Name: ");
     println!("Setting configuration files");
     let _ = config_file::write("server_name", &servername);
-    let _ = config_file::write("ftp_pid", "");
-    let _ = config_file::write("ftp_running", "0");
-    let _ = config_file::write("ftp_username", "lorem");
+    let _ = config_file::write("media_enabled", "0"); // Media center is disabled by default
+    let _ = config_file::write("ftp_pid", ""); // No ftp PID is set
+    let _ = config_file::write("ftp_running", "0"); // FTP is not running
+    let _ = config_file::write(
+        "ftp_username",
+        (0..16)
+            .map(|_| rand::random::<char>())
+            .collect::<String>()
+            .as_str(),
+    ); // TODO: Consider random username
     let _ = config_file::write("ftp_password", {
         let mut hasher = Sha512::new();
-        sha2::Digest::update(&mut hasher, b"ipsum");
+        sha2::Digest::update(&mut hasher, b"CHANGE_ME");
         let result = hasher.finalize();
         &hex::encode(&result).to_string()
     });

@@ -4,15 +4,14 @@ use actix_multipart::form::{tempfile::TempFile, text::Text, MultipartForm};
 use actix_rt::time::interval;
 use actix_session::{storage::CookieSessionStore, Session, SessionMiddleware};
 use actix_web::cookie::Key;
-use actix_web::HttpRequest;
+use actix_web::{error, HttpRequest};
 use actix_web::{
     get, http::header, http::StatusCode, middleware, post, web, web::Data, App, HttpResponse,
     HttpServer,
 };
+use aes_gcm::aead::Buffer;
 use base64::{engine::general_purpose::STANDARD as b64, Engine as _};
 use dirs::{self, home_dir};
-use rand::Rng;
-use rustls::compress::CompressionLevel;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -28,7 +27,6 @@ use std::{
 use sysinfo::System as SysInfoSystem;
 use systemstat::{Platform, System};
 use tokio::task;
-use hex_color::hex_color;
 extern crate inflector;
 use inflector::Inflector;
 
@@ -46,9 +44,10 @@ mod ufw;
 mod url_decode;
 mod vault;
 mod video;
-mod hex_color;
+mod visit_dirs;
 
 use is_admin::is_admin_state;
+use visit_dirs::visit_dirs;
 
 #[allow(non_snake_case)]
 #[derive(Clone)]
@@ -152,6 +151,9 @@ async fn media(session: Session, state: Data<AppState>) -> HttpResponse {
     // is_admin session value is != true (None or false), the user is served the media screen
     // otherwise, the user is redirected to /
     if is_admin_state(&session, state) {
+        if config_file::read("media_enabled") == "0" {
+            return HttpResponse::Forbidden().body("Media center has been disabled");
+        }
         HttpResponse::build(StatusCode::OK)
             .body(std::fs::read_to_string("static/media.html").expect("Failed to read alerts page"))
     } else {
@@ -2183,22 +2185,21 @@ async fn logs_request(
 }
 
 /// Parse a GET RANGE Header Parameter into a Rust byte range
-fn parse_range(range: actix_web::http::header::HeaderValue) -> Option<(usize, usize)> {
-    let range_str = range.to_str().ok()?; // Safely convert to str, return None if failed
+fn parse_range(range: actix_web::http::header::HeaderValue) -> (usize, Option<usize>) {
+    let range_str = range.to_str().ok().unwrap(); // Safely convert to str, return None if failed
     let range_separated_clear = range_str.replace("bytes=", "");
     let range_separated: Vec<&str> = range_separated_clear.split('-').collect(); // Split the range
 
     // Parse the start and end values safely
-    let start = range_separated.get(0)?.parse::<usize>().ok()?;
-    let end = match range_separated.get(1) {
-        Some(&"") => None, // Handle case where end value is not specified
-        Some(end_str) => end_str.parse::<usize>().ok(),
-        None => None,
-    };
+    let start = range_separated.get(0).unwrap().parse::<usize>().unwrap();
 
-    let end = end.unwrap_or(usize::MAX); // If no end is specified, set to max possible value
-
-    Some((start, end))
+    (start, match range_separated.get(1) {
+        Some(v) => {
+            if v == &"" { None } else {
+            Some(v.parse::<usize>().unwrap())}
+        },
+        None => None
+    })
 }
 
 fn is_whitelisted(l: Vec<(bool, PathBuf)>, p: PathBuf) -> bool {
@@ -2222,6 +2223,10 @@ async fn media_request(
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
+    if config_file::read("media_enabled") == "0" {
+        return HttpResponse::Forbidden().body("Media center has been disabled");
+    }
+
     // Implement HTTP Ranges
     let headers = req.headers();
     let range = headers.get(actix_web::http::header::RANGE);
@@ -2231,9 +2236,9 @@ async fn media_request(
     let file_path_url = url_decode::url_decode(&pii);
     let file_path = PathBuf::from(&file_path_url);
 
-    if file_path.exists() {
-        let mime = mime::guess_mime(file_path.to_path_buf());
+    let mime = mime::guess_mime(file_path.to_path_buf());
 
+    if file_path.exists() {
         let whitelist = fs::read_to_string(
             home_dir()
                 .unwrap()
@@ -2262,7 +2267,7 @@ async fn media_request(
         }
 
         if file_path.is_dir() {
-            return HttpResponse::BadRequest().body("A video can not be a directory.");
+            return HttpResponse::BadRequest().body("A file can not be a directory.");
         }
 
         match range {
@@ -2278,31 +2283,42 @@ async fn media_request(
                     .body(fs::read(file_path).unwrap())
             }
             Some(e) => {
-                let byte_range = parse_range(e.clone()).unwrap();
-                let file = File::open(file_path).unwrap();
+                let byte_range = parse_range(e.clone());
+                let file = File::open(&file_path).unwrap();
                 let mut reader = BufReader::new(file);
-                let _ = reader.seek(SeekFrom::Start(byte_range.0 as u64));
-                let end = if byte_range.1 >= 1024 * 1024 * 1024 {
-                    1024 * 1024 * 1024
-                } else {
-                    byte_range.1
-                };
-                let filesize = reader.get_ref().metadata().unwrap().len();
-                let mut buf = vec![
-                    0;
-                    {
-                        if end > filesize as usize {
-                            filesize as usize - byte_range.0 - 1
-                        } else {
-                            end - byte_range.0 - 1
-                        }
+                let filesize: usize = reader.get_ref().metadata().unwrap().len().try_into().unwrap_or(0);
+                if byte_range.0 > filesize {
+                    return HttpResponse::RangeNotSatisfiable().body("The requested range can not be satisfied.");
+                }
+                if byte_range.1.is_some() {
+                    if byte_range.1.unwrap() > filesize {
+                        return HttpResponse::RangeNotSatisfiable().body("The requested range can not be satisfied.");
                     }
-                ];
+                }
+                let buffer_length = byte_range.1.unwrap_or(filesize) - byte_range.0;               
+                let _ = reader.seek(SeekFrom::Start(byte_range.0 as u64));
+                let mut buf = vec![0; buffer_length]; // A buffer with the length buffer_length
                 reader.read_exact(&mut buf).unwrap();
 
                 return HttpResponse::PartialContent()
                     .insert_header(header::ContentEncoding::Identity)
                     .insert_header((header::ACCEPT_RANGES, "bytes"))
+                    .insert_header((
+                        header::CONTENT_DISPOSITION,
+                        format!(
+                            "inline; filename=\"{}\"",
+                            &file_path.file_name().unwrap().to_str().unwrap()
+                        ),
+                    ))
+                    .insert_header((
+                        header::CONTENT_RANGE,
+                        format!("bytes {}-{}/{}", byte_range.0, byte_range.1.unwrap_or(filesize - 1), filesize), // We HAVE to subtract 1 from the actual file size
+                    ))
+                    .insert_header((header::VARY, "*"))
+                    .insert_header((header::ACCESS_CONTROL_ALLOW_ORIGIN, "*"))
+                    .insert_header((header::ACCESS_CONTROL_ALLOW_METHODS, "GET, HEAD, OPTIONS"))
+                    .insert_header((header::ACCESS_CONTROL_ALLOW_HEADERS, "Range"))
+                    .insert_header((header::CONTENT_LENGTH, buf.len()))
                     .insert_header((
                         header::CONTENT_TYPE,
                         mime.unwrap_or("application/octet-stream".to_string()),
@@ -2423,81 +2439,8 @@ async fn get_video_source_list(session: Session, state: Data<AppState>) -> HttpR
 // 4. Change metadata
 
 #[derive(Serialize)]
-struct VideoGenreListResponseJson {
-    genres: Vec<String>,
-}
-
-/// Get a `Vec<String>` in JSON of media center genres.
-/// The genres are stored in ~/.local/share/zentrox/zentrox_media_genres.txt as a line-seperated
-/// string.
-#[get("/api/getGenreList")]
-async fn get_genre_list(session: Session, state: Data<AppState>) -> HttpResponse {
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
-    let genres_file = Path::new("")
-        .join(home_dir().unwrap())
-        .join(".local")
-        .join("share")
-        .join("zentrox")
-        .join("zentrox_media_genres.txt");
-
-    match fs::read_to_string(genres_file) {
-        Ok(v) => {
-            let genres_vector: Vec<String> = v.to_string().lines().map(|x| x.to_string()).collect();
-            HttpResponse::Ok().json(VideoGenreListResponseJson {
-                genres: genres_vector,
-            })
-        }
-        Err(_e) => {
-            eprintln!("Failed to read genres file.");
-            HttpResponse::InternalServerError().body("Failed to read genres file.")
-        }
-    }
-}
-
-/// Add a genre to the list of genres. The genre is sent using a GET parameter.
-/// The genres are stored in ~/.local/share/zentrox/zentrox_media_genres.txt as a line-seperated
-/// string.
-#[get("/api/addGenre/{genre_name}")]
-async fn add_genre(
-    session: Session,
-    state: Data<AppState>,
-    path: web::Path<String>,
-) -> HttpResponse {
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
-    let genres_file = Path::new("")
-        .join(home_dir().unwrap())
-        .join(".local")
-        .join("share")
-        .join("zentrox")
-        .join("zentrox_media_genres.txt");
-
-    match fs::read_to_string(&genres_file) {
-        Ok(v) => {
-            let new_file_contents = format!("{}\n{}", v.to_string(), path).to_string();
-            match fs::write(genres_file, new_file_contents) {
-                Ok(_v) => HttpResponse::Ok().finish(),
-                Err(_e) => {
-                    eprintln!("Failed to write genres file.");
-                    HttpResponse::InternalServerError().body("Failed to write genres file.")
-                }
-            }
-        }
-        Err(_e) => {
-            eprintln!("Failed to read genres file.");
-            HttpResponse::InternalServerError().body("Failed to read genres file.")
-        }
-    }
-}
-
-#[derive(Serialize)]
 struct MediaListResponseJson {
-    media: HashMap<PathBuf, (String, String, String)>,
+    media: HashMap<PathBuf, (String, String, String, String)>,
 }
 
 /// HashMap all media files including name, filename, cover and genre.
@@ -2508,6 +2451,10 @@ struct MediaListResponseJson {
 async fn get_media_list(session: Session, state: Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    if config_file::read("media_enabled") == "0" {
+        return HttpResponse::Forbidden().body("Media center has been disabled");
     }
 
     let sources_file = Path::new("")
@@ -2527,15 +2474,14 @@ async fn get_media_list(session: Session, state: Data<AppState>) -> HttpResponse
         })
         .collect();
 
-    let video_files_vector: Vec<Vec<PathBuf>> = media_directory_vector
+    let media_files_vector: Vec<Vec<PathBuf>> = media_directory_vector
         .clone()
         .into_iter()
         .filter(|p| p.exists())
         .map(|p| {
-            fs::read_dir(p)
+            visit_dirs(p)
                 .unwrap()
-                .into_iter()
-                .map(|x| x.unwrap().path())
+                .map(|x| x.path())
                 .filter(|x| {
                     x.is_file() && x.file_name().expect("Failed to get filename.") != ".mcmetadata"
                 })
@@ -2546,7 +2492,7 @@ async fn get_media_list(session: Session, state: Data<AppState>) -> HttpResponse
 
     let mut all_media_files: Vec<PathBuf> = Vec::new();
 
-    for mut paths in video_files_vector {
+    for mut paths in media_files_vector {
         all_media_files.append(&mut paths);
     }
 
@@ -2558,8 +2504,8 @@ async fn get_media_list(session: Session, state: Data<AppState>) -> HttpResponse
     // Assume every directory contains a metadata file. If the file does not exists later on, the
     // code will act as if it is empty "".
 
-    let mut media_info_hashmap: HashMap<PathBuf, (String, String, String)> = HashMap::new(); // Make empty hashmap
-                                                                                             // Every media files' path is asigned the information from the metadata files.
+    let mut media_info_hashmap: HashMap<PathBuf, (String, String, String, String)> = HashMap::new(); // Make empty hashmap
+                                                                                                     // Every media files' path is asigned the information from the metadata files.
 
     // The metadata file is a file designed the same way as the source directory file.
     // It is a line-separated file where every line corresponds to a media file.
@@ -2569,6 +2515,7 @@ async fn get_media_list(session: Session, state: Data<AppState>) -> HttpResponse
     // - path: The path the frontend has to ask for to get the media file.
     // - cover: The filename the frontend has to ask for to get the cover image.
     // - genre: The genre the media file belongs to (e.g., Animation).
+    // - artist: The name of the artist
     // These segments are separated using semicolons.
 
     for file in metadata_files {
@@ -2579,14 +2526,15 @@ async fn get_media_list(session: Session, state: Data<AppState>) -> HttpResponse
         // Get line of file and ignore files that do not exist.
         for l in lines {
             let segments: Vec<&str> = l.split(";").collect();
-            if (segments.len() != 4) {
+            if segments.len() != 5 {
                 continue;
             }
             let internal_path: PathBuf = segments[0].into(); // The path on the system
             let name = segments[1].to_string(); // The name configured by the user
             let cover = segments[2].to_string(); // The file name of the cover image
             let genre = segments[3].to_string(); // The name of the genre
-            media_info_hashmap.insert(internal_path.clone(), (name, cover, genre));
+            let artist = segments[4].to_string(); // The artist/band/... name
+            media_info_hashmap.insert(internal_path.clone(), (name, cover, genre, artist));
         }
     }
 
@@ -2617,7 +2565,12 @@ async fn get_media_list(session: Session, state: Data<AppState>) -> HttpResponse
                 // The cover can not actually exist in that way, so no user could accidentally
                 // create this cover name. The genre is possible, but it will not really do
                 // anything except be ignored on the frontend side.
-                (name, "UNKNOWN_COVER".to_string(), "UNKNOWN_GENRE".to_string()),
+                (
+                    name,
+                    "UNKNOWN_COVER".to_string(),
+                    "UNKNOWN_GENRE".to_string(),
+                    "UNKNOWN_ARTIST".to_string(),
+                ),
             );
         }
     }
@@ -2636,6 +2589,10 @@ async fn get_cover(
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    if config_file::read("media_enabled") == "0" {
+        return HttpResponse::Forbidden().body("Media center has been disabled");
     }
 
     let sources_file = Path::new("")
@@ -2664,8 +2621,7 @@ async fn get_cover(
         HttpResponse::Ok()
             .insert_header((header::CONTENT_TYPE, "image/svg+xml".to_string()))
             .body(cover.bytes().collect::<Vec<u8>>())
-    }
-    else if cover_uri == "video" {
+    } else if cover_uri == "video" {
         let cover = include_str!("../video_default.svg");
         HttpResponse::Ok()
             .insert_header((header::CONTENT_TYPE, "image/svg+xml".to_string()))
@@ -2687,6 +2643,41 @@ async fn get_cover(
             HttpResponse::Ok().body(fh.bytes().map(|x| x.unwrap_or(0_u8)).collect::<Vec<u8>>())
         }
     }
+}
+
+#[derive(Serialize)]
+struct MediaEnabledResponseJson {
+    enabled: bool,
+}
+
+#[get("/api/getEnableMedia")]
+async fn get_enable_media(session: Session, state: Data<AppState>) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    return HttpResponse::Ok().json(MediaEnabledResponseJson {
+        enabled: config_file::read("media_enabled") == "1",
+    });
+}
+
+#[get("/api/setEnableMedia/{value}")]
+async fn set_enable_media(
+    session: Session,
+    state: Data<AppState>,
+    e: web::Path<bool>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    if e.into_inner() {
+        let _ = config_file::write("media_enabled", "1");
+    } else {
+        let _ = config_file::write("media_enabled", "0");
+    }
+
+    return HttpResponse::Ok().body("Updated media center status");
 }
 
 // ======================================================================
@@ -2794,6 +2785,13 @@ async fn main() -> std::io::Result<()> {
     println!("🚀 Serving Zentrox on Port 8080");
 
     HttpServer::new(move || {
+        let cors_permissive: bool = true; // Enable or disable strict cors for developement. Leaving this
+                               // enabled poses a grave security vulnerability and shows a
+                               // disclaimer.
+        if cors_permissive {
+            print!(include_str!("../notes/cors_note.txt"))
+        }
+
         App::new()
             .app_data(Data::new(app_state.clone()))
             .wrap(
@@ -2809,7 +2807,11 @@ async fn main() -> std::io::Result<()> {
                 .cookie_name("session".to_string())
                 .build(),
             )
-            .wrap(Cors::default())
+            .wrap(if cors_permissive {
+                Cors::permissive()
+            } else {
+                Cors::default()
+            })
             .wrap(middleware::Compress::default())
             // Landing
             .service(dashboard)
@@ -2875,11 +2877,11 @@ async fn main() -> std::io::Result<()> {
             // Video
             .service(media)
             .service(media_request)
+            .service(get_enable_media)
+            .service(set_enable_media)
             .service(get_video_source_list)
             .service(update_video_source_list)
-            .service(get_genre_list)
             .service(get_media_list)
-            .service(add_genre)
             .service(get_cover)
             // General services and blocks
             .service(dashboard_asset_block)
