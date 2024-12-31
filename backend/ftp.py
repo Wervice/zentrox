@@ -2,106 +2,73 @@ from pyftpdlib.authorizers import AuthenticationFailed, DummyAuthorizer
 from pyftpdlib.handlers import TLS_FTPHandler
 from pyftpdlib.servers import FTPServer
 
+import sqlite3
 from hashlib import sha512
 import sys
 import os
 
-home_path = "/home/"+sys.argv[1]
+if len(sys.argv) < 2:
+    print("FTP: Missing username argument.")
+    exit()
+
+home_path = "/home/" + sys.argv[1]
 data_path = os.path.join(home_path, ".local", "share", "zentrox")
-config_file_path = os.path.join(data_path, "zentrox_store.toml")
+database_fp = os.path.join(data_path, "database.db")
 
 if sys.argv[1] == "root":
     home_path = "/root"
 
 
-# Parsing Toml file to a HashMap (or dict)
-def parse_toml_to_dict(string: str) -> dict:
-    table = {}
-    for line in string.split("\n"):
-        if len(line) > 0:
-            split_line = line.split(" = ")
-            table[split_line[0]] = split_line[1].replace("\"", "")
-    return table
-
-
-# Parsing a toml dict to a string
-def parse_table_to_string(table: dict) -> str:
-    string = ""
-    table_keys = table.keys()
-    for key in table_keys:
-        try:
-            value = int(table[key])
-        except ValueError:
-            value = "\"" + str(table[key]) + "\""
-        string += key + " = " + str(value) + "\n"
-    return string
-
-
-# Optain a value from the config file
-def read_config_file(key) -> str:
-    with open(config_file_path, "r") as toml_file:
-        toml_file_contents = toml_file.read()
-        parsed_toml = parse_toml_to_dict(toml_file_contents)
-        if key in parsed_toml.keys():
-            return parsed_toml[key]
-        else:
-            return ""
-
-
-# Change a value in the config file
-def write_config_file(key, value) -> bool:
-    with open(config_file_path, "r") as toml_file:
-        toml_file_contents = toml_file.read()
-        parsed_toml_file = parse_toml_to_dict(toml_file_contents)
-        parsed_toml_file[key] = value
-    with open(config_file_path, "w") as toml_file:
-        toml_file.write(parse_table_to_string(parsed_toml_file))
-    return True
-
-
-class DummySHA512Authorizer(DummyAuthorizer):
-    def validate_authentication(self, username, password, handler):
+class SHA512Authorizer(DummyAuthorizer):
+    def validate_authentication(self, username: str, password: str, handler):
         if sys.version_info >= (3, 0):
-            password = sha512(password.encode('latin1'))
+            hash = sha512(password.encode("utf8"))
 
-        hash = password.hexdigest()
+        hex_hash: str = hash.hexdigest()
 
         try:
-            if self.user_table[username]['pwd'] != hash:
+            if self.user_table[username]["pwd"] != hex_hash:
                 raise KeyError
         except KeyError:
             raise AuthenticationFailed
 
 
 def main():
-    write_config_file("ftp_pid", os.getpid())
-    write_config_file("ftp_running", "1")
-    authorizer = DummySHA512Authorizer()
+    connection = sqlite3.connect(database_fp)
+    cursor = connection.cursor()
 
-    username = read_config_file("ftp_username")
-    password = read_config_file("ftp_password")
-    local_root = read_config_file("ftp_local_root")
+    _x0 = cursor.execute(
+        "UPDATE Ftp SET pid = {} WHERE key = 0".format(os.getpid()), ()
+    )
+    _x1 = cursor.execute("UPDATE Ftp SET running = 1 WHERE key = 0", ())
+    connection.commit()
 
-    authorizer.add_user(username, password, local_root, "elradfmwMT")
+    authorizer = SHA512Authorizer()
+
+    username: str = cursor.execute("SELECT username FROM Ftp WHERE key = 0").fetchall()[
+        0
+    ][0]
+    local_root: str = cursor.execute(
+        "SELECT local_root FROM Ftp WHERE key = 0"
+    ).fetchall()[0][0]
+    password: str = cursor.execute(
+        "SELECT value FROM Secrets WHERE name = 'ftp_password'"
+    ).fetchall()[0][0]
+    certificate_name: str = cursor.execute("SELECT value FROM Settings WHERE name = 'tls_cert'").fetchall()[0][0]
+
+    _ = authorizer.add_user(username, password, local_root, "elradfmwMT")
+    # msg_login="Welcome to Zentrox FTP Share powered by pyftpdlib."
     handler = TLS_FTPHandler
-    handler.certfile = os.path.join(data_path, "certificates", read_config_file("tls_cert"))
+    handler.passive_ports = list(range(60000, 60500))
+    handler.certfile = os.path.join(
+        data_path,
+        "certificates",
+        certificate_name,
+    )
     handler.authorizer = authorizer
 
-    server = FTPServer(('::0.0.0.0', 21), handler)
+    server = FTPServer(("::0.0.0.0", 21), handler)
     server.serve_forever()
 
 
-try:
-    main()
-except OSError as error:
-    print("❌ 🐍 FTP: OS Error: "+str(error))
-    print("❌ 🐍 FTP: Most likely due to FTP port being blocked")
-    write_config_file("ftp_running", "0")
-    write_config_file("ftp_pid", "0")
-    exit()
-except Exception as error:
-    print("❌ 🐍 FTP: General Error")
-    print("❌ 🐍 FTP: ", error)
-    write_config_file("ftp_running", "0")
-    write_config_file("ftp_pid", "")
-    exit()
+main()
