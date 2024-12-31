@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 pub fn guess_mime(path: PathBuf) -> Option<String> {
-    let path_extension = path.extension().unwrap().to_string_lossy().to_lowercase();
+    let path_extension = path.extension()?.to_string_lossy().to_lowercase();
     let table = HashMap::from([
         // Audio MIME types
         ("mp3", "audio/mpeg"),

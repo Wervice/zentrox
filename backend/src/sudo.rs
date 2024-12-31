@@ -21,10 +21,10 @@ impl SwitchedUserCommand {
     /// Create new SwitchedUserCommand.
     /// * `password` - The password used for `sudo`
     /// * `command` - The command without arguments that will be launched
-    pub fn new(password: String, command: String) -> SwitchedUserCommand {
+    pub fn new<T: ToString>(password: T, command: T) -> SwitchedUserCommand {
         SwitchedUserCommand {
-            password,
-            command,
+            password: password.to_string(),
+            command: command.to_string(),
             args: vec![],
         }
     }

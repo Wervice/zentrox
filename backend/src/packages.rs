@@ -71,7 +71,7 @@ pub fn auto_remove(password: String) -> Result<(), String> {
     } else if package_mamager == "dnf" {
         command = "dnf autoremove".to_string();
     } else if package_mamager == "pacman" {
-        let packages = String::from_utf8(
+        let mut packages = String::from_utf8(
             std::process::Command::new("pacman")
                 .arg("-Qdtq")
                 .output()
@@ -81,12 +81,16 @@ pub fn auto_remove(password: String) -> Result<(), String> {
         .unwrap()
         .replace("\n", " ");
 
-        command = format!("pacman -Rc {}", packages);
+        packages = packages.trim().to_string();
+        dbg!(&packages);
+        command = format!("pacman --noconfirm -Rc {}", packages);
 
         dbg!(&command);
     } else {
         return Err("Unknow package manager".to_string());
     }
+
+    dbg!(&password);
 
     let _ = SwitchedUserCommand::new(password, command.to_string()).spawn();
 
@@ -110,7 +114,7 @@ pub fn install_package(name: String, password: String) -> Result<(), String> {
     } else if package_manager == "dnf" {
         command = format!("dnf install {} -y -q", name);
     } else if package_manager == "pacman" {
-        command = format!("pacman -Sy {} --noconfirm", name);
+        command = format!("pacman --noconfirm -Sy {}", name);
     } else {
         return Err("Unknown package manager".to_string());
     }
@@ -138,7 +142,7 @@ pub fn remove_package(name: String, password: String) -> Result<(), String> {
     } else if package_manager == "dnf" {
         command = format!("dnf remove {} -y -q", name);
     } else if package_manager == "pacman" {
-        command = format!("pacman -R {} --noconfirm", name)
+        command = format!("pacman --noconfirm -R {}", name)
     } else {
         return Err("Unknown package manager".to_string());
     }
@@ -217,7 +221,11 @@ pub fn list_installed_packages() -> Result<Vec<String>, String> {
             .collect::<Vec<String>>();
         Ok(vector.to_vec())
     } else if package_manager == "pacman" {
-        let command = Command::new("pacman").arg("-Qq").output().unwrap();
+        let command = Command::new("pacman")
+            .arg("--noconfirm")
+            .arg("-Qq")
+            .output()
+            .unwrap();
         let output = String::from_utf8_lossy(&command.stdout).to_string();
         let vector = &output
             .lines()
@@ -330,7 +338,11 @@ pub fn list_available_packages() -> Result<Vec<String>, String> {
             .collect::<Vec<String>>();
         Ok(vector.to_vec())
     } else if package_manager == "pacman" {
-        let command = Command::new("pacman").arg("-Sl").output().unwrap();
+        let command = Command::new("pacman")
+            .arg("--noconfirm")
+            .arg("-Sl")
+            .output()
+            .unwrap();
         let output = String::from_utf8_lossy(&command.stdout).to_string();
         let vector = &output
             .lines()
@@ -411,7 +423,11 @@ pub fn list_autoremoveable_packages() -> Result<Vec<String>, String> {
             .collect::<Vec<String>>();
         Ok(vector.to_vec())
     } else if package_manager == "pacman" {
-        let command = Command::new("pacman").arg("-Qdtq").output().unwrap();
+        let command = Command::new("pacman")
+            .arg("--noconfirm")
+            .arg("-Qdtq")
+            .output()
+            .unwrap();
         let output = String::from_utf8_lossy(&command.stdout).to_string();
         let vector = &output
             .lines()

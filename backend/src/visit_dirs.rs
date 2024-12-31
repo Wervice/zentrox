@@ -5,7 +5,6 @@ pub fn visit_dirs(dir: PathBuf) -> Result<std::vec::IntoIter<DirEntry>, std::io:
     let mut e: Vec<DirEntry> = Vec::new();
 
     if dir.is_dir() {
-        dbg!(&dir);
         for entry in fs::read_dir(dir)? {
             let entry = entry?;
             let path = entry.path();
