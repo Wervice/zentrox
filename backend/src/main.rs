@@ -4,16 +4,15 @@ use actix_multipart::form::{tempfile::TempFile, text::Text, MultipartForm};
 use actix_rt::time::interval;
 use actix_session::{storage::CookieSessionStore, Session, SessionMiddleware};
 use actix_web::cookie::Key;
-use actix_web::{error, HttpRequest};
+use actix_web::HttpRequest;
 use actix_web::{
     get, http::header, http::StatusCode, middleware, post, web, web::Data, App, HttpResponse,
     HttpServer,
 };
-use aes_gcm::aead::Buffer;
 use base64::{engine::general_purpose::STANDARD as b64, Engine as _};
 use dirs::{self, home_dir};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
+use sha2::{Digest, Sha512, Sha256};
 use std::{
     collections::HashMap,
     env,
@@ -28,10 +27,11 @@ use sysinfo::System as SysInfoSystem;
 use systemstat::{Platform, System};
 use tokio::task;
 extern crate inflector;
+use database::InsertValue;
 use inflector::Inflector;
 
-mod config_file;
 mod crypto_utils;
+mod database;
 mod drives;
 mod is_admin;
 mod logs;
@@ -151,7 +151,7 @@ async fn media(session: Session, state: Data<AppState>) -> HttpResponse {
     // is_admin session value is != true (None or false), the user is served the media screen
     // otherwise, the user is redirected to /
     if is_admin_state(&session, state) {
-        if config_file::read("media_enabled") == "0" {
+        if database::read_kv("Settings", "media_enabled").unwrap() == database::ST_BOOL_FALSE {
             return HttpResponse::Forbidden().body("Media center has been disabled");
         }
         HttpResponse::build(StatusCode::OK)
@@ -289,60 +289,43 @@ async fn login(
         );
     }
 
-    // Check if username exists
-    let zentrox_installation_path = path::Path::new("")
-        .join(dirs::home_dir().unwrap())
-        .join(".local")
-        .join("share")
-        .join("zentrox");
-
-    for line in fs::read_to_string(zentrox_installation_path.join("users"))
-        .unwrap()
-        .split("\n")
-    {
-        let line_username_entry = line.split(": ").next().expect("Failed to get username");
-        let line_username = String::from_utf8(b64.decode(line_username_entry).unwrap())
-            .expect("Failed to decode username");
-        let mut found_user: bool = false;
-        if &line_username == username {
-            found_user = true;
-
-            let stored_password = line.split(": ").nth(1).expect("Failed to get password");
-            let hashes_correct =
-                is_admin::password_hash(password.to_string(), stored_password.to_string());
-            if hashes_correct {
-                let login_token: Vec<u8> = is_admin::generate_random_token();
-                if config_file::read("use_otp") == "1" {
-                    let otp_secret = config_file::read("otp_secret");
-                    if otp::calculate_current_otp(&otp_secret) == *otp_code {
-                        let _ =
-                            session.insert("login_token", hex::encode(&login_token).to_string());
-
-                        *state.login_token.lock().unwrap() = hex::encode(&login_token).to_string();
-                        *state.username.lock().unwrap() = username.to_string();
-
-                        return HttpResponse::build(StatusCode::OK).json(web::Json(EmptyJson {}));
-                    } else {
-                        println!("Wrong OTP while authenticating");
-                    }
-                } else {
-                    // for hashes
+    if &database::read_cols::<&str, (String,)>("Admin", &["username"]).unwrap()[0].0 == username {
+        let stored_password = database::read_kv("Secrets", "admin_password").unwrap();
+        let hashes_correct =
+            is_admin::password_hash(password.to_string(), stored_password.to_string());
+        if hashes_correct {
+            let login_token: Vec<u8> = is_admin::generate_random_token();
+            if database::read_cols::<&str, (bool,)>("Admin", &["use_otp"]).unwrap()[0].0 {
+                let otp_secret = database::read_kv("Secrets", "otp_secret").unwrap();
+                dbg!(&otp_secret);
+                dbg!(otp::calculate_current_otp(&otp_secret));
+                dbg!(otp_code);
+                if otp::calculate_current_otp(&otp_secret) == *otp_code {
                     let _ = session.insert("login_token", hex::encode(&login_token).to_string());
 
                     *state.login_token.lock().unwrap() = hex::encode(&login_token).to_string();
                     *state.username.lock().unwrap() = username.to_string();
 
                     return HttpResponse::build(StatusCode::OK).json(web::Json(EmptyJson {}));
+                } else {
+                    println!("Wrong OTP while authenticating");
                 }
             } else {
-                println!("Wrong Password while authenticating");
-                return HttpResponse::build(StatusCode::FORBIDDEN).body("Missing permissions");
+                // for hashes
+                let _ = session.insert("login_token", hex::encode(&login_token).to_string());
+
+                *state.login_token.lock().unwrap() = hex::encode(&login_token).to_string();
+                *state.username.lock().unwrap() = username.to_string();
+
+                return HttpResponse::build(StatusCode::OK).json(web::Json(EmptyJson {}));
             }
-        }
-        if !found_user {
-            println!("User not found while authenticating");
+        } else {
+            println!("Wrong Password while authenticating");
             return HttpResponse::build(StatusCode::FORBIDDEN).body("Missing permissions");
         }
+    } else {
+        println!("Wrong username while authenticationg.");
+        return HttpResponse::build(StatusCode::FORBIDDEN).body("Missing permissions");
     }
     println!("Drop Thru while authenticating");
     HttpResponse::build(StatusCode::FORBIDDEN).body("Missing permissions")
@@ -379,10 +362,20 @@ async fn otp_secret_request(_state: Data<AppState>) -> HttpResponse {
         secret: String,
     }
 
-    if "1" != config_file::read("knows_otp_secret") && "0" != config_file::read("use_otp") {
-        let _ = config_file::write("knows_otp_secret", "1");
+    if !database::read_cols::<&str, (bool,)>("Admin", &["knows_otp"]).unwrap()[0].0
+        && database::read_cols::<&str, (bool,)>("Admin", &["use_otp"]).unwrap()[0].0
+    {
+        let u = database::update_where(
+            "Admin",
+            &["knows_otp"],
+            &[database::InsertValue::Bool(true)],
+            "key",
+            "0",
+        );
+        dbg!(u);
         HttpResponse::build(StatusCode::OK).json(SecretJsonResponse {
-            secret: config_file::read("otp_secret"),
+            secret: database::read_kv("Secrets", "otp_secret")
+                .unwrap_or("Secret not found".to_string()),
         })
     } else {
         HttpResponse::Forbidden().body("You can not access this value anymore.")
@@ -400,7 +393,7 @@ async fn use_otp(_state: Data<AppState>) -> HttpResponse {
     }
 
     HttpResponse::Ok().json(JsonResponse {
-        used: config_file::read("use_otp") != "0",
+        used: database::read_cols::<&str, (bool,)>("Admin", &["use_otp"]).unwrap()[0].0,
     })
 }
 
@@ -617,9 +610,13 @@ async fn fetch_ftp_config(session: Session, state: Data<AppState>) -> HttpRespon
         enabled: bool,
     }
 
-    let ftp_username = config_file::read("ftp_username");
-    let ftp_local_root = config_file::read("ftp_local_root");
-    let ftp_running: bool = config_file::read("ftp_running") == "1";
+    let ftp_username = database::read_cols::<&str, (String,)>("Ftp", &["username"]).unwrap()[0]
+        .0
+        .to_string();
+    let ftp_local_root = database::read_cols::<&str, (String,)>("Ftp", &["local_root"]).unwrap()[0]
+        .0
+        .to_string();
+    let ftp_running: bool = database::read_cols::<&str, (bool,)>("Ftp", &["running"]).unwrap()[0].0;
 
     HttpResponse::Ok().json(JsonResponse {
         ftpUserUsername: ftp_username,
@@ -636,7 +633,7 @@ struct JsonRequest {
     ftpUserUsername: Option<String>,
     ftpUserPassword: Option<String>,
     ftpLocalRoot: Option<String>,
-    sudoPassword: String,
+    sudoPassword: Option<String>,
 }
 
 /// Update the FTP config.
@@ -655,20 +652,40 @@ async fn update_ftp_config(
         return HttpResponse::Forbidden().body("This resource is blocked.");
     };
 
+    let server_is_running = database::read_cols::<&str, (bool,)>("Ftp", &["running"]).unwrap()[0].0;
+
     if !json.enableFTP.expect("Failed to get enableFTP") {
-        // Kill FTP server
-        let sudo_password = json.sudoPassword.to_string();
-        let ftp_server_pid = config_file::read("ftp_pid");
-        if !ftp_server_pid.is_empty() {
-            std::thread::spawn(move || {
-                let _ = sudo::SwitchedUserCommand::new(sudo_password, String::from("kill"))
-                    .arg(ftp_server_pid.to_string())
-                    .spawn();
-            });
-            let _ = config_file::write("ftp_running", "0");
+        if server_is_running {
+            // Kill FTP server
+            let sudo_password = json.sudoPassword.clone().expect("Failed to get sudoPassword").to_string();
+            let ftp_server_pid = database::read_cols::<&str, (u64,)>("Ftp", &["pid"]).unwrap()[0]
+                .0
+                .to_string();
+            if !ftp_server_pid.is_empty() {
+                std::thread::spawn(move || {
+                    let _ = sudo::SwitchedUserCommand::new(sudo_password, String::from("kill"))
+                        .arg(ftp_server_pid.to_string())
+                        .spawn();
+                });
+                let _ = database::update_where(
+                    "Ftp",
+                    &["running"],
+                    &[database::InsertValue::Bool(false)],
+                    "key",
+                    "0",
+                );
+                let _ = database::update_where(
+                    "Ftp",
+                    &["pid"],
+                    &[database::InsertValue::Null()],
+                    "key",
+                    "0",
+                );
+            }
         }
-    } else {
-        let sudo_password = json.sudoPassword.to_string();
+    } else if !server_is_running && json.enableFTP.expect("Failed to get enableFTP") {
+
+        let sudo_password = json.sudoPassword.clone().unwrap().to_string();
 
         std::thread::spawn(move || {
             let _ = sudo::SwitchedUserCommand::new(sudo_password, String::from("python3"))
@@ -678,24 +695,43 @@ async fn update_ftp_config(
         });
     }
 
-    if !json.enableDisable.unwrap_or(false) {
+    if !json.enableDisable.unwrap_or(false) && !server_is_running { // Enable disable is used to differentiate between a
+                                              // single toggle or the Sharing page's form.
         let username = json.ftpUserUsername.clone().unwrap_or(String::from(""));
         let password = json.ftpUserPassword.clone().unwrap_or(String::from(""));
         let local_root = json.ftpLocalRoot.clone().unwrap_or(String::from(""));
 
         if !password.is_empty() {
-            let hasher = &mut Sha256::new();
+            let hasher = &mut Sha512::new();
             hasher.update(&password);
             let hashed_password = hex::encode(hasher.clone().finalize());
-            let _ = config_file::write("ftp_password", &hashed_password);
+            let _ = database::update_where(
+                "Secrets",
+                &["value"],
+                &[database::InsertValue::Text(hashed_password)],
+                "name",
+                "ftp_password",
+            );
         }
 
         if !username.is_empty() {
-            let _ = config_file::write("ftp_username", &username);
+            let _ = database::update_where(
+                "Ftp",
+                &["username"],
+                &[database::InsertValue::Text(username)],
+                "key",
+                "0",
+            );
         }
 
         if !local_root.is_empty() {
-            let _ = config_file::write("ftp_local_root", &local_root);
+            let _ = database::update_where(
+                "Ftp",
+                &["local_root"],
+                &[database::InsertValue::Text(local_root)],
+                "key",
+                "0",
+            );
         }
     }
 
@@ -1293,7 +1329,10 @@ async fn vault_configure(
         .join("zentrox")
         .join("vault_directory");
 
-    if config_file::read("vault_enabled") == "0" && !vault_path.exists() {
+    if database::read_kv("Settings", "vault_enabled").unwrap()
+        == database::ST_BOOL_FALSE.to_string()
+        && !vault_path.exists()
+    {
         if json.key.is_none() {
             return HttpResponse::BadRequest().body("This request is malformed");
         }
@@ -1330,7 +1369,11 @@ async fn vault_configure(
         }
 
         vault::encrypt_file(vault_path.join(".vault").to_string_lossy().to_string(), key);
-        let _ = config_file::write("vault_enabled", "1");
+        let _ = database::write_kv(
+            "Settings",
+            "vault_enabled",
+            database::InsertValue::Text(database::ST_BOOL_TRUE.into()),
+        );
     } else if json.oldKey.is_some() && json.newKey.is_some() {
         let old_key = json.oldKey.clone().unwrap();
         let new_key = json.newKey.clone().unwrap();
@@ -1409,7 +1452,7 @@ async fn is_vault_configured(session: Session, state: Data<AppState>) -> HttpRes
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    if config_file::read("vault_enabled") == "1" {
+    if database::read_kv("Settings", "vault_enabled").unwrap() == database::ST_BOOL_TRUE {
         return HttpResponse::Ok().body("1");
     } else {
         return HttpResponse::Ok().body("0");
@@ -1511,7 +1554,7 @@ async fn vault_tree(
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
-    if config_file::read("vault_enabled") == "1" {
+    if database::read_kv("Settings", "vault_enabled").unwrap() == database::ST_BOOL_TRUE {
         let key = &json.key;
 
         match vault::decrypt_file(
@@ -1948,7 +1991,11 @@ async fn upload_tls(
         .join("zentrox")
         .join(&file_name);
 
-    let _ = config_file::write("tls_cert", &file_name.to_string());
+    let _ = database::write_kv(
+        "Settings",
+        "tls_cert",
+        database::InsertValue::Text(file_name.to_string()),
+    );
 
     let tmp_file_path = form.file.file.path().to_owned();
     let _ = fs::copy(&tmp_file_path, &base_path);
@@ -1976,7 +2023,7 @@ async fn cert_names(session: Session, state: Data<AppState>) -> HttpResponse {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    let tls = config_file::read("tls_cert");
+    let tls = database::read_kv("Settings", "tls_cert").unwrap();
 
     HttpResponse::Ok().json(CertNamesJson { tls })
 }
@@ -2039,50 +2086,36 @@ async fn update_account_details(
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    let username = match state.username.lock() {
-        Ok(v) => v,
-        Err(e) => e.into_inner(),
-    };
-
     let password = &json.password;
     let new_username = &json.username;
 
-    let users_txt_path = path::Path::new(&dirs::home_dir().unwrap())
-        .join(".local")
-        .join("share")
-        .join("zentrox")
-        .join("users");
-    let users_txt_contents = match fs::read_to_string(&users_txt_path) {
-        Ok(v) => v.to_string(),
-        Err(err) => {
-            eprintln!("Can't read users {err}");
-            return HttpResponse::InternalServerError().finish();
-        }
-    };
+    if !password.is_empty() {
+        let hashed_password =
+            hex::encode(crypto_utils::argon2_derive_key(password).unwrap()).to_string();
 
-    if !password.is_empty() || *new_username != *username {
-        let users_lines: Vec<String> = users_txt_contents.lines().map(|x| x.to_string()).collect();
-        let mut new_lines: Vec<String> = Vec::new();
-        for line in users_lines {
-            let dec_username = b64.decode(line.split(": ").next().unwrap());
-            if String::from_utf8(dec_username.unwrap()).unwrap() == username.to_string() {
-                new_lines.push(
-                    [b64.encode(new_username), {
-                        if !password.is_empty() {
-                            hex::encode(crypto_utils::argon2_derive_key(password).unwrap())
-                                .to_string()
-                        } else {
-                            line.split(": ").nth(1).unwrap().to_string()
-                        }
-                    }]
-                    .join(": "),
-                )
-            } else {
-                new_lines.push(line)
-            }
-        }
+        let a = database::write_kv(
+            "Secrets",
+            "admin_password",
+            database::InsertValue::Text(hashed_password),
+        );
 
-        let _ = fs::write(users_txt_path, new_lines.join("\n"));
+        if a.is_err() {
+            return HttpResponse::InternalServerError().body("Failed to update admin_password.");
+        }
+    }
+
+    if !new_username.is_empty() {
+        let b = database::update_where(
+            "Admin",
+            &["username"],
+            &[database::InsertValue::from(new_username)],
+            "key",
+            "0",
+        );
+
+        if b.is_err() {
+            return HttpResponse::InternalServerError().body("Failed to update username.");
+        }
     }
 
     HttpResponse::Ok().finish()
@@ -2193,13 +2226,19 @@ fn parse_range(range: actix_web::http::header::HeaderValue) -> (usize, Option<us
     // Parse the start and end values safely
     let start = range_separated.get(0).unwrap().parse::<usize>().unwrap();
 
-    (start, match range_separated.get(1) {
-        Some(v) => {
-            if v == &"" { None } else {
-            Some(v.parse::<usize>().unwrap())}
+    (
+        start,
+        match range_separated.get(1) {
+            Some(v) => {
+                if v == &"" {
+                    None
+                } else {
+                    Some(v.parse::<usize>().unwrap())
+                }
+            }
+            None => None,
         },
-        None => None
-    })
+    )
 }
 
 fn is_whitelisted(l: Vec<(bool, PathBuf)>, p: PathBuf) -> bool {
@@ -2223,7 +2262,7 @@ async fn media_request(
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    if config_file::read("media_enabled") == "0" {
+    if database::read_kv("Settings", "media_enabled").unwrap() == database::ST_BOOL_FALSE {
         return HttpResponse::Forbidden().body("Media center has been disabled");
     }
 
@@ -2236,28 +2275,17 @@ async fn media_request(
     let file_path_url = url_decode::url_decode(&pii);
     let file_path = PathBuf::from(&file_path_url);
 
+    dbg!(&file_path);
+
     let mime = mime::guess_mime(file_path.to_path_buf());
 
     if file_path.exists() {
-        let whitelist = fs::read_to_string(
-            home_dir()
+        let whitelist_vector: Vec<(bool, PathBuf)> =
+            database::read_cols::<&str, (bool, String)>("MediaSources", &["enabled", "folderpath"])
                 .unwrap()
-                .join(".local")
-                .join("share")
-                .join("zentrox")
-                .join("zentrox_media_locations.txt"),
-        );
-        let whitelist_vector: Vec<(bool, PathBuf)> = whitelist
-            .unwrap_or("".to_string())
-            .to_string()
-            .lines()
-            .map(|x| {
-                (
-                    x.split(";").nth(2).unwrap() == "true",
-                    PathBuf::from(x.split(";").nth(0).unwrap().to_string()),
-                )
-            })
-            .collect();
+                .into_iter()
+                .map(|e| (e.0, PathBuf::from(e.1)))
+                .collect();
 
         if !is_whitelisted(
             whitelist_vector,
@@ -2286,16 +2314,24 @@ async fn media_request(
                 let byte_range = parse_range(e.clone());
                 let file = File::open(&file_path).unwrap();
                 let mut reader = BufReader::new(file);
-                let filesize: usize = reader.get_ref().metadata().unwrap().len().try_into().unwrap_or(0);
+                let filesize: usize = reader
+                    .get_ref()
+                    .metadata()
+                    .unwrap()
+                    .len()
+                    .try_into()
+                    .unwrap_or(0);
                 if byte_range.0 > filesize {
-                    return HttpResponse::RangeNotSatisfiable().body("The requested range can not be satisfied.");
+                    return HttpResponse::RangeNotSatisfiable()
+                        .body("The requested range can not be satisfied.");
                 }
                 if byte_range.1.is_some() {
                     if byte_range.1.unwrap() > filesize {
-                        return HttpResponse::RangeNotSatisfiable().body("The requested range can not be satisfied.");
+                        return HttpResponse::RangeNotSatisfiable()
+                            .body("The requested range can not be satisfied.");
                     }
                 }
-                let buffer_length = byte_range.1.unwrap_or(filesize) - byte_range.0;               
+                let buffer_length = byte_range.1.unwrap_or(filesize) - byte_range.0;
                 let _ = reader.seek(SeekFrom::Start(byte_range.0 as u64));
                 let mut buf = vec![0; buffer_length]; // A buffer with the length buffer_length
                 reader.read_exact(&mut buf).unwrap();
@@ -2312,7 +2348,12 @@ async fn media_request(
                     ))
                     .insert_header((
                         header::CONTENT_RANGE,
-                        format!("bytes {}-{}/{}", byte_range.0, byte_range.1.unwrap_or(filesize - 1), filesize), // We HAVE to subtract 1 from the actual file size
+                        format!(
+                            "bytes {}-{}/{}",
+                            byte_range.0,
+                            byte_range.1.unwrap_or(filesize - 1),
+                            filesize
+                        ), // We HAVE to subtract 1 from the actual file size
                     ))
                     .insert_header((header::VARY, "*"))
                     .insert_header((header::ACCESS_CONTROL_ALLOW_ORIGIN, "*"))
@@ -2346,42 +2387,42 @@ async fn update_video_source_list(
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    let sources_file = Path::new("")
-        .join(home_dir().unwrap())
-        .join(".local")
-        .join("share")
-        .join("zentrox")
-        .join("zentrox_media_locations.txt");
-
-    let sources_file_swap = Path::new("")
-        .join(home_dir().unwrap())
-        .join(".local")
-        .join("share")
-        .join("zentrox")
-        .join("zentrox_media_locations_swap.txt");
-
-    let mut sources_list_content = String::new();
-
     let locations = &json.locations;
 
-    for l in locations {
-        let line = format!(
-            "{};{};{}\n",
-            fs::canonicalize(l.0.to_str().unwrap_or("/this_path_does_not_exist"))
-                .unwrap_or("/this_path_does_not_exist".into())
-                .to_string_lossy()
-                .to_string(),
-            l.1.replace(";", "&semi;"),
-            l.2
-        )
-        .to_string();
-        sources_list_content = sources_list_content + &line;
+    // The frontend only sends an updated array of all resources.
+    // It is easier to truncate the entire table and then rewrite its' contents.
+
+    if let Err(e) = database::truncate_table("MediaSources") {
+        dbg!(e);
+        return HttpResponse::InternalServerError().body("Failed to truncate sources table.");
     }
 
-    let _ = fs::write(&sources_file_swap, sources_list_content);
-    let _ = fs::rename(sources_file_swap, sources_file);
+    for l in locations {
+        dbg!(l);
 
-    HttpResponse::Ok().body("")
+        if l.0.exists() {
+            let clean_path = fs::canonicalize(l.0.clone())
+                .unwrap()
+                .to_string_lossy()
+                .to_string();
+
+            let s = database::insert(
+                "MediaSources",
+                &["folderpath", "alias", "enabled"],
+                &[
+                    InsertValue::from(clean_path),
+                    InsertValue::from(l.1.to_string()),
+                    InsertValue::from(l.2),
+                ],
+            );
+
+            if let Err(_e) = s {
+                return HttpResponse::InternalServerError().body("Failed to write source entry.");
+            }
+        }
+    }
+
+    HttpResponse::Ok().body("Updated video sources.")
 }
 
 #[derive(Serialize)]
@@ -2395,42 +2436,17 @@ async fn get_video_source_list(session: Session, state: Data<AppState>) -> HttpR
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    let sources_file = Path::new("")
-        .join(home_dir().unwrap())
-        .join(".local")
-        .join("share")
-        .join("zentrox")
-        .join("zentrox_media_locations.txt");
-
-    let sources_file_read = fs::read_to_string(sources_file);
-
-    let mut sources: Vec<(String, String, bool)> = Vec::new();
-
-    match sources_file_read {
-        Ok(v) => {
-            let lines = v.lines();
-
-            for l in lines {
-                let l_split: Vec<&str> = l.split(";").collect();
-
-                if l_split.len() != 3 {
-                    return HttpResponse::InternalServerError().body("Malformed entry");
-                }
-
-                let path = String::from(l_split[0]);
-                let name = String::from(l_split[1]).replace("&semi;", ";");
-                let enabled: bool = l_split[2] == "true";
-
-                sources.push((path, name.into(), enabled));
-            }
-        }
-        Err(e) => {
-            eprintln!("Failed to read video sources: {}", e);
-            return HttpResponse::InternalServerError().body("Faild to read video sources");
-        }
+    let rows = database::read_cols::<&str, (String, String, bool)>(
+        "MediaSources",
+        &["folderpath", "alias", "enabled"],
+    )
+    .unwrap();
+    let mut s = Vec::new();
+    for r in rows {
+        s.push((r.0.clone(), r.1.clone(), r.2));
     }
 
-    HttpResponse::Ok().json(VideoSourcesListResponseJson { locations: sources })
+    HttpResponse::Ok().json(VideoSourcesListResponseJson { locations: s })
 }
 
 // 1. Video & Media list and metadata
@@ -2453,38 +2469,27 @@ async fn get_media_list(session: Session, state: Data<AppState>) -> HttpResponse
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    if config_file::read("media_enabled") == "0" {
+    if database::read_kv("Settings", "media_enabled").unwrap() == database::ST_BOOL_FALSE {
         return HttpResponse::Forbidden().body("Media center has been disabled");
     }
 
-    let sources_file = Path::new("")
-        .join(home_dir().unwrap())
-        .join(".local")
-        .join("share")
-        .join("zentrox")
-        .join("zentrox_media_locations.txt");
+    let sources: Vec<PathBuf> =
+        database::read_cols::<&str, (String,)>("MediaSources", &["folderpath"])
+            .unwrap()
+            .into_iter()
+            .map(|e| PathBuf::from(e.0.clone()))
+            .collect();
 
-    let media_directory_vector: Vec<PathBuf> = fs::read_to_string(sources_file)
-        .unwrap_or(String::new())
-        .lines()
-        .filter(|x| !x.is_empty())
-        .map(|x| {
-            let p = x.split(";").nth(0).unwrap_or("");
-            PathBuf::from(p)
-        })
-        .collect();
+    dbg!(&sources);
 
-    let media_files_vector: Vec<Vec<PathBuf>> = media_directory_vector
-        .clone()
+    let media_files_vector: Vec<Vec<PathBuf>> = sources
         .into_iter()
         .filter(|p| p.exists())
         .map(|p| {
             visit_dirs(p)
                 .unwrap()
                 .map(|x| x.path())
-                .filter(|x| {
-                    x.is_file() && x.file_name().expect("Failed to get filename.") != ".mcmetadata"
-                })
+                .filter(|x| x.is_file())
                 // Remove directories and metadata files.
                 .collect()
         })
@@ -2498,9 +2503,6 @@ async fn get_media_list(session: Session, state: Data<AppState>) -> HttpResponse
 
     // Create hashmap of all metadata files
 
-    let metadata_files = media_directory_vector
-        .into_iter()
-        .map(|p| p.join(".mcmetadata"));
     // Assume every directory contains a metadata file. If the file does not exists later on, the
     // code will act as if it is empty "".
 
@@ -2518,23 +2520,35 @@ async fn get_media_list(session: Session, state: Data<AppState>) -> HttpResponse
     // - artist: The name of the artist
     // These segments are separated using semicolons.
 
-    for file in metadata_files {
-        let file_contents = fs::read_to_string(file)
-            .unwrap_or("".to_string())
-            .to_string();
-        let lines = file_contents.lines().filter(|x| !x.is_empty());
-        // Get line of file and ignore files that do not exist.
-        for l in lines {
-            let segments: Vec<&str> = l.split(";").collect();
-            if segments.len() != 5 {
-                continue;
+    let metadata_rows = database::read_cols::<&str, (String, String, String, String, String)>(
+        "Media",
+        &["filepath", "genre", "name", "artist", "cover"],
+    )
+    .unwrap();
+
+    dbg!(&metadata_rows);
+
+    for row in metadata_rows {
+        println!("Deleting {} from Media asnyc fn get_media_list", row.0.clone());
+        let filepath = PathBuf::from(row.0.clone());
+        if !filepath.exists() {
+            let x = database::delete_row(
+                "Media",
+                "filepath",
+                filepath
+                    .to_str()
+                    .unwrap_or(filepath.to_string_lossy().to_string().as_str()),
+            );
+
+            if let Err(_e) = x {
+                return HttpResponse::InternalServerError()
+                    .body("Failed to delete row of removed video file.");
             }
-            let internal_path: PathBuf = segments[0].into(); // The path on the system
-            let name = segments[1].to_string(); // The name configured by the user
-            let cover = segments[2].to_string(); // The file name of the cover image
-            let genre = segments[3].to_string(); // The name of the genre
-            let artist = segments[4].to_string(); // The artist/band/... name
-            media_info_hashmap.insert(internal_path.clone(), (name, cover, genre, artist));
+        } else {
+            media_info_hashmap.insert(
+                filepath,
+                (row.2.clone(), row.4.clone(), row.1.clone(), row.3.clone()),
+            );
         }
     }
 
@@ -2591,28 +2605,15 @@ async fn get_cover(
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    if config_file::read("media_enabled") == "0" {
+    if database::read_kv("Settings", "media_enabled").unwrap()
+        == database::ST_BOOL_FALSE.to_string()
+    {
         return HttpResponse::Forbidden().body("Media center has been disabled");
     }
 
-    let sources_file = Path::new("")
-        .join(home_dir().unwrap())
-        .join(".local")
-        .join("share")
-        .join("zentrox")
-        .join("zentrox_media_locations.txt");
-
-    let sources_file_contents = fs::read_to_string(sources_file)
-        .unwrap_or(String::new())
-        .to_string();
-    let sources: Vec<String> = sources_file_contents
-        .lines()
-        .filter(|l| !l.is_empty())
-        .map(|l| {
-            let mut line_segments = l.split(";");
-            line_segments.nth(0).unwrap().to_string()
-        })
-        .collect();
+    let sources: Vec<(String, bool)> =
+        database::read_cols::<&str, (String, bool)>("MediaSources", &["folderpath", "enabled"])
+            .unwrap();
 
     let cover_uri = &url_decode::url_decode(&path);
 
@@ -2636,7 +2637,7 @@ async fn get_cover(
             .canonicalize()
             .unwrap_or(PathBuf::from(cover_uri));
         let parent = cover_path.parent();
-        if !sources.contains(&parent.unwrap().to_string_lossy().to_string()) {
+        if !sources.contains(&(parent.unwrap().to_string_lossy().to_string(), true)) {
             HttpResponse::Forbidden().body("This cover is not in a source folder.")
         } else {
             let fh = fs::read(cover_path).unwrap_or("".into());
@@ -2657,7 +2658,7 @@ async fn get_enable_media(session: Session, state: Data<AppState>) -> HttpRespon
     }
 
     return HttpResponse::Ok().json(MediaEnabledResponseJson {
-        enabled: config_file::read("media_enabled") == "1",
+        enabled: database::read_kv("Settings", "media_enabled").unwrap() == database::ST_BOOL_TRUE,
     });
 }
 
@@ -2672,13 +2673,158 @@ async fn set_enable_media(
     }
 
     if e.into_inner() {
-        let _ = config_file::write("media_enabled", "1");
+        let _ = database::write_kv(
+            "Settings",
+            "media_enabled",
+            database::InsertValue::Text(database::ST_BOOL_TRUE.to_string()),
+        );
     } else {
-        let _ = config_file::write("media_enabled", "0");
+        let _ = database::write_kv(
+            "Settings",
+            "media_enabled",
+            database::InsertValue::Text(database::ST_BOOL_FALSE.to_string()),
+        );
     }
 
     return HttpResponse::Ok().body("Updated media center status");
 }
+
+#[get("/api/rememberMusic/{songPath}")]
+async fn remember_music(
+    session: Session,
+    state: Data<AppState>,
+    e: web::Path<String>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    if database::read_kv("Settings", "media_enabled").unwrap()
+        == database::ST_BOOL_FALSE.to_string()
+    {
+        return HttpResponse::Forbidden().body("Media center has been disabled");
+    }
+
+    let current_ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("Time does not appear to be correct. Is your system's time configuration correct?");
+
+    let fp = &e.into_inner();
+
+    let x = database::write(
+        "RecommendedMedia",
+        &["filepath", "lastview", "category"],
+        &[
+            database::InsertValue::from(fp),
+            database::InsertValue::from(current_ts.as_millis()),
+            database::InsertValue::from("music"),
+        ],
+        "filepath",
+        fp,
+    );
+
+    match x {
+        Ok(_) => HttpResponse::Ok().finish(),
+        Err(_e) => HttpResponse::InternalServerError().body("Failed to write database."),
+    }
+}
+
+#[get("/api/rememberVideo/{videoPath}")]
+async fn remember_video(
+    session: Session,
+    state: Data<AppState>,
+    e: web::Path<String>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    if database::read_kv("Settings", "media_enabled").unwrap()
+        == database::ST_BOOL_FALSE.to_string()
+    {
+        return HttpResponse::Forbidden().body("Media center has been disabled");
+    }
+
+    let current_ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("Time does not appear to be correct. Is your system's time configuration correct?");
+
+    let fp = &e.into_inner();
+
+    let x = database::write(
+        "RecommendedMedia",
+        &["filepath", "lastview", "category"],
+        &[
+            database::InsertValue::from(fp),
+            database::InsertValue::from(current_ts.as_millis()),
+            database::InsertValue::from("video"),
+        ],
+        "filepath",
+        fp,
+    );
+
+    match x {
+        Ok(_) => HttpResponse::Ok().finish(),
+        Err(_e) => HttpResponse::InternalServerError().body("Failed to write database."),
+    }
+}
+
+#[derive(Serialize)]
+struct Recommendations {
+    rec: Vec<(String, i64)>,
+}
+
+#[get("/api/recommendedMusic")]
+async fn get_recomended_music(session: Session, state: Data<AppState>) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    if database::read_kv("Settings", "media_enabled").unwrap()
+        == database::ST_BOOL_FALSE.to_string()
+    {
+        return HttpResponse::Forbidden().body("Media center has been disabled");
+    }
+
+    let entries: Vec<(String, i64)> = database::read_cols::<&str, (String, i64, String)>(
+        "RecommendedMedia",
+        &["filepath", "lastview", "category"],
+    )
+    .unwrap()
+    .into_iter()
+    .filter(|e| e.2 == "music")
+    .map(|e| (e.0, e.1))
+    .collect();
+
+    return HttpResponse::Ok().json(Recommendations { rec: entries });
+}
+
+#[get("/api/recommendedVideos")]
+async fn get_recomended_videos(session: Session, state: Data<AppState>) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    if database::read_kv("Settings", "media_enabled").unwrap()
+        == database::ST_BOOL_FALSE.to_string()
+    {
+        return HttpResponse::Forbidden().body("Media center has been disabled");
+    }
+
+    let entries: Vec<(String, i64)> = database::read_cols::<&str, (String, i64, String)>(
+        "RecommendedMedia",
+        &["filepath", "lastview", "category"],
+    )
+    .unwrap()
+    .into_iter()
+    .filter(|e| e.2 == "video")
+    .map(|e| (e.0, e.1))
+    .collect();
+
+    return HttpResponse::Ok().json(Recommendations { rec: entries });
+}
+
+// TODO: Switching from toml based storage to persistent SQL based storage.
 
 // ======================================================================
 // Blocks (Used to prevent users from accessing certain static resources)
@@ -2713,10 +2859,22 @@ async fn main() -> std::io::Result<()> {
     }
 
     // Resetting variables to default state
-    if let Err(e) = config_file::write("ftp_pid", "") {
+    if let Err(e) = database::update_where(
+        "Ftp",
+        &["pid"],
+        &[database::InsertValue::Null()],
+        "key",
+        "0",
+    ) {
         eprintln!("Failed to reset ftp_pid: {}", e);
     }
-    if let Err(e) = config_file::write("ftp_running", "0") {
+    if let Err(e) = database::update_where(
+        "Ftp",
+        &["running"],
+        &[database::InsertValue::Bool(false)],
+        "key",
+        "0",
+    ) {
         eprintln!("Failed to reset ftp_running: {}", e);
     }
 
@@ -2724,9 +2882,15 @@ async fn main() -> std::io::Result<()> {
     let app_state = AppState::new();
     app_state.clone().start_cleanup_task(); // Start periodic cleanup
 
-    if config_file::read("otp_secret").is_empty() && config_file::read("use_otp") == "1" {
+    if !database::exists("Secrets", "name", "otp_secret").unwrap()
+        && database::read_cols::<&str, (bool,)>("Admin", &["use_otp"]).unwrap()[0].0
+    {
         let new_otp_secret = otp::generate_otp_secret();
-        if let Err(e) = config_file::write("otp_secret", &new_otp_secret) {
+        if let Err(e) = database::write_kv(
+            "Secrets",
+            "otp_secret",
+            database::InsertValue::from(&new_otp_secret),
+        ) {
             eprintln!("Failed to write OTP secret: {}", e);
         }
         println!(
@@ -2735,7 +2899,7 @@ async fn main() -> std::io::Result<()> {
         );
     }
 
-    if config_file::read("tls_cert") == "selfsigned.pem" {
+    if database::read_kv("Settings", "tls_cert").unwrap() == "selfsigned.pem" {
         println!(include_str!("../notes/cert_note.txt"));
     }
 
@@ -2752,7 +2916,7 @@ async fn main() -> std::io::Result<()> {
         File::open(
             data_path
                 .join("certificates")
-                .join(config_file::read("tls_cert")),
+                .join(database::read_kv("Settings", "tls_cert").unwrap()),
         )
         .unwrap(),
     );
@@ -2760,7 +2924,7 @@ async fn main() -> std::io::Result<()> {
         File::open(
             data_path
                 .join("certificates")
-                .join(config_file::read("tls_cert")),
+                .join(database::read_kv("Settings", "tls_cert").unwrap()),
         )
         .unwrap(),
     );
@@ -2782,12 +2946,14 @@ async fn main() -> std::io::Result<()> {
         .with_single_cert(tls_certs, rustls::pki_types::PrivateKeyDer::Pkcs8(tls_key))
         .unwrap();
 
+    dbg!(database::get_database_location());
+
     println!("🚀 Serving Zentrox on Port 8080");
 
     HttpServer::new(move || {
         let cors_permissive: bool = true; // Enable or disable strict cors for developement. Leaving this
-                               // enabled poses a grave security vulnerability and shows a
-                               // disclaimer.
+                                           // enabled poses a grave security vulnerability and shows a
+                                           // disclaimer.
         if cors_permissive {
             print!(include_str!("../notes/cors_note.txt"))
         }
@@ -2883,6 +3049,10 @@ async fn main() -> std::io::Result<()> {
             .service(update_video_source_list)
             .service(get_media_list)
             .service(get_cover)
+            .service(remember_music)
+            .service(remember_video)
+            .service(get_recomended_music)
+            .service(get_recomended_videos)
             // General services and blocks
             .service(dashboard_asset_block)
             .service(robots_txt)
@@ -2893,4 +3063,4 @@ async fn main() -> std::io::Result<()> {
     .await
 }
 
-// Thank you for reading through all of this 😄
+// Thank you for reading through all of this 😄main.rs
