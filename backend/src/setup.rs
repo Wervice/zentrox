@@ -1,7 +1,9 @@
-use crate::config_file;
 use crate::crypto_utils::argon2_derive_key;
+use crate::database;
+use crate::database::InsertValue as SQLInsertValue;
 use crate::sudo::SwitchedUserCommand;
-use dirs::{self, home_dir, video_dir};
+use dirs::{self, home_dir};
+use rand::distributions::DistString;
 use rcgen::{generate_simple_self_signed, CertifiedKey};
 use rpassword::prompt_password;
 use sha2::{Digest, Sha512};
@@ -82,46 +84,114 @@ pub fn run_setup() -> Result<(), String> {
         p.to_lowercase() == "y"
     };
     let servername = prompt(" | Server Name: ");
-    println!("Setting configuration files");
-    let _ = config_file::write("server_name", &servername);
-    let _ = config_file::write("media_enabled", "0"); // Media center is disabled by default
-    let _ = config_file::write("ftp_pid", ""); // No ftp PID is set
-    let _ = config_file::write("ftp_running", "0"); // FTP is not running
-    let _ = config_file::write(
-        "ftp_username",
-        (0..16)
-            .map(|_| rand::random::<char>())
-            .collect::<String>()
-            .as_str(),
-    ); // TODO: Consider random username
-    let _ = config_file::write("ftp_password", {
-        let mut hasher = Sha512::new();
-        sha2::Digest::update(&mut hasher, b"CHANGE_ME");
-        let result = hasher.finalize();
-        &hex::encode(&result).to_string()
-    });
-    let _ = config_file::write("ftp_running", "0");
-    let _ = config_file::write(
-        "ftp_local_root",
-        &dirs::home_dir().unwrap().to_string_lossy().to_string(),
-    );
-    let _ = config_file::write("knows_otp_secret", "0");
-    let _ = config_file::write("tls_cert", "selfsigned.pem");
-    let _ = config_file::write("vault_enabled", "0");
-    let _ = config_file::write("use_otp", {
-        if enable_otp {
-            "1"
-        } else {
-            "0"
+    println!("Setting up zentrox backend database");
+    let setup_database = database::setup_database();
+    match setup_database {
+        Ok(_) => {
+            println!("Table structure configured")
         }
-    });
-    let admin_account_string = {
-        let password_hash = argon2_derive_key(&password.unwrap());
-        let password_hash_hex = hex::encode(password_hash.unwrap()).to_string();
-        let username_b64 = base64::encode(username.as_bytes());
-        format!("{}: {}: admin\n", username_b64, password_hash_hex)
+        Err(e) => {
+            eprintln!("Setting up the database failed with error: {e}")
+        }
     };
-    let _ = fs::write(data_path.join("users"), admin_account_string);
+
+    fn random_string() -> String {
+        rand::distributions::Alphanumeric.sample_string(&mut rand::thread_rng(), 8)
+    }
+
+    let set_a = database::write_kv("Settings", "server_name", SQLInsertValue::from(servername));
+    let set_b = database::write_kv(
+        "Settings",
+        "media_enabled",
+        SQLInsertValue::from(database::ST_BOOL_FALSE.to_string()),
+    );
+    let set_c = database::write_kv(
+        "Settings",
+        "vault_enabled",
+        SQLInsertValue::Text(database::ST_BOOL_FALSE.to_string()),
+    );
+    let set_d = database::insert(
+        "Ftp",
+        &["key", "running", "pid", "username", "local_root"],
+        &[
+            SQLInsertValue::Int32(0),
+            SQLInsertValue::from(false),
+            SQLInsertValue::Null(),
+            SQLInsertValue::from(random_string()),
+            SQLInsertValue::from(dirs::home_dir().unwrap_or(std::path::PathBuf::from("/home")).to_string_lossy().to_string()),
+        ],
+    );
+
+    let password_hash = argon2_derive_key(&password.unwrap());
+    let password_hash_hex = hex::encode(password_hash.unwrap()).to_string();
+
+    let set_e = database::write_kv(
+        "Settings",
+        "tls_cert",
+        SQLInsertValue::Text("selfsigned.pem".to_string()),
+    );
+
+    let set_f = database::write_kv(
+        "Secrets",
+        "admin_password",
+        SQLInsertValue::from(password_hash_hex),
+    );
+    let set_g = database::write_kv(
+        "Secrets",
+        "ftp_password",
+        SQLInsertValue::from({
+            let mut hasher = Sha512::new();
+            sha2::Digest::update(&mut hasher, b"CHANGE_ME");
+            let result = hasher.finalize();
+            hex::encode(&result).to_string()
+        }),
+    );
+    let set_h = database::insert(
+        "Admin",
+        &["key", "username", "use_otp", "knows_otp"],
+        &[
+            SQLInsertValue::Int32(0),
+            SQLInsertValue::from(username),
+            SQLInsertValue::from(enable_otp),
+            SQLInsertValue::from(false),
+        ],
+    );
+
+    if set_a.is_ok()
+        && set_b.is_ok()
+        && set_c.is_ok()
+        && set_d.is_ok()
+        && set_e.is_ok()
+        && set_f.is_ok()
+        && set_g.is_ok()
+        && set_h.is_ok()
+    {
+        println!("Database settings written")
+    } else {
+        println!("Failed to write to database")
+    }
+
+    // let _ = config_file::write("media_enabled", "0"); // Media center is disabled by default
+    // let _ = config_file::write("ftp_pid", ""); // No ftp PID is set
+    // let _ = config_file::write("ftp_running", "0"); // FTP is not running
+    // let _ = config_file::write(
+    //    "ftp_username",
+    //    (0..16)
+    //        .map(|_| (rand::random::<u8>() * (90 - 65) + 65) as char)
+    //        .collect::<String>()
+    //        .as_str(),
+    // );
+
+    //let _ = config_file::write("knows_otp_secret", "0");
+    //let _ = config_file::write("tls_cert", "selfsigned.pem");
+    //let _ = config_file::write("vault_enabled", "0");
+    //let _ = config_file::write("use_otp", {
+    //    if enable_otp {
+    //        "1"
+    //    } else {
+    //        "0"
+    //    }
+    //});
 
     let subject_alt_names = vec![
         "localhost".to_string(),
