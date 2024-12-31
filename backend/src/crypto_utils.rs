@@ -3,17 +3,36 @@ use argon2::{
     Argon2,
 };
 
-use crate::config_file;
+use crate::database;
 
 /// Derive a key using Argon2. The keylength is set to 32 bytes.
 /// It uses the salt stored in the config file under a2_salt.
 pub fn argon2_derive_key(password: &str) -> Option<[u8; 32]> {
     let salt: SaltString;
-    if config_file::read("a2_salt").is_empty() {
+    if database::read_kv("Secrets", "a2_salt")
+        .unwrap_or(String::new())
+        .is_empty()
+    {
         salt = SaltString::generate(&mut OsRng);
-        let _ = config_file::write("a2_salt", salt.as_ref());
+        let w = database::write_kv(
+            "Secrets",
+            "a2_salt",
+            database::InsertValue::from(salt.as_ref()),
+        );
+        match w {
+            Ok(_) => {}
+            Err(e) => {
+                eprintln!("{e}");
+                return None;
+            }
+        }
     } else {
-        salt = SaltString::from_b64(&config_file::read("a2_salt")).unwrap();
+        salt = SaltString::from_b64(
+            database::read_kv("Secrets", "a2_salt")
+                .unwrap_or(String::new())
+                .as_ref(),
+        )
+        .unwrap();
     }
 
     let params = argon2::Params::new(4096, 3, 1, Some(32)).unwrap();
