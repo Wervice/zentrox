@@ -2,8 +2,11 @@
 // 2. Remove rule
 // 3. Enable/Disable UFW
 // 4. List rules
-use crate::sudo::SwitchedUserCommand;
+use crate::sudo::{SudoExecutionOutput, SudoExecutionResult, SwitchedUserCommand};
 use regex::Regex;
+use std::fs;
+use std::path::PathBuf;
+use uuid;
 
 #[derive(serde::Serialize)]
 pub struct UfwRule {
@@ -11,6 +14,47 @@ pub struct UfwRule {
     pub to: String,
     pub from: String,
     pub action: String,
+}
+
+// NOTE Do not keep the pubs around fore sudo_write_file.
+
+#[derive(Debug)]
+pub enum WriteFileError {
+    MoveError,
+    TempFileError
+}
+
+// Uses SwitchedUserCommand to write to a file
+pub fn sudo_write_file(mut path: PathBuf, contents: &[u8], password: String) -> Result<(), WriteFileError> {
+    let temp_path = std::env::temp_dir().join(uuid::Uuid::new_v4().to_string());
+
+    let tw = fs::write(&temp_path, contents);
+    match tw {
+        Ok(_) => {},
+        Err(_) => return Err(WriteFileError::TempFileError)
+    }
+
+    if !path.is_absolute() {
+        path = std::env::current_dir().unwrap().join(path);
+    }
+    
+    let command = format!("mv \"{}\" \"{}\"", temp_path.to_string_lossy().to_string(), path.to_string_lossy().to_string());
+    dbg!(&command);
+
+    let c = SwitchedUserCommand::new(password, command);
+
+    let x = c.spawn();
+
+    match x {
+        SudoExecutionResult::Success(_) => {
+            let _ = fs::remove_file(temp_path);
+            Ok(())
+        },
+        _ => {
+            let _ = fs::remove_file(temp_path);
+            Err(WriteFileError::MoveError)
+        }
+    }
 }
 
 /// Fetches the current UFW status
@@ -28,8 +72,8 @@ pub struct UfwRule {
 pub fn ufw_status(password: String) -> Result<(bool, Vec<UfwRule>), String> {
     let output =
         match SwitchedUserCommand::new(password, "/usr/sbin/ufw status".to_string()).output() {
-            Ok(v) => v.stdout,
-            Err(_) => return Err("Wrong sudo password".to_string()),
+            SudoExecutionOutput::Success(v) => v.stdout,
+            _ => return Err("Wrong sudo password".to_string()),
         };
     let mut output_lines = output
         .lines()
@@ -70,24 +114,106 @@ pub fn ufw_status(password: String) -> Result<(bool, Vec<UfwRule>), String> {
     Ok((enabled, rules_vec))
 }
 
+/// To component converts values for a new firewall rule into strings used to create a command.
+pub trait ToComponent {
+    fn to_component(&self) -> String;
+}
+
+pub enum NetworkProtocol {
+    Tcp(u64),
+    Udp(u64)
+}
+
+impl ToComponent for NetworkProtocol {
+    fn to_component(&self) -> String {
+        match *self {
+            NetworkProtocol::Tcp(v) => format!("{v} proto tcp").to_string(),
+            NetworkProtocol::Udp(v) => format!("{v} proto udp").to_string()
+        }
+    }
+}
+
+pub enum FirewallAction {
+    Deny,
+    Allow
+}
+
+impl ToComponent for FirewallAction {
+    fn to_component(&self) -> String {
+        match *self {
+            FirewallAction::Deny => "deny".to_string(),
+            FirewallAction::Allow => "allow".to_string()
+        }
+    }
+}
+
+pub enum FirewallSender {
+    Any,
+    Specific(String)
+}
+
+impl ToComponent for FirewallSender {
+    fn to_component(&self) -> String {
+        match self {
+            FirewallSender::Any => "any".to_string(),
+            FirewallSender::Specific(ip_addr) => {
+                ip_addr.replace("\"", "\\\"").replace(" ", "").replace("\n", "\\n").to_string()
+            }
+        }
+    }
+}
+
+pub enum PortRange {
+    Tcp(u64, u64),
+    Udp(u64, u64)
+}
+
+impl PortRange {
+    fn to_port_component(&self) -> String {
+            match *self {
+                PortRange::Tcp(l, r) => format!("{l}:{r}").to_string(),
+                PortRange::Udp(l, r) => format!("{l}:{r}").to_string()
+            }
+    }
+    fn to_protocol_component(&self) -> String {
+        match *self {
+            PortRange::Tcp(_, _) => "proto tcp".to_string(),
+            PortRange::Udp(_, _) => "proto udp".to_string()
+        }
+    }
+}
+
 /// Create new UFW rule by spawning a command containing the from, to and action value.
 ///
 /// The command is spawned with `sudo` to allow for adding rules.
-/// * `password` - The password used to authenticate sudo.
-/// * `from` - From IP/Port used to create new rule. This may not be empty.
-/// * `to` - To IP/Port used to create new rule. This may not be empty.
-/// * `action` - Action used to create new rule. This may be "allow" or "deny"
-pub fn new_rule(password: String, from: String, to: String, action: String) -> Result<(), String> {
-    let command = format!(
-        "/usr/sbin/ufw {} from {} to any port {}",
-        action.to_lowercase(),
-        from.to_lowercase(),
-        to.to_lowercase()
-    );
+/// * `password`: String - The password used to authenticate sudo
+/// * `destination_port`: NetworkProtocol - The destionation port with protocol
+/// * `sender`: FirewallSender - The sender where the rule has to apply
+/// * `action`: FirewallAction - The action to be taken
+pub fn new_rule_port<T: ToString>(password: T, destination_port: NetworkProtocol, sender: FirewallSender, action: FirewallAction) -> Result<(), String> {
+    let command = format!("ufw {} from {} to any port {}", action.to_component(), sender.to_component(), destination_port.to_component());
+    dbg!(&command);
+    // sudo ufw allow from any to any port 22 proto tcp
+    match SwitchedUserCommand::new(password.to_string(), command).spawn() {
+        SudoExecutionResult::Success(_) => Ok(()),
+        _ => Err("Failed to spawn command".to_string()),
+    }
+}
 
-    match SwitchedUserCommand::new(password, command).spawn() {
-        Ok(_) => Ok(()),
-        Err(_) => Err("Failed to spawn command".to_string()),
+/// Create new UFW rule by spawning a command containing the from, to and action value.
+///
+/// The command is spawned with `sudo` to allow for adding rules.
+/// * `password`: String - The password used to authenticate sudo
+/// * `destination_port`: NetworkProtocol - The destionation port with protocol
+/// * `sender`: FirewallSender - The sender where the rule has to apply
+/// * `action`: FirewallAction - The action to be taken
+pub fn new_rule_range<T: ToString>(password: T, destination_range: PortRange, sender: FirewallSender, action: FirewallAction) -> Result<(), String> {
+    let command = format!("ufw {} {} from {} to any port {}", action.to_component(), destination_range.to_protocol_component(), sender.to_component(), destination_range.to_port_component());
+    dbg!(&command);
+    // sudo ufw allow from any to any port 22 proto tcp
+    match SwitchedUserCommand::new(password.to_string(), command).spawn() {
+        SudoExecutionResult::Success(_) => Ok(()),
+        _ => Err("Failed to spawn command".to_string()),
     }
 }
 
@@ -100,7 +226,7 @@ pub fn delete_rule(password: String, index: u32) -> Result<(), String> {
     let command = format!("/usr/sbin/ufw --force delete {} ", index);
 
     match SwitchedUserCommand::new(password, command).spawn() {
-        Ok(_) => Ok(()),
-        Err(_) => Err("Failed to spawn command".to_string()),
+        SudoExecutionResult::Success(_) => Ok(()),
+        _ => Err("Failed to spawn command".to_string()),
     }
 }
