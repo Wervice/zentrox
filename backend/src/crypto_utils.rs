@@ -22,7 +22,7 @@ pub fn argon2_derive_key(password: &str) -> Option<[u8; 32]> {
         match w {
             Ok(_) => {}
             Err(e) => {
-                eprintln!("{e}");
+                eprintln!("{}", e.to_string());
                 return None;
             }
         }
