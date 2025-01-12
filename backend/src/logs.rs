@@ -1,4 +1,4 @@
-use crate::sudo::SwitchedUserCommand;
+use crate::sudo::{SudoExecutionOutput, SwitchedUserCommand};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -46,12 +46,9 @@ pub fn log_messages(
         .arg("@".to_string() + &until.to_string())
         .output();
 
-    match jctl {
-        Ok(_) => {}
-        Err(_) => return Err("Failed to invoke journalctl".to_string()),
-    };
-
-    let o = jctl.unwrap().stdout;
+    let v = match jctl {
+        SudoExecutionOutput::Success(ou) => {
+            let o = ou.stdout;
     let mut vect = Vec::new();
     for l in o.lines() {
         let entry: JournalEntry = serde_json::from_str(l).unwrap_or(JournalEntry {
@@ -85,8 +82,12 @@ pub fn log_messages(
             entry.priority.unwrap_or(String::from("")),
         ))
     }
+    vect
+        }
+        _ => return Err("Failed to invoke journalctl".to_string()),
+    };
 
-    Ok(vect)
+    Ok(v)
     // Pattern: [[TIMESTAMP, USERNAME, APPLICATION_THAT_INVOKED_THE_MESSAGE, MESSAGE, PRIORITY AS
     //DIGIT],...]
 }
