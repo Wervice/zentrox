@@ -16,47 +16,6 @@ pub struct UfwRule {
     pub action: String,
 }
 
-// NOTE Do not keep the pubs around fore sudo_write_file.
-
-#[derive(Debug)]
-pub enum WriteFileError {
-    MoveError,
-    TempFileError
-}
-
-// Uses SwitchedUserCommand to write to a file
-pub fn sudo_write_file(mut path: PathBuf, contents: &[u8], password: String) -> Result<(), WriteFileError> {
-    let temp_path = std::env::temp_dir().join(uuid::Uuid::new_v4().to_string());
-
-    let tw = fs::write(&temp_path, contents);
-    match tw {
-        Ok(_) => {},
-        Err(_) => return Err(WriteFileError::TempFileError)
-    }
-
-    if !path.is_absolute() {
-        path = std::env::current_dir().unwrap().join(path);
-    }
-    
-    let command = format!("mv \"{}\" \"{}\"", temp_path.to_string_lossy().to_string(), path.to_string_lossy().to_string());
-    dbg!(&command);
-
-    let c = SwitchedUserCommand::new(password, command);
-
-    let x = c.spawn();
-
-    match x {
-        SudoExecutionResult::Success(_) => {
-            let _ = fs::remove_file(temp_path);
-            Ok(())
-        },
-        _ => {
-            let _ = fs::remove_file(temp_path);
-            Err(WriteFileError::MoveError)
-        }
-    }
-}
-
 /// Fetches the current UFW status
 ///
 /// The status is fetched using the command `/usr/sbin/ufw status` which is ran using `sudo`.
