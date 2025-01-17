@@ -4,43 +4,71 @@ import { scan } from "react-scan";
 import { useEffect, useState, useRef } from "react";
 import { Button } from "@/components/ui/button.jsx";
 import { Input } from "@/components/ui/input.jsx";
+import { Slider } from "@/components/ui/slider.jsx";
 import {
  Select,
  SelectTrigger,
  SelectItem,
  SelectContent,
- SelectValue,
 } from "@/components/ui/select.jsx";
-import "./slider.css";
 import {
  MusicIcon,
  VideoIcon,
  PlayIcon,
  PauseIcon,
+ VolumeXIcon,
  VolumeIcon,
+ Volume1Icon,
+ Volume2Icon,
  FullscreenIcon,
  MinimizeIcon,
  XIcon,
- VolumeXIcon,
- Volume2Icon,
- Volume1Icon,
- CompassIcon,
  BoxesIcon,
- BrushIcon,
- DeleteIcon,
  HelpCircleIcon,
  LinkIcon,
+ DownloadIcon,
+ EditIcon,
+ PenIcon,
 } from "lucide-react";
+import {
+ Tooltip,
+ TooltipContent,
+ TooltipProvider,
+ TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+ Dialog,
+ DialogClose,
+ DialogContent,
+ DialogDescription,
+ DialogTitle,
+ DialogFooter,
+ DialogHeader,
+} from "@/components/ui/dialog";
 import { SelectGroup } from "@radix-ui/react-select";
+import { XAlign } from "@/components/ui/align";
+import fetchURLPrefix from "@/lib/fetchPrefix";
+import { Toaster } from "@/components/ui/toaster";
+import { ToastAction } from "@/components/ui/toast";
+import { toast } from "@/components/ui/use-toast";
 
-const saveVolume = (v) => {
+const savePersistentVolume = (v) => {
  // Do not pass values greater 1
  if (v > 1 || v < 0) throw new Error("The volume has to be between 0 and 1.");
  localStorage.setItem("playerVolume", v * 100); // Stores a value in the player volume variable.
 };
-const getVolume = () => {
+const getPersistentVolume = () => {
  let s = localStorage.getItem("playerVolume");
  return s === null ? 60 : Number(s); // The returned volume is either a value between 0 and 100 or a default fo 60
+};
+
+/// Pass the source path of the video file including an object of all other sources
+const rememberMusic = (source) => {
+ fetch(`${fetchURLPrefix}/api/rememberMusic/${encodeURIComponent(source)}`);
+};
+
+const rememberVideo = (source) => {
+ fetch(`${fetchURLPrefix}/api/rememberVideo/${encodeURIComponent(source)}`);
 };
 
 scan({
@@ -61,64 +89,135 @@ function Title({ children, openHelp = () => {} }) {
  );
 }
 
-function VideoCard({ name, src, onClick }) {
- const [active, setActive] = useState(false);
+/** @param {Object} param0
+ * @param {string} param0.name
+ * @param {string} param0.cover
+ * @param {string} param0.artist
+ * @param {string} param0.genre
+ * @param {string} param0.filename
+ * @param {() => void} [param0.onClick=() => {}]
+ */
+function MediaCard({
+ name,
+ cover,
+ artist,
+ genre,
+ filename,
+ reload = () => {},
+ onClick = () => {},
+}) {
+ const [metadataDialogOpen, setMetadataDialogOpen] = useState(false);
+ var metadataNameInput = useRef();
+ var metadataArtistInput = useRef();
+ var metadataGenreInput = useRef();
+ var metadataCoverInput = useRef();
 
  return (
-  <button
-   title={name}
-   className="inline-block mb-2 ml-2 h-40 w-40 rounded bg-100% bg-no-repeat overflow-hidden transition-all duration-200 delay-150 focus-visible:outline focus-visible:outline-white focus-visible:outline-4 focus-visible:brightness-90"
-   onClick={() => {
-    setActive(true);
-    setTimeout(() => onClick(), 200);
-   }}
-   onBlur={() => setActive(false)}
-   style={{
-    backgroundImage: `url('${src}')`,
-   }}
-  >
-   <span
-    className={
-     "w-full inline-block relative font-bold p-4 bg-gradient-to-t from-black/100 to-transparent overflow-ellipsis overflow-x-hidden whitespace-nowrap transition-all duration-200 " +
-     (active ? "opacity-0" : "")
-    }
-    style={{ bottom: "-41% " }}
-   >
-    <VideoIcon className="w-4 h-4 p-0 m-0 inline-block" /> {name}
-   </span>
-  </button>
- );
-}
+  <>
+   {console.log(cover)}
+   <Dialog open={metadataDialogOpen} onOpenChange={setMetadataDialogOpen}>
+    <DialogContent>
+     <DialogHeader>
+      <DialogTitle>
+       Metadata for {name.length > 20 ? name.slice(0, 17) + "..." : name}
+      </DialogTitle>
+     </DialogHeader>
 
-function MusicCard({ name, cover, onClick = () => {} }) {
- return (
-  <button
-   title={name}
-   className="inline-block mb-2 ml-2 h-40 w-40 rounded bg-100% bg-no-repeat overflow-hidden transition-all duration-200 delay-150 focus-visible:outline focus-visible:outline-white focus-visible:outline-4 focus-visible:brightness-90"
-   onClick={() => {
-    setTimeout(() => onClick(), 200);
-   }}
-   style={{
-    backgroundImage: `url('${cover}')`,
-    backgroundColor: "#222",
-   }}
-  >
-   <span
-    className={
-     "w-full inline-block relative font-bold p-4 bg-gradient-to-t from-black/100 to-transparent overflow-ellipsis overflow-x-hidden whitespace-nowrap transition-all duration-200"
-    }
-    style={{ bottom: "-40% " }}
-   >
-    <MusicIcon className="w-4 h-4 p-0 m-0 inline-block" /> {name}
+     <div>
+      <span className="ml-1 mt-1 font-medium block">Name</span>
+      <Input defaultValue={name} ref={metadataNameInput} />
+
+      <span className="ml-1 mt-1 font-medium block">Artist</span>
+      <Input
+       defaultValue={artist === "UNKNOWN_ARTIST" ? "" : artist}
+       ref={metadataArtistInput}
+      />
+
+      <span className="ml-1 mt-1 font-medium block">Genre</span>
+      <Input
+       defaultValue={genre === "UNKNOWN_GENRE" ? "" : genre}
+       ref={metadataGenreInput}
+      />
+
+      <span className="mb-2 ml-1 mt-1 font-medium">Cover</span>
+      <Input
+       defaultValue={
+        cover.includes("/api/cover/music")
+         ? ""
+         : decodeURIComponent(
+            new URL(cover).pathname.replace("/api/cover/", ""),
+           )
+       }
+       placeholder="Absolute path on the server"
+       ref={metadataCoverInput}
+      />
+     </div>
+     <DialogFooter>
+      <DialogClose asChild>
+       <Button variant="secondary">Cancle</Button>
+      </DialogClose>
+      <DialogClose asChild>
+       <Button
+        onClick={() => {
+         var newName = metadataNameInput.current.value;
+         var newGenre = metadataGenreInput.current.value;
+         var newCover = metadataCoverInput.current.value;
+         var newArtist = metadataArtistInput.current.value;
+         fetch(fetchURLPrefix + "/api/updateMetadata", {
+          method: "POST",
+          headers: {
+           "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+           name: newName,
+           genre: newGenre,
+           cover: newCover,
+           artist: newArtist,
+           filename,
+          }),
+         }).then(() => {
+          reload();
+         });
+        }}
+       >
+        Apply
+       </Button>
+      </DialogClose>
+     </DialogFooter>
+    </DialogContent>
+   </Dialog>
+   <span className="inline-block w-40 align-top ml-2 mb-2 cursor-pointer">
+    <span
+     title={name}
+     className="inline-block h-40 w-40 rounded bg-100% bg-no-repeat overflow-hidden transition-all duration-200 delay-150 focus-visible:outline focus-visible:outline-white focus-visible:outline-4 focus-visible:brightness-90"
+     onClick={(e) => {
+      setTimeout(() => onClick(), 200);
+     }}
+     style={{
+      backgroundImage: `url('${cover}')`,
+      backgroundColor: "#222",
+     }}
+    >
+     <button
+      onClick={(e) => {
+       e.stopPropagation();
+       setMetadataDialogOpen(true);
+      }}
+      className="relative left-2 top-2 align-super pb-1 pr-1 pl-1 aspect-square rounded bg-black/20 hover:bg-black/30 transition-all ease-in-out duration-100"
+     >
+      <PenIcon className="w-3 h-3 inline-block opacity-70 mt-[-7px]" />
+     </button>{" "}
+    </span>
+    <span className="text-sm whitespace-nowrap overflow-ellipsis overflow-hidden max-w-40 inline-block">
+     {name}
+    </span>
    </span>
-  </button>
+  </>
  );
 }
 
 function VideoPlayer({ src, name, closePlayer }) {
  var v = useRef();
- var t = useRef();
- var vr = useRef();
  const [playing, setPlaying] = useState(false);
  const [controlsVisible, setControlsVisible] = useState(true);
  const [overlayVisible, setOverlayVisible] = useState(true);
@@ -129,26 +228,29 @@ function VideoPlayer({ src, name, closePlayer }) {
  const [playerFadingOut, setPlayerFadingOut] = useState(false);
  const [errorMessage, setErrorMessage] = useState("");
  const [currentTime, setCurrentTime] = useState(0);
+ const [volume, setVolume] = useState(0);
 
  useEffect(() => {
-  if (!playing) {
-   setTimeout(() => {
-    if (
-     (v.current || { paused: false }).paused ||
-     (v.current || { ended: false }).ended
-    ) {
-     setOverlayVisible(true);
-    }
-   }, 300);
-  }
- }, [playing, overlayVisible]);
+  setTimeout(() => {
+   if (
+    (v.current || { paused: false }).paused ||
+    (v.current || { ended: false }).ended ||
+    !playing
+   ) {
+    setOverlayVisible(true);
+   }
+  }, 300);
+ }, [overlayVisible, playing, controlsVisible]);
 
  useEffect(() => {
-  vr.current.value = getVolume();
-  v.current.volume = getVolume() / 100;
+  v.current.volume = getPersistentVolume() / 100;
+  setVolume(getPersistentVolume());
 
   const handleKeyDown = (e) => {
+   if (document.activeElement.tagName === "INPUT") return;
+
    if (e.key === " " || e.key === "k") {
+    e.preventDefault();
     if (v.current.paused) {
      // Check if video is at the start position
      if (notYetStarted) {
@@ -178,19 +280,25 @@ function VideoPlayer({ src, name, closePlayer }) {
    } else if (e.key === "ArrowRight") {
     v.current.currentTime = v.current.currentTime + 5;
    } else if (e.key === "q") {
+    document.body.style.cursor = "default";
     exitPlayer();
-   } else if (e.key === "ArrowUp") {
+   } else if (
+    e.key === "ArrowUp" &&
+    document.activeElement.tagName != "INPUT"
+   ) {
+    e.preventDefault();
     let volumePlusTen = v.current.volume + 0.1;
     let valueToBeApplied = volumePlusTen > 1 ? v.current.volume : volumePlusTen;
-    vr.current.value = valueToBeApplied * 100;
     v.current.volume = valueToBeApplied;
-    saveVolume(valueToBeApplied);
+    savePersistentVolume(valueToBeApplied);
+    setVolume(valueToBeApplied * 100);
    } else if (e.key === "ArrowDown") {
+    e.preventDefault();
     let volumePlusTen = v.current.volume - 0.1;
     let valueToBeApplied = volumePlusTen < 0 ? v.current.volume : volumePlusTen;
-    vr.current.value = valueToBeApplied * 100;
     v.current.volume = valueToBeApplied;
-    saveVolume(valueToBeApplied);
+    setVolume(valueToBeApplied * 100);
+    savePersistentVolume(valueToBeApplied);
    }
   };
 
@@ -206,7 +314,6 @@ function VideoPlayer({ src, name, closePlayer }) {
   if (typeof v.current != "undefined") {
    interval = setInterval(() => {
     if (!notYetStarted) {
-     t.current.value = Math.round(v.current.currentTime);
      setCurrentTime(v.current.currentTime);
     }
    }, 500);
@@ -216,7 +323,7 @@ function VideoPlayer({ src, name, closePlayer }) {
   }
 
   return () => clearInterval(interval);
- }, [notYetStarted, vr, t, v]);
+ }, [notYetStarted, v]);
 
  function exitPlayer() {
   if (isFullscreen) {
@@ -258,7 +365,7 @@ function VideoPlayer({ src, name, closePlayer }) {
    )}
    <video
     className="w-full h-full block"
-    src={`/api/getMedia/${encodeURIComponent(src)}`}
+    src={`${fetchURLPrefix}/api/getMedia/${encodeURIComponent(src)}`}
     ref={v}
     hidden={!playerVisible}
     autoPlay={false}
@@ -272,11 +379,16 @@ function VideoPlayer({ src, name, closePlayer }) {
    <div
     className={
      "w-screen h-screen fixed top-0 left-0 z-30 transition-all duration-100 bg-black/80" +
-     (overlayVisible && errorMessage === "" ? "" : " opacity-0")
+     (overlayVisible && errorMessage === "" ? "" : " opacity-0 cursor-none")
     }
    >
     <span className="font-bold fixed top-1/3 left-32">
-     <h1 className={"text-3xl mb-1" + (overlayVisible ? " block" : " hidden")}>
+     <h1
+      className={
+       "text-3xl mb-1" +
+       (errorMessage !== "" || overlayVisible ? " block" : " hidden")
+      }
+     >
       {name}
      </h1>
      <span className={overlayVisible ? "" : "hidden"}>
@@ -302,85 +414,76 @@ function VideoPlayer({ src, name, closePlayer }) {
    </div>
    <div
     className={
-     "fixed bottom-0 w-full bg-black p-2 z-40 transition-all whitespace-nowrap duration-100 " +
+     "fixed bottom-0 z-50 w-full max-w-[100vw] p-3 bg-zinc-900 border-t border-zinc-800 flex-nowrap text-nowrap transition-all ease-in-out duration-200 " +
      (controlsVisible ? "" : "opacity-0 bottom-[-1vh]")
     }
-    onMouseLeave={() => setControlsVisible(false)}
-    onMouseEnter={() => setControlsVisible(true)}
+    onMouseLeave={() => {
+     setControlsVisible(false);
+    }}
+    onMouseEnter={() => {
+     setControlsVisible(true);
+    }}
    >
-    {!playing ? (
-     <PlayIcon
-      onClick={() => {
-       setPlaying(true);
-       if (notYetStarted) {
-        setNotYetStarted(false);
-        v.current.currentTime = 1;
-       }
-       setOverlayVisible(false);
-       v.current.play();
-      }}
-      className="w-4 h-4 inline-block mr-1"
+    <XAlign className="w-full">
+     {!playing ? (
+      <PlayIcon
+       onClick={() => {
+        setPlaying(true);
+        if (notYetStarted) {
+         setNotYetStarted(false);
+         v.current.currentTime = 1;
+        }
+        setOverlayVisible(false);
+        v.current.play();
+       }}
+       className="w-4 h-4 inline-block mr-1"
+      />
+     ) : (
+      <PauseIcon
+       onClick={() => {
+        setPlaying(false);
+        v.current.pause();
+       }}
+       className="w-4 h-4 inline-block mr-1"
+      />
+     )}
+     {!isFullscreen ? (
+      <FullscreenIcon
+       className="inline-block h-4 w-4 mr-1"
+       onClick={() => {
+        document.body.requestFullscreen();
+        setIsFullscreen(true);
+       }}
+      />
+     ) : (
+      <MinimizeIcon
+       onClick={() => {
+        document.exitFullscreen();
+        setIsFullscreen(false);
+       }}
+       className="inline-block h-4 w-4 mr-1"
+      />
+     )}
+     <VolumeIcon className="w-4 h-4 inline-block mr-1" />
+     <Slider
+      value={[volume]}
+      className="w-20 inline-flex mr-2"
+      min={0}
+      max={100}
+      defaultValue={100}
      />
-    ) : (
-     <PauseIcon
-      onClick={() => {
-       setPlaying(false);
-       v.current.pause();
-      }}
-      className="w-4 h-4 inline-block mr-1"
-     />
-    )}
-    {!isFullscreen ? (
-     <FullscreenIcon
-      className="inline-block h-4 w-4 mr-1"
-      onClick={() => {
-       document.body.requestFullscreen();
-       setIsFullscreen(true);
-      }}
-     />
-    ) : (
-     <MinimizeIcon
-      onClick={() => {
-       document.exitFullscreen();
-       setIsFullscreen(false);
-      }}
-      className="inline-block h-4 w-4 mr-1"
-     />
-    )}
-    <VolumeIcon className="w-4 h-4 inline-block mr-1" />
-    <input
-     type="range"
-     ref={vr}
-     className="w-20 inline-block mr-2"
-     min={0}
-     max={100}
-     defaultValue={100}
-     onChange={(e) => {
-      v.current.volume = e.target.value / 100;
-      saveVolume(e.target.value / 100);
-     }}
-    />
 
-    {formatSecondsToTime(currentTime)}
-    <input
-     type="range"
-     ref={t}
-     style={{ width: "calc(100% - 290px)" }}
-     className="mr-2 ml-2"
-     min={0}
-     max={
-      typeof v.current != "undefined"
-       ? Number.isNaN(v.current.duration)
-         ? 0
-         : v.current.duration
-       : 0
-     }
-     onChange={(e) => {
-      v.current.currentTime = e.target.value;
-     }}
-    />
+     {formatSecondsToTime(currentTime)}
+     <Slider
+      value={[currentTime]}
+      style={{ width: "calc(100% - 290px)" }}
+      className="mr-2 ml-2"
+      min={0}
+      max={v.current ? v.current.duration : 1}
+     />
 
-    {v.current ? formatSecondsToTime(v.current.duration) : "00:00"}
+     {v.current ? formatSecondsToTime(v.current.duration) : "00:00"}
+    </XAlign>
    </div>
   </span>
  );
@@ -390,9 +493,10 @@ function MusicPlayer({ src, cover, name, closePlayer = () => {} }) {
  const [fadingOut, setFadingOut] = useState(false);
  const [playing, setPlaying] = useState(true);
  const [time, setTime] = useState(0);
- const [playerBig, setPlayerBig] = useState(false);
- const [volume, setVolume] = useState(getVolume()); // Value from 0 - 100 representing the value.
+ const [volume, setVolume] = useState(getPersistentVolume()); // Value from 0 - 100 representing the value.
  var playerTag = useRef();
+ var coverImg = useRef();
+ var vr = useRef();
 
  function exitPlayer() {
   setFadingOut(true);
@@ -405,13 +509,17 @@ function MusicPlayer({ src, cover, name, closePlayer = () => {} }) {
  useEffect(() => {
   const interval = setInterval(() => {
    if (playerTag.current) {
-    setTime(Math.floor(playerTag.current.currentTime));
+    setTime(playerTag.current.currentTime);
    }
-  }, 1000);
+  }, 400);
 
   playerTag.current.volume = volume / 100; // Set the volume of the audio player to 1/100 of the volume state (which is set to the stored value by default).
+  if (vr.current) {
+   vr.current.value = Math.round(volume);
+  }
 
   document.body.onkeydown = (e) => {
+   if (document.activeElement.tagName === "INPUT") return;
    let key = e.key;
    if (key === " " || key === "k") {
     let ae = document.activeElement.tagName.toLowerCase();
@@ -425,35 +533,32 @@ function MusicPlayer({ src, cover, name, closePlayer = () => {} }) {
      playerTag.current.play();
      setPlaying(true);
     }
-   } else if (key === "q") {
+   } else if (key === "q" && document.activeElement.tagName != "INPUT") {
     exitPlayer();
-   } else if (key === "f") {
-    setPlayerBig(true);
-   } else if (key === "Escape") {
-    setPlayerBig(false);
    } else if (e.key === "ArrowUp") {
     e.preventDefault();
     let volumePlusTen = playerTag.current.volume + 0.1;
     let valueToBeApplied = volumePlusTen > 1 ? 1 : volumePlusTen;
     playerTag.current.volume = valueToBeApplied;
-    saveVolume(Math.round(valueToBeApplied * 100) / 100);
-    setVolume(Math.floor(valueToBeApplied * 100));
+    savePersistentVolume(Math.round(valueToBeApplied * 100) / 100);
+    setVolume(Math.round(valueToBeApplied * 100));
    } else if (e.key === "ArrowDown") {
     e.preventDefault();
     let volumePlusTen = playerTag.current.volume - 0.1;
     let valueToBeApplied = volumePlusTen < 0 ? 0 : volumePlusTen;
     playerTag.current.volume = valueToBeApplied;
-    saveVolume(Math.round(valueToBeApplied * 100) / 100);
-    setVolume(Math.floor(valueToBeApplied * 100));
+    savePersistentVolume(Math.round(valueToBeApplied * 100) / 100);
+    setVolume(Math.round(valueToBeApplied * 100));
    } else if (e.key === "ArrowLeft") {
     let tMinusFive = playerTag.current.currentTime - 5;
-    let valueToBeApplied =
-     tMinusFive < 0 ? playerTag.current.currentTime : tMinusFive;
+    let valueToBeApplied = tMinusFive < 0 ? 0 : tMinusFive;
     playerTag.current.currentTime = valueToBeApplied;
    } else if (e.key === "ArrowRight") {
     let tPlusFive = playerTag.current.currentTime + 5;
     let valueToBeApplied =
-     tPlusFive < 0 ? playerTag.current.currentTime : tPlusFive;
+     tPlusFive > playerTag.current.duration
+      ? playerTag.current.duration
+      : tPlusFive;
     playerTag.current.currentTime = valueToBeApplied;
    }
   };
@@ -461,113 +566,161 @@ function MusicPlayer({ src, cover, name, closePlayer = () => {} }) {
   return () => clearInterval(interval);
  }, [playing, setPlaying]);
 
+ function failPlayer(src) {
+  console.log(src);
+  let srcSegments = src.split(".");
+  console.log(srcSegments);
+  let extension = srcSegments[srcSegments.length - 1].toLowerCase();
+  let badExtensions = ["opus", "ogg", "oga"]; // Some devices running iOS may have problems with these file types
+  let ua = navigator.userAgent;
+  let iosError =
+   badExtensions.includes(extension) &&
+   (ua.includes("iPhone") || ua.includes("Apple") || ua.includes("Safari"));
+
+  toast({
+   title: "Player Error",
+   description: iosError
+    ? "An error occured while trying to play the media file. Check your OS and make sure that your browser can properly play back opus and ogg files."
+    : "An error occured while trying to play the media file.",
+   duration: 10000,
+  });
+  setTimeout(() => exitPlayer, 10000);
+ }
+
+ const iconCn =
+  "inline-block h-6 w-6 mr-1 align-middle transition-all duration-200";
+
  return (
   <>
+   <Toaster />
    <audio
-    src={`/api/getMedia/${encodeURIComponent(src)}`}
     autoPlay
+    src={`${fetchURLPrefix}/api/getMedia/${encodeURIComponent(src)}`}
     ref={playerTag}
-    onError={() => exitPlayer()}
+    onError={(e) => {
+     console.error("Music Player Error", e);
+     failPlayer(src);
+    }}
+    onEnded={exitPlayer}
     hidden
    />
+
    <div
     className={
-     "fixed bottom-8 right-8 min-w-72 max-w-72 duration-200 rounded bg-white text-black cursor-pointer shadow-black shadow-lg transition-all ease-in-out overflow-ellipsis overflow-hidden whitespace-nowrap z-50 " +
-     (fadingOut ? "animate-movedown" : "animate-moveup") +
-     (playerBig ? " h-[20.5em] p-2" : " h-14 p-1")
+     "fixed bottom-0 z-50 w-full max-w-[100vw] p-1 bg-zinc-900 border-t border-zinc-800 flex-nowrap text-nowrap " +
+     (fadingOut ? "animate-movedown" : "animate-moveup")
     }
-    onClick={(e) => {
-     if (["img", "div", "span"].includes(e.target.tagName.toLowerCase())) {
-      setPlayerBig(!playerBig);
-     }
-    }}
    >
     <img
      src={cover}
+     ref={coverImg}
      className={
-      "rounded mr-1 transition-all ease-in-out " +
-      (playerBig ? "block w-72 h-72" : "inline-block w-12 h-12")
+      "rounded mr-2 transition-all ease-in-out h-12 w-12 inline-block "
      }
     />
-    <XIcon
-     className="inline-block h-5 w-5 align-middle"
-     onClick={() => exitPlayer()}
-    />
-    {playing ? (
-     <PauseIcon
-      className="inline-block h-5 w-5 align-middle"
-      onClick={() => {
-       playerTag.current.pause();
-       setPlaying(false);
+    <span className="font-semibold">{name}</span>
+    <span className="inline-flex fixed bottom-2 right-2 w-fit p-2">
+     <XIcon className={iconCn + " mr-2"} onClick={() => exitPlayer} />
+     <TooltipProvider>
+      <Tooltip>
+       <TooltipTrigger asChild>
+        <DownloadIcon
+         className={iconCn + " mr-2"}
+         onClick={() => {
+          window.open(
+           `${fetchURLPrefix}/api/getMedia/${encodeURIComponent(src)}`,
+          );
+         }}
+        />
+       </TooltipTrigger>
+       <TooltipContent>Download the media file to your computer</TooltipContent>
+      </Tooltip>
+     </TooltipProvider>
+     {(() => {
+      if (volume == 0) {
+       return <VolumeXIcon className={iconCn} />;
+      } else if (volume < 20) {
+       return <VolumeIcon className={iconCn} />;
+      } else if (volume < 40) {
+       return <Volume1Icon className={iconCn} />;
+      } else if (volume < 60) {
+       return <Volume2Icon className={iconCn} />;
+      } else if (volume < 100) {
+       return <Volume2Icon className={iconCn} />;
+      } else if (volume == 100) {
+       return <Volume2Icon className={iconCn + " text-red-500"} />;
+      } else {
+       return <></>;
+      }
+     })()}{" "}
+     <Slider
+      className="w-32"
+      value={[volume]}
+      onValueChange={(value) => {
+       setVolume(value);
+       savePersistentVolume(value / 100);
+       playerTag.current.volume = Math.round(value) / 100;
       }}
+      min={0}
+      max={100}
      />
-    ) : (
-     <PlayIcon
-      className="inline-block h-5 w-5 align-middle"
-      onClick={() => {
-       playerTag.current.play();
-       setPlaying(true);
-      }}
-     />
-    )}{" "}
-    <span className="align-middle">
-     <span hidden={!playerBig}>
-      {(function () {
-       if (volume > 75) {
-        return (
-         <Volume2Icon
-          className={
-           "inline-block h-5 w-5 mt-[-3px] transition-all ease-in-out duration-200" +
-           (volume === 100 ? " text-red-700" : "")
-          }
-         />
-        );
-       } else if (volume > 50) {
-        return <Volume1Icon className="inline-block h-5 w-5 mt-[-3px]" />;
-       } else if (volume > 0) {
-        return <VolumeIcon className="inline-block h-5 w-5 mt-[-3px]" />;
-       } else if (volume === 0) {
-        return <VolumeXIcon className="inline-block h-5 w-5 mt-[-3px]" />;
-       }
-      })()}{" "}
-     </span>
+    </span>
+
+    <span className="text-center inline-flex fixed bottom-2 w-1/2 left-1/2 -translate-x-1/2 bg-zinc-900 p-2">
+     {playing ? (
+      <PauseIcon
+       className={iconCn}
+       onClick={() => {
+        playerTag.current.pause();
+        setPlaying(false);
+       }}
+      />
+     ) : (
+      <PlayIcon
+       className={iconCn}
+       onClick={() => {
+        playerTag.current.play();
+        setPlaying(true);
+       }}
+      />
+     )}{" "}
      {(function () {
       if (Number.isNaN(time)) {
-       return "00:00";
+       return "00:00 ";
       }
-      let minutes = (time - (time % 60)) / 60;
-      let seconds = time % 60;
-      return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
-     })()}{" "}
-     <span hidden={!playerBig}>
-      {" "}
-      /{" "}
-      {(function () {
-       if (playerTag.current) {
-        if (Number.isNaN(playerTag.current.duration)) {
-         return "00:00";
-        }
-        let duration = Math.round(playerTag.current.duration);
-        let minutes = (duration - (duration % 60)) / 60;
-        let seconds = duration % 60;
-        return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
-       } else {
+      let minutes = Math.floor((time - (time % 60)) / 60);
+      let seconds = Math.floor(time % 60);
+      return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")} `;
+     })()}
+     <Slider
+      min={0}
+      max={100}
+      value={[
+       (time / (playerTag.current ? playerTag.current.duration : 1)) * 100,
+      ]}
+      onValueChange={(value) => {
+       let newTime = (value / 100) * playerTag.current.duration;
+       setTime(newTime);
+       playerTag.current.currentTime = Math.round(newTime || 0);
+      }}
+      className="mx-1"
+     />
+     {(function () {
+      if (playerTag.current) {
+       if (Number.isNaN(playerTag.current.duration)) {
         return "00:00";
        }
-      })()}
-     </span>
-    </span>{" "}
-    <span className="text-l font-bold align-middle">{name}</span>
+       let duration = Math.round(playerTag.current.duration);
+       let minutes = (duration - (duration % 60)) / 60;
+       let seconds = duration % 60;
+       return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+      } else {
+       return "00:00";
+      }
+     })()}
+    </span>
    </div>
   </>
- );
-}
-
-function Key({ children }) {
- return (
-  <span className="p-1 rounded bg-white/5 text-white border-b-2 border-bottom-neutral-500">
-   {children}
-  </span>
  );
 }
 
@@ -584,10 +737,12 @@ function Desktop() {
  const [selectedGenre, setSelectedGenre] = useState(""); // What is the selected genre?
  const [helpFadingOut, setHelpFadingOut] = useState(false); // Is the help modal fading out?
  const [lastMediaFetch, setLastMediaFetch] = useState(false); // Should the frontend fetch media data again?
- const [lastGenresFetch, setLastGenresFetch] = useState(false); // Should the frontend fetch genre data again?
 
  const [videos, setVideos] = useState([]); // Array of objects that represent videos
  const [music, setMusic] = useState([]); // Array of objects that represent music
+
+ const [recommendedVideos, setRecommendedVideos] = useState([]); // Array of objects that represent videos
+ const [recommendedMusic, setRecommendedMusic] = useState([]); // Array of objects that represent music
 
  const [genres, setGenres] = useState([]); // Array of all genres
 
@@ -600,20 +755,54 @@ function Desktop() {
 
   setLastMediaFetch(true);
 
-  fetch("/api/getMediaList").then((res) => {
+  fetch(`${fetchURLPrefix}/api/recommendedMusic`).then((res) => {
+   if (res.ok) {
+    res.json().then((json) => {
+     setRecommendedMusic(
+      json.rec.filter((e) => {
+       console.log(e[1], "TSM");
+       return Date.now() - e[1] < 2 * 24 * 60 * 60 * 1000;
+      }),
+     );
+    });
+   }
+  });
+
+  fetch(`${fetchURLPrefix}/api/recommendedVideos`).then((res) => {
+   if (res.ok) {
+    res.json().then((json) => {
+     setRecommendedVideos(
+      json.rec.filter((e) => {
+       return Date.now() - e[1] < 2 * 24 * 60 * 60 * 100;
+      }),
+     );
+    });
+   }
+  });
+  fetchMediaList();
+ }, [
+  videos,
+  music,
+  genres,
+  lastMediaFetch,
+  recommendedVideos,
+  recommendedMusic,
+ ]);
+
+ function fetchMediaList() {
+  fetch(`${fetchURLPrefix}/api/getMediaList`).then((res) => {
    if (res.ok) {
     res.json().then((json) => {
      let med = json.media;
      let m = [];
      let v = [];
-     console.log("Before", Object.entries(med));
+     let g = [];
      // Sort the array alphabetically to ensure a consistent display
      var e = Object.entries(med).toSorted(function (c, n) {
       // c: Current
       // n: Next
       let a = c[1][0]; // Get first value of info of current element
       let b = n[1][0]; // Get first value of info of next element
-      console.log("Comparing", a, b, a === b);
       if (a < b) {
        return -1;
       }
@@ -622,13 +811,15 @@ function Desktop() {
       }
       return 0;
      });
-     console.log("After", e);
      for (const [path, info] of e) {
       let pathSegments = path.split(".");
       let extension = pathSegments[pathSegments.length - 1].toLowerCase();
-
+      if (!g.includes(info[2]) && info[2] !== "UNKNOWN_GENRE") {
+       g.push(info[2]);
+      }
       if (
        [
+        "webm",
         "wav",
         "heic",
         "m4a",
@@ -636,24 +827,23 @@ function Desktop() {
         "ogg",
         "opus",
         "oga",
-        "webm",
         "mp3",
        ].includes(extension)
       ) {
        m.push({
         cover:
          info[1] !== "UNKNOWN_COVER"
-          ? "/api/cover/" + encodeURIComponent(info[1])
-          : "/api/cover/music",
+          ? fetchURLPrefix + "/api/cover/" + encodeURIComponent(info[1])
+          : fetchURLPrefix + "/api/cover/music",
         name: info[0],
         source: path,
         genre: info[2],
+        artist: info[3],
        });
       } else if (
        [
         "mp4",
         "mov",
-        "webm",
         "avi",
         "wmv",
         "ogv",
@@ -664,16 +854,18 @@ function Desktop() {
         "mpeg",
         "mpv",
         "mkv",
+        "webv",
        ].includes(extension)
       ) {
        v.push({
         cover:
          info[1] !== "UNKNOWN_COVER"
-          ? "/api/cover/" + encodeURIComponent(info[1])
-          : "/api/cover/video",
+          ? fetchURLPrefix + "/api/cover/" + encodeURIComponent(info[1])
+          : fetchURLPrefix + "/api/cover/video",
         name: info[0],
         source: path,
         genre: info[2],
+        artist: info[3],
        });
       } else if (
        [
@@ -686,6 +878,13 @@ function Desktop() {
         "svg",
         "avif",
         "tiff",
+        "bash",
+        "zsh",
+        "fish",
+        "pdf",
+        "txt",
+        "md",
+        "kdenlive",
        ].includes(extension)
       ) {
        // Do nothing (ignored).
@@ -693,38 +892,45 @@ function Desktop() {
        v.push({
         cover:
          info[1] !== "UNKNOWN_COVER"
-          ? "/api/cover/" + encodeURIComponent(info[1])
-          : "/api/cover/badtype",
+          ? fetchURLPrefix + "/api/cover/" + encodeURIComponent(info[1])
+          : fetchURLPrefix + "/api/cover/badtype",
         name: info[0],
         source: path,
         genre: info[2],
+        artist: info[3],
        });
       }
      }
      setMusic(m);
      setVideos(v);
-    });
-   }
-  });
- }, [videos, music, lastMediaFetch]);
-
- useEffect(() => {
-  if (lastGenresFetch) {
-   return;
-  }
-  setLastGenresFetch(true);
-
-  fetch("/api/getGenreList").then((res) => {
-   if (res.ok) {
-    res.json((json) => {
-     let g = json.genres;
      setGenres(g);
     });
    }
   });
- }, [genres, lastGenresFetch]);
+ }
 
  function playVideo(src, name) {
+  if (!musicPlayerHidden) {
+   toast({
+    title: "Music is playing",
+    description:
+     "You have an active music player. Please close it before opening a video file.",
+    action: (
+     <ToastAction
+      altText="Stop Music"
+      onClick={() => {
+       setMusicPlayerHidden(true);
+       setVideoPlayerHidden(false);
+       setVideoPlayerSrc(src);
+       setVideoPlayerName(name);
+      }}
+     >
+      Stop Music
+     </ToastAction>
+    ),
+   });
+   return;
+  }
   setVideoPlayerHidden(false);
   setVideoPlayerSrc(src);
   setVideoPlayerName(name);
@@ -739,6 +945,7 @@ function Desktop() {
 
  useEffect(() => {
   document.body.addEventListener("keypress", (e) => {
+   if (["TEXTAREA", "INPUT"].includes(document.activeElement.tagName)) return;
    if (e.key === "s" || e.key === "/") {
     queryInput.current.focus();
    } else if ((e.key === "Escape" || e.key === "q") && !helpHidden) {
@@ -753,6 +960,7 @@ function Desktop() {
 
  return (
   <>
+   <Toaster />
    <span
     className={
      "fixed bg-black/20 backdrop-grayscale w-screen h-screen top-0 left-0 z-20 duration-200 ease-in-out " +
@@ -762,7 +970,6 @@ function Desktop() {
    >
     <span className="m-8 p-2 rounded w-[calc(100vw-4em)] h-[calc(100vh-4em)] block bg-zinc-950 border border-1 border-neutral-600 shadow-black/20 shadow-lg">
      <h1 className="text-2xl font-bold">Help & FAQ</h1>
-
      <h2 className="text-lg font-semibold mt-2">How to add media files?</h2>
      <p className="text-lg">
       In order to add video files to (Zentrox) Media Center, go to the{" "}
@@ -785,48 +992,6 @@ function Desktop() {
      <p className="text-lg">
       Media Center has a few built in keybinds to make using the interface
       easier. <br />
-      <table>
-       <tr>
-        <td className="p-1">Shortcut</td>
-        <td className="p-1">Action</td>
-       </tr>
-       <tr>
-        <td className="p-1">
-         <Key>q</Key>
-        </td>
-        <td className="p-1">Quits and closes players and popovers</td>
-       </tr>
-       <tr>
-        <td className="p-1">
-         <Key>k</Key> <Key>Space</Key>
-        </td>
-        <td className="p-1">Pause or play a player</td>
-       </tr>
-       <tr>
-        <td className="p-1">
-         <Key>s</Key>
-        </td>
-        <td className="p-1">Focuses search input</td>
-       </tr>
-       <tr>
-        <td className="p-1">
-         <Key>f</Key> <Key>Escape</Key>
-        </td>
-        <td className="p-1">Enter / Exit fullscreen</td>
-       </tr>
-       <tr>
-        <td className="p-1">
-         <Key>Arrow Left</Key> <Key>Arrow Right</Key>
-        </td>
-        <td className="p-1">Skip forwards or backwards</td>
-       </tr>
-       <tr>
-        <td className="p-1">
-         <Key>Arrow Up</Key> <Key>Down</Key>
-        </td>
-        <td className="p-1">Increase or decrease volume</td>
-       </tr>
-      </table>
      </p>
     </span>
    </span>
@@ -867,7 +1032,7 @@ function Desktop() {
      Zentrox Media Center
     </Title>
     <Select value={selectedGenre} onValueChange={(e) => setSelectedGenre(e)}>
-     <SelectTrigger className="w-[180px] inline-flex bg-transparent ml-2">
+     <SelectTrigger className="ml-1 w-[180px] inline-flex bg-transparent">
       Genre
      </SelectTrigger>
      <SelectContent>
@@ -885,7 +1050,7 @@ function Desktop() {
     <Input
      type="text"
      placeholder="Search by name"
-     className="ml-2 mt-2 inline-block"
+     className="mt-2 mr-2 inline-block"
      ref={queryInput}
      onKeyPress={(e) => {
       if (e.key === "Enter") {
@@ -895,9 +1060,10 @@ function Desktop() {
     />
     <Button
      variant="secondary"
-     className="ml-2 focus-visible:outline-white focus-visible:outline-2 focus-visible:outline"
+     className="focus-visible:outline-white focus-visible:outline-2 focus-visible:outline"
      onClick={() => {
       setSelectedGenre("");
+      setQueryInputValue("");
       queryInput.current.value = "";
      }}
     >
@@ -915,6 +1081,43 @@ function Desktop() {
     ) : (
      <></>
     )}
+    {recommendedVideos.length > 0 && queryInputValue === "" ? (
+     <strong className="pl-2 mt-1 mb-1 block">You may like</strong>
+    ) : (
+     <></>
+    )}
+    {recommendedVideos.map((v, i) => {
+     if (videos.length === 0 || queryInputValue !== "") {
+      return <></>;
+     }
+
+     const lName = videos.find((e) => e.source === v[0]).name;
+     const lCover = videos.find((e) => e.source === v[0]).cover;
+
+     if (!lName) {
+      return <></>;
+     }
+
+     return (
+      <MediaCard
+       src={lCover.length > 0 ? lCover : "askdjalsdklö"}
+       name={lName}
+       key={v[0] || i}
+       onClick={() => {
+        rememberVideo(v[0]);
+        playVideo(v[0], lName);
+       }}
+      />
+     );
+    })}
+    {recommendedVideos.length > 0 ? (
+     <>
+      <br />
+      <br />
+     </>
+    ) : (
+     <></>
+    )}
     {videos
      .filter((e) => {
       if (selectedGenre !== "") {
@@ -925,7 +1128,7 @@ function Desktop() {
      })
      .filter((e) => {
       if ((queryInput.current || { value: "" }).value !== "") {
-       return e.name.includes(queryInputValue);
+       return e.name.toLowerCase().includes(queryInputValue.toLowerCase());
       } else {
        return true;
       }
@@ -936,7 +1139,10 @@ function Desktop() {
         src={e.cover}
         name={e.name}
         key={i}
-        onClick={() => playVideo(e.source, e.name)}
+        onClick={() => {
+         rememberVideo(e.source); // Add this video to the list of recommended videos
+         playVideo(e.source, e.name);
+        }}
        />
       );
      })}
@@ -951,6 +1157,50 @@ function Desktop() {
     ) : (
      <></>
     )}
+    {recommendedMusic.length > 0 && queryInputValue === "" ? (
+     <strong className="pl-2 mt-1 mb-1 block">You may like</strong>
+    ) : (
+     <></>
+    )}
+    {recommendedMusic.map((v, i) => {
+     if (music.length === 0 || queryInputValue !== "") {
+      return <></>;
+     }
+
+     const lName = music.find((e) => e.source === v[0]).name;
+     const lCover = music.find((e) => e.source === v[0]).cover;
+     const lArtist = music.find((e) => e.source === v[0]).artist;
+     const lGenre = music.find((e) => e.source === v[0]).genre;
+
+     if (!lName) {
+      console.log("discared song, no name");
+      return <></>;
+     }
+
+     return (
+      <MediaCard
+       filename={v[0]}
+       cover={lCover.length > 0 ? lCover : "/api/cover/music"}
+       name={lName}
+       artist={lArtist}
+       genre={lGenre}
+       key={v[0] || i}
+       reload={fetchMediaList}
+       onClick={() => {
+        rememberMusic(v[0]);
+        playMusic(v[0], lName, lCover.length > 0 ? lCover : "/api/cover/music");
+       }}
+      />
+     );
+    })}
+    {recommendedMusic.length > 0 && queryInputValue === "" ? (
+     <>
+      <br />
+      <br />
+     </>
+    ) : (
+     <></>
+    )}
     {music
      .filter((e) => {
       if (selectedGenre !== "") {
@@ -961,24 +1211,32 @@ function Desktop() {
      })
      .filter((e) => {
       if ((queryInput.current || { value: "" }).value !== "") {
-       return e.name.includes(queryInputValue);
+       return e.name.toLowerCase().includes(queryInputValue.toLowerCase());
       } else {
        return true;
       }
      })
      .map((e, i) => {
       return (
-       <MusicCard
-        name={e.name}
+       <MediaCard
+        filename={e.source}
         cover={e.cover}
-        key={i}
-        onClick={() => playMusic(e.source, e.name, e.cover)}
+        name={e.name}
+        artist={e.artist}
+        genre={e.genre}
+        key={e.source || i}
+        reload={fetchMediaList}
+        onClick={() => {
+         rememberMusic(e.source);
+         playMusic(
+          e.source,
+          e.name,
+          e.cover.length > 0 ? e.cover : "/api/cover/music",
+         );
+        }}
        />
       );
      })}
-    <h2 className="font-semibold p-2">
-     <CompassIcon className="inline-block h-6 w-6 align-middle" /> Explore more
-    </h2>
    </span>
   </>
  );
@@ -997,7 +1255,7 @@ export default function Page() {
     navigator.userAgent,
    )
   ) {
-   setDeviceType("mobile");
+   // setDeviceType("mobile");
   }
  }, []);
 

@@ -1,7 +1,7 @@
 use crate::crypto_utils::argon2_derive_key;
 use crate::database;
 use crate::database::InsertValue as SQLInsertValue;
-use crate::sudo::SwitchedUserCommand;
+use crate::sudo::{SudoExecutionOutput, SudoExecutionResult, SwitchedUserCommand};
 use dirs::{self, home_dir};
 use rand::distributions::DistString;
 use rcgen::{generate_simple_self_signed, CertifiedKey};
@@ -118,7 +118,12 @@ pub fn run_setup() -> Result<(), String> {
             SQLInsertValue::from(false),
             SQLInsertValue::Null(),
             SQLInsertValue::from(random_string()),
-            SQLInsertValue::from(dirs::home_dir().unwrap_or(std::path::PathBuf::from("/home")).to_string_lossy().to_string()),
+            SQLInsertValue::from(
+                dirs::home_dir()
+                    .unwrap_or(std::path::PathBuf::from("/home"))
+                    .to_string_lossy()
+                    .to_string(),
+            ),
         ],
     );
 
@@ -225,10 +230,10 @@ pub fn run_setup() -> Result<(), String> {
                 .spawn();
 
         match ufw_command {
-            Ok(_sc) => {
+            SudoExecutionResult::Success(_sc) => {
                 println!("New rule created");
             }
-            Err(_) => {
+            _ => {
                 eprintln!("Failed to create new rule")
             }
         }

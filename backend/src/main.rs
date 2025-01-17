@@ -9,16 +9,15 @@ use actix_web::{
     get, http::header, http::StatusCode, middleware, post, web, web::Data, App, HttpResponse,
     HttpServer,
 };
-use base64::{engine::general_purpose::STANDARD as b64, Engine as _};
-use dirs::{self, home_dir};
+use dirs;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha512, Sha256};
+use sha2::{Digest, Sha256, Sha512};
 use std::{
     collections::HashMap,
     env,
     fs::{self, File},
     io::{BufReader, Read, Seek, SeekFrom},
-    path::{self, Path, PathBuf},
+    path::{self, PathBuf},
     process::Command,
     sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
@@ -36,6 +35,7 @@ mod drives;
 mod is_admin;
 mod logs;
 mod mime;
+mod net_data;
 mod otp;
 mod packages;
 mod setup;
@@ -47,6 +47,7 @@ mod video;
 mod visit_dirs;
 
 use is_admin::is_admin_state;
+use net_data::private_ip;
 use visit_dirs::visit_dirs;
 
 #[allow(non_snake_case)]
@@ -68,6 +69,9 @@ struct AppState {
     login_token: Arc<Mutex<String>>,
     system: Arc<Mutex<System>>,
     username: Arc<Mutex<String>>,
+    net_down: Arc<Mutex<f64>>,
+    net_up: Arc<Mutex<f64>>,
+    net_interface: Arc<Mutex<String>>,
 }
 
 impl AppState {
@@ -81,6 +85,9 @@ impl AppState {
             )),
             system: Arc::new(Mutex::new(System::new())),
             username: Arc::new(Mutex::new(String::new())),
+            net_up: Arc::new(Mutex::new(0_f64)),
+            net_down: Arc::new(Mutex::new(0_f64)),
+            net_interface: Arc::new(Mutex::new(String::new()))
         }
     }
 
@@ -100,19 +107,59 @@ impl AppState {
         });
     }
 
-    /// Initiate a loop that periodically cleans up the login_requests of the current AppState.
-    fn start_cleanup_task(self) {
-        let cleanup_interval = std::time::Duration::from_secs(60); // Every 60 seconds
-        task::spawn(async move {
-            let mut interval = interval(cleanup_interval);
+    fn update_network_statistics(&self) {
+        if (*self.username.lock().unwrap()).to_string().is_empty() { return; }
+        let devices_a = net_data::interface_information();
+        std::thread::sleep(std::time::Duration::from_millis(5000));
+        let devices_b = net_data::interface_information();
+        let mut found_a = false;
+        let mut found_b = false;
+        let mut up_a = 0_f64;
+        let mut up_b = 0_f64;
+        let mut down_a = 0_f64;
+        let mut down_b = 0_f64;
+        let mut interface_a: String = "".into();
+        let mut interface_b: String = "".into();
+        devices_a.unwrap().into_iter().for_each(|d| {
+            if d.link_type == "loopback" || found_a { return; }
+            found_a = true;
+            down_a = d.stats64.get("rx").unwrap().bytes;
+            up_a = d.stats64.get("tx").unwrap().bytes;
+            interface_a = d.ifname;
+        });
+        devices_b.unwrap().into_iter().for_each(|d| {
+            if d.link_type == "loopback" || found_b { return; }
+            found_b = true;
+            down_b = d.stats64.get("rx").unwrap().bytes;
+            up_b = d.stats64.get("tx").unwrap().bytes;
+            interface_b = d.ifname;
+        });
+        if interface_a != interface_b { return; }
+        *self.net_up.lock().unwrap() = (up_b - up_a) / 5_f64;
+        *self.net_down.lock().unwrap() = (down_b - down_a) / 5_f64;
+        *self.net_interface.lock().unwrap() = interface_a;
+    }
 
+    /// Initiate a loop that periodically cleans up the login_requests of the current AppState.
+    fn start_interval_tasks(self) {
+        let cleanup_clone = self.clone();
+        let network_clone = self.clone();
+        std::thread::spawn(move || {
             loop {
-                interval.tick().await;
-                self.cleanup_old_ips();
+                std::thread::sleep(std::time::Duration::from_millis(2 * 60 * 1000));
+                cleanup_clone.cleanup_old_ips();
+            }
+        });
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(std::time::Duration::from_millis(5 * 1000));
+                network_clone.update_network_statistics();
             }
         });
     }
 }
+
+
 
 /// Root of the server.
 ///
@@ -297,9 +344,6 @@ async fn login(
             let login_token: Vec<u8> = is_admin::generate_random_token();
             if database::read_cols::<&str, (bool,)>("Admin", &["use_otp"]).unwrap()[0].0 {
                 let otp_secret = database::read_kv("Secrets", "otp_secret").unwrap();
-                dbg!(&otp_secret);
-                dbg!(otp::calculate_current_otp(&otp_secret));
-                dbg!(otp_code);
                 if otp::calculate_current_otp(&otp_secret) == *otp_code {
                     let _ = session.insert("login_token", hex::encode(&login_token).to_string());
 
@@ -341,6 +385,7 @@ async fn login(
 async fn logout(session: Session, state: Data<AppState>) -> HttpResponse {
     if is_admin_state(&session, state.clone()) {
         session.purge();
+        *state.username.lock().unwrap() = "".to_string();
         *state.login_token.lock().unwrap() =
             hex::encode((0..64).map(|_| rand::random::<u8>()).collect::<Vec<u8>>()).to_string();
         HttpResponse::Found()
@@ -365,14 +410,13 @@ async fn otp_secret_request(_state: Data<AppState>) -> HttpResponse {
     if !database::read_cols::<&str, (bool,)>("Admin", &["knows_otp"]).unwrap()[0].0
         && database::read_cols::<&str, (bool,)>("Admin", &["use_otp"]).unwrap()[0].0
     {
-        let u = database::update_where(
+        let _u = database::update_where(
             "Admin",
             &["knows_otp"],
             &[database::InsertValue::Bool(true)],
             "key",
             "0",
         );
-        dbg!(u);
         HttpResponse::build(StatusCode::OK).json(SecretJsonResponse {
             secret: database::read_kv("Secrets", "otp_secret")
                 .unwrap_or("Secret not found".to_string()),
@@ -399,94 +443,6 @@ async fn use_otp(_state: Data<AppState>) -> HttpResponse {
 
 // Functional Requests
 
-/// Return the CPU ussage percentage.
-#[get("/api/cpuPercent")]
-async fn cpu_percent(session: Session, state: Data<AppState>) -> HttpResponse {
-    if !is_admin_state(&session, state.clone()) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    };
-
-    #[derive(Serialize)]
-    struct JsonResponse {
-        p: f32,
-    }
-
-    let cpu_ussage = match state.system.lock().unwrap().cpu_load_aggregate() {
-        Ok(cpu) => {
-            std::thread::sleep(std::time::Duration::from_secs(1));
-            let cpu = cpu.done().unwrap();
-            cpu.user * 100.0
-        }
-        Err(err) => {
-            eprintln!("CPU Ussage Error (Returned f32 0.0) {}", err);
-            0.0
-        }
-    };
-
-    HttpResponse::Ok().json(JsonResponse { p: cpu_ussage })
-}
-
-/// Return the the RAM ussage percentage.
-#[get("/api/ramPercent")]
-async fn ram_percent(session: Session, state: Data<AppState>) -> HttpResponse {
-    if !is_admin_state(&session, state.clone()) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    };
-
-    #[derive(Serialize)]
-    struct JsonResponse {
-        p: f64,
-    }
-
-    let memory_ussage = match state.system.lock().unwrap().memory() {
-        Ok(memory) => {
-            (memory.total.as_u64() as f64 - memory.free.as_u64() as f64)
-                / memory.total.as_u64() as f64
-        }
-        Err(err) => {
-            eprintln!("Memory Ussage Error (Returned f64 0.0) {}", err);
-            0.0
-        }
-    };
-
-    HttpResponse::Ok().json(JsonResponse {
-        p: memory_ussage * 100.0,
-    })
-}
-
-/// Return the main disk ussage percentage.
-#[get("/api/diskPercent")]
-async fn disk_percent(session: Session, state: Data<AppState>) -> HttpResponse {
-    if !is_admin_state(&session, state.clone()) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    };
-
-    #[derive(Serialize)]
-    struct JsonResponse {
-        p: f64,
-    }
-
-    let disk_ussage = match state.system.lock().unwrap().mount_at("/") {
-        Ok(disk) => {
-            let total = disk.total.as_u64() as f64;
-            let free = disk.free.as_u64() as f64;
-            if total > 0.0 {
-                (total - free) / total
-            } else {
-                0.0
-            }
-        }
-        Err(err) => {
-            eprintln!("Disk Ussage Error (Returned f64 0.0) {}", err);
-            0.0
-        }
-    };
-
-    HttpResponse::Ok().json(JsonResponse {
-        p: disk_ussage * 100.0,
-    })
-}
-
 /// Return general information about the system. This includes:
 /// * `os_name` {string} - The name of your operating system. i.e.: Debian Bookworm 12
 /// * `power_supply` {string} - Does you PC get AC power of battery? Is it charging?
@@ -497,19 +453,26 @@ async fn disk_percent(session: Session, state: Data<AppState>) -> HttpResponse {
 /// * `process_number` {u32} - The number of active running processes
 #[get("/api/deviceInformation")]
 async fn device_information(session: Session, state: Data<AppState>) -> HttpResponse {
-    if !is_admin_state(&session, state) {
+    if !is_admin_state(&session, state.clone()) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     };
 
     #[derive(Serialize)]
     struct JsonResponse {
         os_name: String,
-        power_supply: String,
         hostname: String,
+        ip: String,
         uptime: String,
-        temperature: String,
+        temperature: f32,
         zentrox_pid: u16,
         process_number: u32,
+        net_up: f64,
+        net_down: f64,
+        net_interface: String,
+        memory_total: u64,
+        memory_free: u64,
+        cpu_usage: f32,
+        amount_installed_packages: u64
     }
 
     let os_name = match Command::new("lsb_release").arg("-d").output() {
@@ -533,29 +496,7 @@ async fn device_information(session: Session, state: Data<AppState>) -> HttpResp
         }
     };
 
-    let power_supply = match fs::read_to_string("/sys/class/power_supply/BAT0/status") {
-        Ok(value) => {
-            if value.replace("\n", "") == "Discharging" {
-                format!(
-                    "Discharging {}%",
-                    fs::read_to_string("/sys/class/power_supply/BAT0/capacity")
-                        .expect("Failed to get Bat 0 capacity")
-                )
-                .to_string()
-            } else if value.replace("\n", "") != "Full" {
-                format!(
-                    "Charging {}%",
-                    fs::read_to_string("/sys/class/power_supply/BAT0/capacity")
-                        .expect("Failed to get Bat 0 capacity")
-                )
-                .to_string()
-            } else {
-                value.replace("\n", "").to_string()
-            }
-        }
-
-        Err(_err) => String::from("No Battery"),
-    };
+    println!("OS Name {}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
 
     // Current machines hostname. i.e.: debian_pc or 192.168.1.3
     let hostname = {
@@ -567,27 +508,77 @@ async fn device_information(session: Session, state: Data<AppState>) -> HttpResp
         }
     };
 
+    println!("Hostname {}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
+
     let uptime =
         String::from_utf8_lossy(&Command::new("uptime").arg("-p").output().unwrap().stdout)
             .to_string()
             .replace("up ", "");
-    let temperature: String = match System::new().cpu_temp() {
-        Ok(value) => format!("{}°C", value as u16).to_string(),
-        Err(_) => "No data".to_string(),
+
+    println!("Uptime {}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
+    
+    let temperature = match state.system.lock().unwrap().cpu_temp() {
+        Ok(t) => t,
+        Err(_) => -300.0,
     };
+
+
+    println!("Temp {}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
+
+let cpu_usage = match state.system.lock().unwrap().cpu_load_aggregate() {
+        Ok(cpu) => {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            let cpu = cpu.done().unwrap();
+            cpu.user * 100.0
+        }
+        Err(err) => {
+            eprintln!("CPU Ussage Error (Returned f32 0.0) {}", err);
+            0.0
+        }
+    };
+
+
+    println!("CPU Usage {}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
+
 
     let mut process_number_system = SysInfoSystem::new_all();
     process_number_system.refresh_processes(sysinfo::ProcessesToUpdate::All);
     let process_number = process_number_system.processes().len() as u32;
 
+    println!("procn {}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
+    let mut memory_total: u64 = 0;
+    let mut memory_free: u64 = 0;
+
+    match state.system.lock().unwrap().memory() {
+        Ok(memory) => {
+            memory_total = memory.total.as_u64();
+            memory_free = memory.free.as_u64();
+        },
+        Err(_err) => {}
+    };
+
+    println!("memuse {}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
+
+    let amount_installed_packages = packages::list_installed_packages().unwrap_or(vec![]).len();
+
     HttpResponse::Ok().json(JsonResponse {
         zentrox_pid: std::process::id() as u16,
         os_name,
-        power_supply,
         hostname,
         uptime,
         temperature,
         process_number,
+        net_down: *state.net_down.lock().unwrap(),
+        net_up: *state.net_up.lock().unwrap(),
+        net_interface: state.net_interface.lock().unwrap().to_string(),
+        ip: match private_ip() {
+            Ok(v) => v.to_string(),
+            Err(_) => "No route".to_string(),
+        },
+        memory_free,
+        memory_total,
+        cpu_usage,
+        amount_installed_packages: amount_installed_packages.try_into().unwrap_or(0)
     })
 }
 
@@ -657,7 +648,11 @@ async fn update_ftp_config(
     if !json.enableFTP.expect("Failed to get enableFTP") {
         if server_is_running {
             // Kill FTP server
-            let sudo_password = json.sudoPassword.clone().expect("Failed to get sudoPassword").to_string();
+            let sudo_password = json
+                .sudoPassword
+                .clone()
+                .expect("Failed to get sudoPassword")
+                .to_string();
             let ftp_server_pid = database::read_cols::<&str, (u64,)>("Ftp", &["pid"]).unwrap()[0]
                 .0
                 .to_string();
@@ -684,7 +679,6 @@ async fn update_ftp_config(
             }
         }
     } else if !server_is_running && json.enableFTP.expect("Failed to get enableFTP") {
-
         let sudo_password = json.sudoPassword.clone().unwrap().to_string();
 
         std::thread::spawn(move || {
@@ -695,8 +689,9 @@ async fn update_ftp_config(
         });
     }
 
-    if !json.enableDisable.unwrap_or(false) && !server_is_running { // Enable disable is used to differentiate between a
-                                              // single toggle or the Sharing page's form.
+    if !json.enableDisable.unwrap_or(false) && !server_is_running {
+        // Enable disable is used to differentiate between a
+        // single toggle or the Sharing page's form.
         let username = json.ftpUserUsername.clone().unwrap_or(String::from(""));
         let password = json.ftpUserPassword.clone().unwrap_or(String::from(""));
         let local_root = json.ftpLocalRoot.clone().unwrap_or(String::from(""));
@@ -943,7 +938,7 @@ async fn switch_ufw(
         )
         .spawn()
         {
-            Ok(status) => {
+            sudo::SudoExecutionResult::Success(status) => {
                 if status == 0 {
                     println!("✅ Started UFW");
                     return HttpResponse::Ok().finish();
@@ -953,8 +948,13 @@ async fn switch_ufw(
                         .body("Failed to start UFW (Return value unequal 0)");
                 }
             }
-            Err(_) => {
+            sudo::SudoExecutionResult::ExecutionError(_) => {
                 println!("Failed to start UFW (Err)");
+                return HttpResponse::InternalServerError()
+                    .body("Failed to start UFW because to command error");
+            }
+            _ => {
+                println!("Failed to start UFW");
                 return HttpResponse::InternalServerError()
                     .body("Failed to start UFW because to command error");
             }
@@ -967,7 +967,7 @@ async fn switch_ufw(
         )
         .spawn()
         {
-            Ok(status) => {
+            sudo::SudoExecutionResult::Success(status) => {
                 if status == 0 {
                     println!("✅ Stopped UFW");
                     return HttpResponse::Ok().finish();
@@ -977,10 +977,15 @@ async fn switch_ufw(
                         .body("Failed to stop UFW (Return value unequal 0)");
                 }
             }
-            Err(_) => {
+            sudo::SudoExecutionResult::ExecutionError(_) => {
                 println!("Failed to stop UFW (Err)");
                 return HttpResponse::InternalServerError()
                     .body("Failed to stop UFW because of command error");
+            }
+            _ => {
+                println!("Failed to start UFW");
+                return HttpResponse::InternalServerError()
+                    .body("Failed to start UFW because to command error");
             }
         }
     }
@@ -988,45 +993,125 @@ async fn switch_ufw(
     HttpResponse::Ok().finish()
 }
 
-#[post("/api/newFireWallRule/{from}/{to}/{action}")]
+#[post(
+    "/api/newFireWallRule/{mode}/{destination}/{protocol}/{sender_mode}/{sender_adress}/{action}"
+)]
 /// Create a new firewall rule.
 ///
 /// This request takes three URL parameters.
-/// * `from` - The IP adress the request comes from (can be "any" as well).
-/// * `to` - The port the request goes to.
-/// * `action` - The action (allow / deny) that is taken.
 /// This requires a sudo password.
 async fn new_firewall_rule(
     session: Session,
     state: Data<AppState>,
+    path: web::Path<(String, String, String, String, String, String)>,
     json: web::Json<SudoPasswordOnlyRequest>,
-    path: web::Path<(String, String, String)>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
     let password = &json.sudoPassword;
-    let (mut from, mut to, action) = path.into_inner();
+    let (mode, destination, protocol, sender_mode, sender_adress, action) = path.into_inner();
 
-    if action.is_empty() {
-        println!("User provided insufficent firewall rule settings");
-        return HttpResponse::BadRequest()
-            .body("The UFW configuration provided by the user was insufficent.");
-    }
+    let decoded_sender_adress = url_decode::url_decode(sender_adress);
 
-    if from.is_empty() {
-        from = "any".to_string()
-    }
+    if mode == "p" {
+        let destination_parsed: u64;
+        match destination.parse::<u64>() {
+            Ok(d) => destination_parsed = d,
+            Err(_) => return HttpResponse::BadRequest().body("Malformed port"),
+        };
+        let x = ufw::new_rule_port(
+            &password,
+            {
+                if protocol == "tcp" {
+                    ufw::NetworkProtocol::Tcp(destination_parsed)
+                } else if protocol == "udp" {
+                    ufw::NetworkProtocol::Udp(destination_parsed)
+                } else {
+                    println!("Assuming TCP due to insufficient data.");
+                    ufw::NetworkProtocol::Tcp(destination_parsed)
+                }
+            },
+            {
+                if sender_mode == "any" {
+                    ufw::FirewallSender::Any
+                } else {
+                    ufw::FirewallSender::Specific(decoded_sender_adress)
+                }
+            },
+            {
+                if action == "allow" {
+                    ufw::FirewallAction::Allow
+                } else {
+                    ufw::FirewallAction::Deny
+                }
+            },
+        );
 
-    if to.is_empty() {
-        to = "any".to_string()
-    }
+        match x {
+            Ok(_) => HttpResponse::Ok().body("Added new rule"),
+            Err(e) => {
+                eprintln!("Failed to create firewall rule: {e}");
+                HttpResponse::InternalServerError().body("Failed to create new rule")
+            }
+        }
+    } else if (mode == "r") {
+        let lr: Vec<&str> = destination.split(":").collect();
+        let range_left: u64;
+        let range_right: u64;
 
-    match ufw::new_rule(String::from(password), from, to, action) {
-        Ok(_) => HttpResponse::Ok().finish(),
-        Err(_) => HttpResponse::InternalServerError()
-            .body("Failed to create new rule because of command error"),
+        if lr.len() != 2 {
+            return HttpResponse::BadRequest().body("Malformed port range");
+        }
+
+        match lr[0].parse::<u64>() {
+            Ok(v) => range_left = v,
+            Err(v) => return HttpResponse::BadRequest().body("Malformed left side port"),
+        }
+
+        match lr[1].parse::<u64>() {
+            Ok(v) => range_right = v,
+            Err(v) => return HttpResponse::BadRequest().body("Malformed right side port"),
+        }
+
+        let x = ufw::new_rule_range(
+            &password,
+            {
+                if protocol == "tcp" {
+                    ufw::PortRange::Tcp(range_left, range_right)
+                } else if protocol == "udp" {
+                    ufw::PortRange::Udp(range_left, range_right)
+                } else {
+                    println!("Assuming TCP due to insufficient data.");
+                    ufw::PortRange::Tcp(range_left, range_right)
+                }
+            },
+            {
+                if sender_mode == "any" {
+                    ufw::FirewallSender::Any
+                } else {
+                    ufw::FirewallSender::Specific(decoded_sender_adress)
+                }
+            },
+            {
+                if action == "allow" {
+                    ufw::FirewallAction::Allow
+                } else {
+                    ufw::FirewallAction::Deny
+                }
+            },
+        );
+
+        match x {
+            Ok(_) => HttpResponse::Ok().body("Added new rule"),
+            Err(e) => {
+                eprintln!("Failed to create firewall rule: {e}");
+                HttpResponse::InternalServerError().body("Failed to create new rule")
+            }
+        }
+    } else {
+        return HttpResponse::BadRequest().body("Malformed mode parameter");
     }
 }
 
@@ -2040,10 +2125,14 @@ async fn power_off(
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    let _ =
+    let e =
         sudo::SwitchedUserCommand::new(json.sudoPassword.clone(), "poweroff".to_string()).spawn();
 
-    HttpResponse::Ok().finish()
+    if let sudo::SudoExecutionResult::Success(v) = e {
+        HttpResponse::Ok().body("Shutting down.")
+    } else {
+        HttpResponse::InternalServerError().body("Failed to execute poweroff as super user.")
+    }
 }
 
 // Account Details
@@ -2275,8 +2364,6 @@ async fn media_request(
     let file_path_url = url_decode::url_decode(&pii);
     let file_path = PathBuf::from(&file_path_url);
 
-    dbg!(&file_path);
-
     let mime = mime::guess_mime(file_path.to_path_buf());
 
     if file_path.exists() {
@@ -2392,14 +2479,11 @@ async fn update_video_source_list(
     // The frontend only sends an updated array of all resources.
     // It is easier to truncate the entire table and then rewrite its' contents.
 
-    if let Err(e) = database::truncate_table("MediaSources") {
-        dbg!(e);
+    if let Err(_e) = database::truncate_table("MediaSources") {
         return HttpResponse::InternalServerError().body("Failed to truncate sources table.");
     }
 
     for l in locations {
-        dbg!(l);
-
         if l.0.exists() {
             let clean_path = fs::canonicalize(l.0.clone())
                 .unwrap()
@@ -2480,8 +2564,6 @@ async fn get_media_list(session: Session, state: Data<AppState>) -> HttpResponse
             .map(|e| PathBuf::from(e.0.clone()))
             .collect();
 
-    dbg!(&sources);
-
     let media_files_vector: Vec<Vec<PathBuf>> = sources
         .into_iter()
         .filter(|p| p.exists())
@@ -2526,10 +2608,11 @@ async fn get_media_list(session: Session, state: Data<AppState>) -> HttpResponse
     )
     .unwrap();
 
-    dbg!(&metadata_rows);
-
     for row in metadata_rows {
-        println!("Deleting {} from Media asnyc fn get_media_list", row.0.clone());
+        println!(
+            "Deleting {} from Media asnyc fn get_media_list",
+            row.0.clone()
+        );
         let filepath = PathBuf::from(row.0.clone());
         if !filepath.exists() {
             let x = database::delete_row(
@@ -2723,6 +2806,17 @@ async fn remember_music(
         fp,
     );
 
+    database::read_cols::<&str, (String,)>("RecommendedMedia", &["filepath"])
+        .unwrap()
+        .into_iter()
+        .for_each(|e| {
+            let pb = PathBuf::from(&e.0);
+
+            if !pb.exists() {
+                let _x = database::delete_row("RecommendedMedia", "filepath", e.0.as_str());
+            }
+        });
+
     match x {
         Ok(_) => HttpResponse::Ok().finish(),
         Err(_e) => HttpResponse::InternalServerError().body("Failed to write database."),
@@ -2763,6 +2857,17 @@ async fn remember_video(
         fp,
     );
 
+    database::read_cols::<&str, (String,)>("RecommendedMedia", &["filepath"])
+        .unwrap()
+        .into_iter()
+        .for_each(|e| {
+            let pb = PathBuf::from(&e.0);
+
+            if !pb.exists() {
+                let _x = database::delete_row("RecommendedMedia", "filepath", e.0.as_str());
+            }
+        });
+
     match x {
         Ok(_) => HttpResponse::Ok().finish(),
         Err(_e) => HttpResponse::InternalServerError().body("Failed to write database."),
@@ -2793,6 +2898,7 @@ async fn get_recomended_music(session: Session, state: Data<AppState>) -> HttpRe
     .unwrap()
     .into_iter()
     .filter(|e| e.2 == "music")
+    .filter(|e| PathBuf::from(&e.0).exists())
     .map(|e| (e.0, e.1))
     .collect();
 
@@ -2818,10 +2924,79 @@ async fn get_recomended_videos(session: Session, state: Data<AppState>) -> HttpR
     .unwrap()
     .into_iter()
     .filter(|e| e.2 == "video")
+    .filter(|e| PathBuf::from(&e.0).exists())
     .map(|e| (e.0, e.1))
     .collect();
 
     return HttpResponse::Ok().json(Recommendations { rec: entries });
+}
+
+#[derive(Deserialize)]
+struct MetadataJson {
+    name: String,
+    genre: String,
+    cover: String,
+    artist: String,
+    filename: String,
+}
+
+#[post("/api/updateMetadata")]
+async fn update_metadata(
+    session: Session,
+    state: Data<AppState>,
+    data: web::Json<MetadataJson>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    let wx = database::write(
+        "Media",
+        &["filepath", "name", "genre", "cover", "artist"],
+        &[
+            InsertValue::from(&data.filename),
+            InsertValue::from({
+                let name = &data.name;
+                if name.is_empty() {
+                    "UNKNOWN_NAME"
+                } else {
+                    name
+                }
+            }),
+            InsertValue::from({
+                let genre = &data.genre;
+                if genre.is_empty() {
+                    "UNKNOWN_GENRE"
+                } else {
+                    genre
+                }
+            }),
+            InsertValue::from({
+                let cover = &data.cover;
+                if cover.is_empty() {
+                    "UNKNOWN_COVER"
+                } else {
+                    cover
+                }
+            }),
+            InsertValue::from({
+                let artist = &data.artist;
+                if artist.is_empty() {
+                    "UNKNOWN_ARTIST"
+                } else {
+                    artist
+                }
+            }),
+        ],
+        "filepath",
+        &data.filename,
+    );
+
+    if let Err(_e) = wx {
+        return HttpResponse::InternalServerError().body(format!("Failed to write to database."));
+    } else {
+        return HttpResponse::Ok().body("Wrote data.");
+    }
 }
 
 // TODO: Switching from toml based storage to persistent SQL based storage.
@@ -2866,7 +3041,7 @@ async fn main() -> std::io::Result<()> {
         "key",
         "0",
     ) {
-        eprintln!("Failed to reset ftp_pid: {}", e);
+        eprintln!("Failed to reset ftp_pid: {}", e.to_string());
     }
     if let Err(e) = database::update_where(
         "Ftp",
@@ -2875,13 +3050,13 @@ async fn main() -> std::io::Result<()> {
         "key",
         "0",
     ) {
-        eprintln!("Failed to reset ftp_running: {}", e);
+        eprintln!("Failed to reset ftp_running: {}", e.to_string());
     }
 
     let secret_session_key = Key::try_generate().expect("Failed to generate session key");
     let app_state = AppState::new();
-    app_state.clone().start_cleanup_task(); // Start periodic cleanup
-
+    app_state.clone().start_interval_tasks();
+    
     if !database::exists("Secrets", "name", "otp_secret").unwrap()
         && database::read_cols::<&str, (bool,)>("Admin", &["use_otp"]).unwrap()[0].0
     {
@@ -2891,7 +3066,7 @@ async fn main() -> std::io::Result<()> {
             "otp_secret",
             database::InsertValue::from(&new_otp_secret),
         ) {
-            eprintln!("Failed to write OTP secret: {}", e);
+            eprintln!("Failed to write OTP secret: {}", e.to_string());
         }
         println!(
             "{}",
@@ -2946,14 +3121,12 @@ async fn main() -> std::io::Result<()> {
         .with_single_cert(tls_certs, rustls::pki_types::PrivateKeyDer::Pkcs8(tls_key))
         .unwrap();
 
-    dbg!(database::get_database_location());
-
     println!("🚀 Serving Zentrox on Port 8080");
 
     HttpServer::new(move || {
         let cors_permissive: bool = true; // Enable or disable strict cors for developement. Leaving this
-                                           // enabled poses a grave security vulnerability and shows a
-                                           // disclaimer.
+                                          // enabled poses a grave security vulnerability and shows a
+                                          // disclaimer.
         if cors_permissive {
             print!(include_str!("../notes/cors_note.txt"))
         }
@@ -2992,9 +3165,6 @@ async fn main() -> std::io::Result<()> {
             .service(use_otp) // Return if OTP is enabled
             // API
             // API Device Stats
-            .service(cpu_percent) // CPU Ussage as f64
-            .service(ram_percent) // RAM Ussage as f64
-            .service(disk_percent) // Disk (/) as f64
             .service(device_information) // General device information
             // API FTP
             .service(fetch_ftp_config)
@@ -3053,6 +3223,7 @@ async fn main() -> std::io::Result<()> {
             .service(remember_video)
             .service(get_recomended_music)
             .service(get_recomended_videos)
+            .service(update_metadata)
             // General services and blocks
             .service(dashboard_asset_block)
             .service(robots_txt)

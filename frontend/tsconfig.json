@@ -20,7 +20,8 @@
   "baseUrl": ".", // This can be "./src" if your base directory is src
   "paths": {
    "@/*": ["src/*"]
-  }
+  },
+  "target": "ES2017"
  },
  "include": ["next-env.d.ts", ".next/types/**/*.ts", "**/*.ts", "**/*.tsx"],
  "exclude": ["node_modules"]

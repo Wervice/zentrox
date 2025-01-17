@@ -106,7 +106,17 @@ module.exports = {
       opacity: 0,
      },
     },
-
+    "hide-mouse": {
+     "0%": {
+      cursor: "default",
+     },
+     "99%": {
+      cursor: "default",
+     },
+     "100%": {
+      cursor: "none",
+     },
+    },
     "color-change": {
      "0%": {
       background: "#ffffff00",
@@ -118,6 +128,7 @@ module.exports = {
     "expand-width": "expand-width 0.75s ease-in-out",
     "accordion-down": "accordion-down 0.2s ease-out",
     "accordion-up": "accordion-up 0.2s ease-out",
+    hidemouse: "hide-mouse 4s ease-in-out",
     fadein: "fade-in ease-in 0.2s",
     moveup: "move-up ease-in 0.2s",
     fadeout: "fade-out ease-out 0.2s",

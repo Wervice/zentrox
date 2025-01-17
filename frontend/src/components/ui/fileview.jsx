@@ -11,11 +11,9 @@ import {
  VideoIcon,
  DownloadIcon,
  ArrowUp,
- ArrowRight,
  MapPin,
  Clock2,
  HouseIcon,
- PrinterIcon,
  PlugIcon,
  ListIcon,
  GridIcon,
@@ -53,14 +51,12 @@ import {
  AlertDialogContent,
  AlertDialogDescription,
  AlertDialogTitle,
- AlertDialogTrigger,
  AlertDialogFooter,
 } from "@/components/ui/alert-dialog";
-import Label from "./ShortLabel";
 
 const fetchURLPrefix = require("@/lib/fetchPrefix");
 
-export default function FileView({ className }) {
+export default function FileView({ className = "" }) {
  const [currentPath, setCurrentPath] = useState("/");
  const [files, setFiles] = useState([]);
  const [deletionPopupVisible, setDeletionPopupVisible] = useState(false);
@@ -147,11 +143,11 @@ export default function FileView({ className }) {
 
  if (view === "list") {
   var viewClassName =
-   "w-full p-4 bg-transparent border border-neutral-800 border-x-transparent block cursor-default select-none hover:bg-neutral-800 hover:transition-bg hover:duration-400 duration-200 animate-fadein focus:bg-neutral-800 focus:duration-50";
+   "w-full p-4 bg-transparent border border-neutral-800 border-x-transparent block cursor-default select-none hover:bg-neutral-800 hover:transition-bg hover:duration-400 focus:bg-neutral-800 focus:duration-50";
   var iconViewClassName = "inline-block h-6 w-6 pr-1";
  } else if (view === "grid") {
   var viewClassName =
-   "m-1 pt-4 pb-4 w-32 bg-transparent text-center border border-neutral-800 rounded cursor-default select-none hover:bg-neutral-800 hover:transition-bg hover:duration-400 duration-200 animate-fadein focus:bg-neutral-800 focus:duration-50 inline-block align-middle overflow-hidden";
+   "m-1 pt-4 pb-4 w-32 bg-transparent text-center border border-neutral-800 rounded cursor-default select-none hover:bg-neutral-800 hover:transition-bg hover:duration-400 duration-200 focus:bg-neutral-800 focus:duration-50 inline-block align-middle overflow-hidden";
   var iconViewClassName = "block h-6 w-6 pr-1 mr-auto ml-auto";
  }
 
@@ -321,7 +317,7 @@ export default function FileView({ className }) {
     )}
    </Button>
    <Dialog>
-    <DialogTrigger>
+    <DialogTrigger asChild>
      <Button className="mr-1">
       <MapPin className="inline mr-1" />
       Specific location
@@ -452,7 +448,7 @@ export default function FileView({ className }) {
 
      if (entry[1] === "f") {
       return (
-       <ContextMenu>
+       <ContextMenu key={index}>
         <ContextMenuTrigger>
          <span
           id={index}

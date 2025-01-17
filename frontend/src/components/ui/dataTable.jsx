@@ -3,11 +3,12 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 
 function DataTable({
- entries = [["", "", false]], // Set a default structure for entries
+ entries = [], // Set a default structure for entries
  onEntriesChange = function (_i) {},
  className,
  checkboxTitle = "Enabled",
  children = <></>,
+ key,
 }) {
  const deleteEntry = (index) => {
   onEntriesChange(
@@ -34,7 +35,7 @@ function DataTable({
  };
 
  return (
-  <span className={` ${className}`}>
+  <span key={key} className={className}>
    <Button
     variant="secondary"
     className="mb-1 mt-1"
@@ -42,9 +43,16 @@ function DataTable({
      onEntriesChange(entries.concat([["Path", "Name", true]]));
     }}
    >
-    Add
+    Add Source
    </Button>
    {children}
+   {entries.length === 0 ? (
+    <div className="p-2 text-sm text-white/80">
+     Add new sources to media center
+    </div>
+   ) : (
+    <></>
+   )}
    {entries.map((element, index) => {
     const [text1 = "", text2 = "", isChecked = false] = element;
 
@@ -63,6 +71,7 @@ function DataTable({
         value={text1}
         disabled={!isChecked}
         onChange={(e) => handleInputChange(index, 0, e.target.value)}
+        placeholder="Source path"
        />
        <Input
         type="text"
@@ -70,6 +79,7 @@ function DataTable({
         value={text2}
         disabled={!isChecked}
         onChange={(e) => handleInputChange(index, 1, e.target.value)}
+        placeholder="Source alias"
        />
        <Button
         variant="outline"

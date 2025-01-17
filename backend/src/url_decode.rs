@@ -1,8 +1,9 @@
 /// Decodes URL encoded value to plain string.
 /// `input` - &str to decode
-pub fn url_decode(input: &str) -> String {
+pub fn url_decode<T: ToString>(input: T) -> String {
     let mut result = String::new();
-    let mut chars = input.chars().peekable();
+    let input_string = input.to_string();
+    let mut chars = input_string.chars().peekable();
 
     while let Some(c) = chars.next() {
         if c == '%' {

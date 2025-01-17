@@ -1,9 +1,0 @@
-input[type="range"] {
- -webkit-appearance: none;
- appearance: none;
- background: white;
- border-radius: 5px;
- height: 3px;
- position: relative;
- bottom: 3px;
-}

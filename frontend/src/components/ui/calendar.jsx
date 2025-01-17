@@ -1,5 +1,4 @@
 import { Button } from "@/components/ui/button.jsx";
-import { Input } from "@/components/ui/input.jsx";
 import {
  Clock,
  SkipBackIcon,
@@ -7,7 +6,7 @@ import {
  StepBackIcon,
  StepForward,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import "./no-clock-icon.css";
 
 export default function CalendarButton({
@@ -173,12 +172,13 @@ export default function CalendarButton({
       />
       <br />
       <div className="text-left m-auto w-fit">
-       {grid().map((r) => {
+       {grid().map((r, i) => {
         return (
-         <>
-          {r.map((e) => {
+         <span key={i}>
+          {r.map((e, i) => {
            return (
             <span
+             key={i}
              onClick={() => {
               let date = new Date();
               date.setTime(currentSelectedTime);
@@ -207,7 +207,7 @@ export default function CalendarButton({
            );
           })}
           <br />
-         </>
+         </span>
         );
        })}
       </div>

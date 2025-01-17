@@ -11,10 +11,6 @@ pub const ST_BOOL_FALSE: &str = "FALSE";
 /// Some columns can only use text. If a boolean has to be
 /// stored in one of these columns use and ST_BOOL
 
-pub fn from_st_bool(v: &str) -> bool {
-    v == ST_BOOL_TRUE
-}
-
 /// Enumaration used to categorize values for storage in SQL.
 /// Use InsertValue::from to automatically convert most common types into an InsertValue.
 /// Supported types are:
@@ -81,15 +77,48 @@ impl From<f64> for InsertValue {
     }
 }
 
+trait ToSqlQuerySegment {
+    fn to_sql_query_segment(&self) -> String;
+}
+
+impl ToSqlQuerySegment for InsertValue {
+    fn to_sql_query_segment(&self) -> String {
+        match self {
+            InsertValue::Int32(value) => value.to_string(),
+            InsertValue::Int64(value) => value.to_string(),
+            InsertValue::Int128(value) => value.to_string(),
+            InsertValue::UnsignedInt32(value) => value.to_string(),
+            InsertValue::UnsignedInt64(value) => value.to_string(),
+            InsertValue::UnsignedInt128(value) => value.to_string(),
+            InsertValue::Float(value) => value.to_string(),
+            InsertValue::Text(value) => format!(
+                "'{}'",
+                value
+                    .chars()
+                    .flat_map(|c| match c {
+                        '\\' => "\\\\".chars().collect::<Vec<_>>(), // Escape backslash
+                        '\'' => "''".chars().collect::<Vec<_>>(),   // Escape single quote
+                        '\"' => "\"\"\"\"".chars().collect::<Vec<_>>(), // Escape double quote
+                        '\0' => "\\0".chars().collect::<Vec<_>>(),  // Escape NULL character
+                        _ => vec![c],
+                    })
+                    .collect::<String>()
+            ), // Escape single quotes
+            InsertValue::Bool(value) => value.to_string(),
+            InsertValue::Null() => "NULL".to_string(),
+        }
+    }
+}
+
 impl From<String> for InsertValue {
     fn from(value: String) -> Self {
-        InsertValue::Text(value.replace("\"", "\"\""))
+        InsertValue::Text(value)
     }
 }
 
 impl From<&String> for InsertValue {
     fn from(value: &String) -> Self {
-        InsertValue::Text(value.replace("\"", "\"\""))
+        InsertValue::Text(value.to_string())
     }
 }
 
@@ -120,9 +149,15 @@ pub enum SQLError {
     InsufficientData(String),
 }
 
-impl Display for SQLError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_string())
+impl ToString for SQLError {
+    fn to_string(&self) -> String {
+        match self {
+            SQLError::NoRow(v) => v.clone(),
+            SQLError::InsufficientData(v) => v.clone(),
+            SQLError::ExecutionError(v) => v.clone(),
+            SQLError::CantConnect(v) => v.clone(),
+        }
+        .to_string()
     }
 }
 
@@ -163,8 +198,10 @@ pub fn setup_database() -> Result<(), String> {
 #[allow(unused)]
 pub fn read_kv<T: Into<String> + Display>(table: T, key: T) -> Result<String, SQLError> {
     let conn = connect_to_db().expect("Failed to connect to database.");
-    let command =
-        conn.prepare(format!("SELECT value FROM \"{table}\" WHERE name=\"{key}\"").as_str());
+
+    let query = format!("SELECT value FROM '{table}' WHERE name='{key}'");
+
+    let command = conn.prepare(query.as_str());
 
     match command {
         Ok(mut v) => {
@@ -191,7 +228,7 @@ pub fn read_kv<T: Into<String> + Display>(table: T, key: T) -> Result<String, SQ
 // existing value. This function is a shorthand for use on key-value tables only.
 // In a kv table the K collumn is named "name" and the V collumn in named "value".
 #[allow(unused)]
-pub fn write_kv<T: Into<String> + Display>(
+pub fn write_kv<T: Into<String> + Display + ToString>(
     table: T,
     key: T,
     value: InsertValue,
@@ -199,46 +236,17 @@ pub fn write_kv<T: Into<String> + Display>(
     let conn = connect_to_db().expect("Failed to connect to database.");
     let execution: Result<usize, rusqlite::Error>;
 
-    let e_command =
-        conn.prepare(format!("SELECT value FROM {table} WHERE \"name\"=\"{key}\"").as_str());
-    let e = e_command.unwrap().exists(()).unwrap();
-
-    if e {
-        let query = format!("UPDATE \"{table}\" SET {} WHERE \"name\"=\"{key}\"", {
+    if exists(table.to_string(), "name".to_string(), &key).unwrap_or(false) {
+        let query = format!("UPDATE '{table}' SET {} WHERE name='{key}'", {
             let mut s = String::new();
-            s = format!("value={},", {
-                match value {
-                    InsertValue::Int32(i) => i.to_string(),
-                    InsertValue::Int64(i) => i.to_string(),
-                    InsertValue::Int128(i) => i.to_string(),
-                    InsertValue::UnsignedInt32(u) => u.to_string(),
-                    InsertValue::UnsignedInt64(u) => u.to_string(),
-                    InsertValue::UnsignedInt128(u) => u.to_string(),
-                    InsertValue::Float(f) => f.to_string(),
-                    InsertValue::Text(t) => format!("\"{}\"", t).to_string(),
-                    InsertValue::Bool(b) => b.to_string().to_uppercase(),
-                    InsertValue::Null() => "NULL".to_string(),
-                }
-            });
+            s = format!("value={},", { value.to_sql_query_segment() });
             s.pop();
             s
         });
-        dbg!(&query);
         execution = conn.execute(&query.as_str(), ());
     } else {
-        let query = format!("INSERT INTO \"{table}\" VALUES (\"{key}\", {})", {
-            match value {
-                InsertValue::Int32(i) => i.to_string(),
-                InsertValue::Int64(i) => i.to_string(),
-                InsertValue::Int128(i) => i.to_string(),
-                InsertValue::UnsignedInt32(u) => u.to_string(),
-                InsertValue::UnsignedInt64(u) => u.to_string(),
-                InsertValue::UnsignedInt128(u) => u.to_string(),
-                InsertValue::Float(f) => f.to_string(),
-                InsertValue::Text(t) => format!("\"{}\"", t).to_string(),
-                InsertValue::Bool(b) => b.to_string().to_uppercase(),
-                InsertValue::Null() => "NULL".to_string(),
-            }
+        let query = format!("INSERT INTO '{table}' VALUES ('{key}', {})", {
+            value.to_sql_query_segment()
         });
         execution = conn.execute(&query.as_str(), ());
     }
@@ -329,7 +337,7 @@ pub fn read_cols<T: Into<String> + Display, R: FromRow>(
     cols: &[T],
 ) -> Result<Vec<R>, SQLError> {
     let conn = connect_to_db().expect("Failed to connect to database.");
-    let query = format!("SELECT {} FROM \"{table}\"", {
+    let query = format!("SELECT {} FROM '{table}'", {
         let mut s = String::new();
         for ele in cols {
             s = format!("{s}{ele},");
@@ -368,7 +376,7 @@ pub fn insert<T: Into<String> + Display>(
 ) -> Result<usize, SQLError> {
     let conn = connect_to_db().expect("Failed to connect to database.");
     let query = format!(
-        "INSERT INTO \"{table}\" ({}) VALUES ({}) ",
+        "INSERT INTO '{table}' ({}) VALUES ({}) ",
         {
             let mut s = String::new();
             for ele in cols {
@@ -380,27 +388,13 @@ pub fn insert<T: Into<String> + Display>(
         {
             let mut s = String::new();
             for ele in values {
-                s = format!("{s}{},", {
-                    match ele {
-                        InsertValue::Int32(i) => i.to_string(),
-                        InsertValue::Int64(i) => i.to_string(),
-                        InsertValue::Int128(i) => i.to_string(),
-                        InsertValue::UnsignedInt32(u) => u.to_string(),
-                        InsertValue::UnsignedInt64(u) => u.to_string(),
-                        InsertValue::UnsignedInt128(u) => u.to_string(),
-                        InsertValue::Float(f) => f.to_string(),
-                        InsertValue::Text(t) => format!("\"{}\"", t).to_string(),
-                        InsertValue::Bool(b) => b.to_string().to_uppercase(),
-                        InsertValue::Null() => "NULL".to_string(),
-                    }
-                });
+                s = format!("{s}{},", { ele.to_sql_query_segment() });
             }
             s.pop();
             s
         }
     );
 
-    dbg!(&query);
     let command = conn.execute(query.as_str(), ());
 
     match command {
@@ -439,20 +433,7 @@ pub fn update_where<T: Into<String> + Display>(
                 let mut s = String::new();
                 let mut i = 0;
                 for ele in values {
-                    s = format!("{s}'{}'={},", cols[i], {
-                        match ele {
-                            InsertValue::Int32(i) => i.to_string(),
-                            InsertValue::Int64(i) => i.to_string(),
-                            InsertValue::Int128(i) => i.to_string(),
-                            InsertValue::UnsignedInt32(u) => u.to_string(),
-                            InsertValue::UnsignedInt64(u) => u.to_string(),
-                            InsertValue::UnsignedInt128(u) => u.to_string(),
-                            InsertValue::Float(f) => f.to_string(),
-                            InsertValue::Text(t) => format!("\"{}\"", t).to_string(),
-                            InsertValue::Bool(b) => b.to_string().to_uppercase(),
-                            InsertValue::Null() => "NULL".to_string(),
-                        }
-                    });
+                    s = format!("{s}{}={},", cols[i], { ele.to_sql_query_segment() });
 
                     i += 1;
                 }
@@ -478,24 +459,45 @@ pub fn write<T: Into<String> + Display + Clone>(
     unique_column: T,
     unique_key: T,
 ) -> Result<usize, SQLError> {
+    println!("The functions not dead");
     if exists(table.clone(), unique_column.clone(), unique_key.clone()).unwrap() {
-        update_where(table, cols, values, unique_column, unique_key)
+        println!("We got so far");
+        let uw = update_where(table, cols, values, unique_column, unique_key);
+        println!("Update where also lives");
+        uw
     } else {
-        insert(table, cols, values)
+        println!("Well hope inserting isnt fucked");
+        let i = insert(table, cols, values);
+        println!("It isnt");
+        i
     }
 }
 
 /// Checks if a row with a certain key in the table exists.
 #[allow(unused)]
-pub fn exists<T: Into<String> + Display, K: Into<String> + Display>(
+pub fn exists<T: Into<String> + Display, K: ToString>(
     table: T,
     unique_column: T,
     key: K,
 ) -> Result<bool, SQLError> {
     let conn = connect_to_db().expect("Failed to connect to database.");
 
-    let e_command =
-        conn.prepare(format!("SELECT * FROM {table} WHERE \"{unique_column}\"=\"{key}\"").as_str());
+    let e_command = conn.prepare(
+        format!(
+            "SELECT * FROM {table} WHERE {unique_column}='{}'",
+            key.to_string()
+                .chars()
+                .flat_map(|c| match c {
+                    '\\' => "\\\\".chars().collect::<Vec<_>>(), // Escape backslash
+                    '\'' => "''".chars().collect::<Vec<_>>(),   // Escape single quote
+                    '\"' => "\"\"\"\"".chars().collect::<Vec<_>>(), // Escape double quote
+                    '\0' => "\\0".chars().collect::<Vec<_>>(),  // Escape NULL character
+                    _ => vec![c],
+                })
+                .collect::<String>()
+        )
+        .as_str(),
+    );
 
     let mut x = e_command.unwrap();
 
@@ -512,7 +514,7 @@ pub fn delete_row<T: Into<String> + Display>(
 ) -> Result<usize, SQLError> {
     let conn = connect_to_db().expect("Failed to connect to database.");
 
-    let statement = format!("DELETE FROM {table} WHERE '{unqiue_column}'='{key}'");
+    let statement = format!("DELETE FROM {table} WHERE {unqiue_column}='{key}'");
 
     let x = conn.execute(statement.as_str(), ());
 
@@ -526,8 +528,6 @@ pub fn truncate_table<T: Into<String> + Display>(table: T) -> Result<usize, SQLE
     let conn = connect_to_db().expect("Failed to connect to database.");
 
     let statement = format!("DELETE FROM '{table}'");
-
-    dbg!(&statement);
 
     let x = conn.execute(statement.as_str(), ());
 

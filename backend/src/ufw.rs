@@ -80,64 +80,66 @@ pub trait ToComponent {
 
 pub enum NetworkProtocol {
     Tcp(u64),
-    Udp(u64)
+    Udp(u64),
 }
 
 impl ToComponent for NetworkProtocol {
     fn to_component(&self) -> String {
         match *self {
             NetworkProtocol::Tcp(v) => format!("{v} proto tcp").to_string(),
-            NetworkProtocol::Udp(v) => format!("{v} proto udp").to_string()
+            NetworkProtocol::Udp(v) => format!("{v} proto udp").to_string(),
         }
     }
 }
 
 pub enum FirewallAction {
     Deny,
-    Allow
+    Allow,
 }
 
 impl ToComponent for FirewallAction {
     fn to_component(&self) -> String {
         match *self {
             FirewallAction::Deny => "deny".to_string(),
-            FirewallAction::Allow => "allow".to_string()
+            FirewallAction::Allow => "allow".to_string(),
         }
     }
 }
 
 pub enum FirewallSender {
     Any,
-    Specific(String)
+    Specific(String),
 }
 
 impl ToComponent for FirewallSender {
     fn to_component(&self) -> String {
         match self {
             FirewallSender::Any => "any".to_string(),
-            FirewallSender::Specific(ip_addr) => {
-                ip_addr.replace("\"", "\\\"").replace(" ", "").replace("\n", "\\n").to_string()
-            }
+            FirewallSender::Specific(ip_addr) => ip_addr
+                .replace("\"", "\\\"")
+                .replace(" ", "")
+                .replace("\n", "\\n")
+                .to_string(),
         }
     }
 }
 
 pub enum PortRange {
     Tcp(u64, u64),
-    Udp(u64, u64)
+    Udp(u64, u64),
 }
 
 impl PortRange {
     fn to_port_component(&self) -> String {
-            match *self {
-                PortRange::Tcp(l, r) => format!("{l}:{r}").to_string(),
-                PortRange::Udp(l, r) => format!("{l}:{r}").to_string()
-            }
+        match *self {
+            PortRange::Tcp(l, r) => format!("{l}:{r}").to_string(),
+            PortRange::Udp(l, r) => format!("{l}:{r}").to_string(),
+        }
     }
     fn to_protocol_component(&self) -> String {
         match *self {
             PortRange::Tcp(_, _) => "proto tcp".to_string(),
-            PortRange::Udp(_, _) => "proto udp".to_string()
+            PortRange::Udp(_, _) => "proto udp".to_string(),
         }
     }
 }
@@ -149,8 +151,18 @@ impl PortRange {
 /// * `destination_port`: NetworkProtocol - The destionation port with protocol
 /// * `sender`: FirewallSender - The sender where the rule has to apply
 /// * `action`: FirewallAction - The action to be taken
-pub fn new_rule_port<T: ToString>(password: T, destination_port: NetworkProtocol, sender: FirewallSender, action: FirewallAction) -> Result<(), String> {
-    let command = format!("ufw {} from {} to any port {}", action.to_component(), sender.to_component(), destination_port.to_component());
+pub fn new_rule_port<T: ToString>(
+    password: T,
+    destination_port: NetworkProtocol,
+    sender: FirewallSender,
+    action: FirewallAction,
+) -> Result<(), String> {
+    let command = format!(
+        "ufw {} from {} to any port {}",
+        action.to_component(),
+        sender.to_component(),
+        destination_port.to_component()
+    );
     dbg!(&command);
     // sudo ufw allow from any to any port 22 proto tcp
     match SwitchedUserCommand::new(password.to_string(), command).spawn() {
@@ -166,8 +178,19 @@ pub fn new_rule_port<T: ToString>(password: T, destination_port: NetworkProtocol
 /// * `destination_port`: NetworkProtocol - The destionation port with protocol
 /// * `sender`: FirewallSender - The sender where the rule has to apply
 /// * `action`: FirewallAction - The action to be taken
-pub fn new_rule_range<T: ToString>(password: T, destination_range: PortRange, sender: FirewallSender, action: FirewallAction) -> Result<(), String> {
-    let command = format!("ufw {} {} from {} to any port {}", action.to_component(), destination_range.to_protocol_component(), sender.to_component(), destination_range.to_port_component());
+pub fn new_rule_range<T: ToString>(
+    password: T,
+    destination_range: PortRange,
+    sender: FirewallSender,
+    action: FirewallAction,
+) -> Result<(), String> {
+    let command = format!(
+        "ufw {} {} from {} to any port {}",
+        action.to_component(),
+        destination_range.to_protocol_component(),
+        sender.to_component(),
+        destination_range.to_port_component()
+    );
     dbg!(&command);
     // sudo ufw allow from any to any port 22 proto tcp
     match SwitchedUserCommand::new(password.to_string(), command).spawn() {
