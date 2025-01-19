@@ -1,7 +1,6 @@
 use actix_cors::Cors;
 use actix_files as afs;
 use actix_multipart::form::{tempfile::TempFile, text::Text, MultipartForm};
-use actix_rt::time::interval;
 use actix_session::{storage::CookieSessionStore, Session, SessionMiddleware};
 use actix_web::cookie::Key;
 use actix_web::HttpRequest;
@@ -24,7 +23,6 @@ use std::{
 };
 use sysinfo::System as SysInfoSystem;
 use systemstat::{Platform, System};
-use tokio::task;
 extern crate inflector;
 use database::InsertValue;
 use inflector::Inflector;
@@ -472,7 +470,9 @@ async fn device_information(session: Session, state: Data<AppState>) -> HttpResp
         memory_total: u64,
         memory_free: u64,
         cpu_usage: f32,
-        amount_installed_packages: u64
+        amount_installed_packages: u64,
+        package_manager: String,
+        package_updates: u32 // TODO Implement update viewer (also for packages section) NOTE
     }
 
     let os_name = match Command::new("lsb_release").arg("-d").output() {
@@ -578,7 +578,8 @@ let cpu_usage = match state.system.lock().unwrap().cpu_load_aggregate() {
         memory_free,
         memory_total,
         cpu_usage,
-        amount_installed_packages: amount_installed_packages.try_into().unwrap_or(0)
+        amount_installed_packages: amount_installed_packages.try_into().unwrap_or(0),
+        package_manager: packages::get_package_manager().unwrap_or("".to_string())
     })
 }
 

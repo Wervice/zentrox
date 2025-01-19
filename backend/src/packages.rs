@@ -31,6 +31,7 @@ pub fn get_package_manager() -> Option<String> {
         "parrot",
         "deepin",
         "pop",
+        "raspberryos"
     ];
     let redhat_distros = ["rhel", "fedora", "centos", "mageia"];
     let arch_distros = ["arch", "manajaro", "arch", "blackarch"];
@@ -374,7 +375,6 @@ pub fn list_autoremoveable_packages() -> Result<Vec<String>, String> {
     let package_manager = get_package_manager().unwrap();
     if package_manager == "apt" {
         let command = Command::new("apt")
-            .arg("list")
             .arg("autoremove")
             .arg("--dry-run")
             .output()
@@ -448,6 +448,84 @@ pub fn list_autoremoveable_packages() -> Result<Vec<String>, String> {
         return Err("Unknow package manager".to_string());
     }
 }
+
+pub fn list_updates() -> Result<Vec<String>, String> {
+    let package_manager = get_package_manager().unwrap();
+    if package_manager == "apt" {
+        let command = Command::new("apt")
+            .arg("list")
+            .arg("--upgradable")
+            .output()
+            .unwrap();
+        let output = String::from_utf8_lossy(&command.stdout).to_string();
+        let vector = &output
+            .lines()
+            .map(|e| {
+                let entry = e.to_string();
+                let split = entry.split(" - ");
+                let collection = split.collect::<Vec<&str>>();
+                if collection.len() != 2 {
+                    String::from("")
+                } else {
+                    collection[0].to_string()
+                }
+            })
+            .filter(|lines| lines.starts_with("Remv"))
+            .collect::<Vec<String>>();
+        Ok(vector.to_vec())
+    } else if package_manager == "dnf" {
+        let command = Command::new("dnf")
+            .arg("check-update")
+            .output()
+            .unwrap();
+        let output = String::from_utf8_lossy(&command.stdout).to_string();
+        let vector = &output
+            .lines()
+            .map(|e| {
+                let entry = e.to_string();
+                let split = entry.split(".");
+                let collection = split.collect::<Vec<&str>>();
+                if collection.len() != 2 {
+                    if entry.contains(&String::from("Autoremove Packages")) {
+                        String::from("Skip")
+                    } else {
+                        String::from("")
+                    }
+                } else {
+                    collection[0].to_string()
+                }
+            })
+            .skip_while(|x| x != "Skip")
+            .skip(1)
+            .collect::<Vec<String>>();
+        Ok(vector.to_vec())
+    } else if package_manager == "pacman" {
+        let command = Command::new("pacman")
+            .arg("--noconfirm")
+            .arg("-Qdtq")
+            .output()
+            .unwrap();
+        let output = String::from_utf8_lossy(&command.stdout).to_string();
+        let vector = &output
+            .lines()
+            .map(|e| {
+                let entry = e.to_string();
+                let split = entry.split("/");
+                let collection = split.collect::<Vec<&str>>();
+                if collection.len() != 2 {
+                    String::from("")
+                } else {
+                    collection[1].to_string()
+                }
+            })
+            .skip(1)
+            .collect::<Vec<String>>();
+        Ok(vector.to_vec())
+    } else {
+        return Err("Unknow package manager".to_string());
+    }
+}
+
 
 #[derive(Clone, Debug)]
 pub struct DesktopApplication {

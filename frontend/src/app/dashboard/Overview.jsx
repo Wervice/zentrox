@@ -3,6 +3,8 @@ import {
  ArrowUpIcon,
  WifiIcon,
  EthernetPortIcon,
+ DownloadIcon,
+ BotIcon,
 } from "lucide-react";
 
 import { useState, useEffect } from "react";
@@ -30,7 +32,7 @@ function Card({ title, children, skeleton, variant = "square" }) {
  );
 }
 
-function Overview() {
+export default function Overview() {
  async function overviewFetch() {
   setReadyForFetch(false);
   // Fetch new data for CPU usage
@@ -63,7 +65,8 @@ function Overview() {
   memory_total: 0,
   memory_free: 0,
   cpu_usage: 0,
-  amount_installed_packages: 0
+  amount_installed_packages: 0,
+  package_manager: ""
  });
  const [readyForFetch, setReadyForFetch] = useState(true);
 
@@ -137,7 +140,7 @@ function Overview() {
     <br />
     {deviceInformation.temperature == -300
      ? "No temperature"
-     : Math.round(deviceInformation.cpu_usage) + "°C"}
+     : Math.round(deviceInformation.temperature) + "°C"}
    </Card>
 
    <Card
@@ -189,26 +192,14 @@ function Overview() {
     </span>
    </Card>
 	 <br />
-	 <Card variant="square" title={"Packages"} skeleton={deviceInformation.amount_installed_packages === 0}>    <span className="inline-block mr-2 mb-2">
-     <strong>Activity on {deviceInformation.net_interface}</strong>{" "}
-     <InfoButton
-      title={"Network statistics"}
-      info={
-       <>
-        Up: Bytes transmitted
-        <br />
-        Down: Bytes received
-        <br />
-        <p>
-         Network statistics rely on the IP command on your system to measure
-         transmitted and received bytes. Zentrox measures the change in bytes in
-         an interval of 5 seconds and calculates the average resulting in B/s.
-        </p>
-       </>
-      }
-     /></span></Card>
+	 <Card variant="square" title={"Packages"} skeleton={deviceInformation.amount_installed_packages === 0}>
+		<span title={`${deviceInformation.amount_installed_packages} installed packages`}><DownloadIcon className="inline-block h-4 w-4 mr-1" /> {
+			deviceInformation.amount_installed_packages
+		} Packages</span><br />
+		<span title={`using ${deviceInformation.package_manager} as package manager`}>
+			<BotIcon className="w-4 h-4 inline-block mr-1" /> {deviceInformation.package_manager}
+		</span>
+    </Card>
   </Page>
  );
 }
-
-export default Overview;
