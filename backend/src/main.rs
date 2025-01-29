@@ -70,6 +70,8 @@ struct AppState {
     net_down: Arc<Mutex<f64>>,
     net_up: Arc<Mutex<f64>>,
     net_interface: Arc<Mutex<String>>,
+    cpu_usage: Arc<Mutex<f32>>,
+    net_connected_interfaces: Arc<Mutex<i32>>
 }
 
 impl AppState {
@@ -85,7 +87,9 @@ impl AppState {
             username: Arc::new(Mutex::new(String::new())),
             net_up: Arc::new(Mutex::new(0_f64)),
             net_down: Arc::new(Mutex::new(0_f64)),
-            net_interface: Arc::new(Mutex::new(String::new()))
+            net_interface: Arc::new(Mutex::new(String::new())),
+            net_connected_interfaces: Arc::new(Mutex::new(0_i32)),
+            cpu_usage: Arc::new(Mutex::new(0_f32))
         }
     }
 
@@ -125,23 +129,50 @@ impl AppState {
             up_a = d.stats64.get("tx").unwrap().bytes;
             interface_a = d.ifname;
         });
+        let mut devices_b_counter = 0_i32;
         devices_b.unwrap().into_iter().for_each(|d| {
             if d.link_type == "loopback" || found_b { return; }
             found_b = true;
             down_b = d.stats64.get("rx").unwrap().bytes;
             up_b = d.stats64.get("tx").unwrap().bytes;
             interface_b = d.ifname;
+            devices_b_counter += 1
         });
         if interface_a != interface_b { return; }
+
         *self.net_up.lock().unwrap() = (up_b - up_a) / 5_f64;
         *self.net_down.lock().unwrap() = (down_b - down_a) / 5_f64;
         *self.net_interface.lock().unwrap() = interface_a;
+        *self.net_connected_interfaces.lock().unwrap() = devices_b_counter
+    }
+
+    /// Update CPU statistics
+    fn update_cpu_statistics(&self) {
+        if (*self.username.lock().unwrap()).to_string().is_empty() { return; }
+*self.cpu_usage.lock().unwrap() = match &self.system.lock().unwrap().cpu_load() {
+        Ok(cpu) => {
+        std::thread::sleep(std::time::Duration::from_millis(1000));
+            let cpu = cpu.done().unwrap();
+            let cpu_len = cpu.len();
+            let mut cpu_sum = 0.0_f32;
+            cpu.into_iter().for_each(|core| {
+                cpu_sum += core.user
+            });
+            (cpu_sum / cpu_len as f32) * 100.0
+        }
+        Err(err) => {
+            eprintln!("CPU Ussage Error (Returned f32 0.0) {}", err);
+            0.0
+        }
+    };
+
     }
 
     /// Initiate a loop that periodically cleans up the login_requests of the current AppState.
     fn start_interval_tasks(self) {
         let cleanup_clone = self.clone();
         let network_clone = self.clone();
+        let cpu_clone = self.clone();
         std::thread::spawn(move || {
             loop {
                 std::thread::sleep(std::time::Duration::from_millis(2 * 60 * 1000));
@@ -152,6 +183,12 @@ impl AppState {
             loop {
                 std::thread::sleep(std::time::Duration::from_millis(5 * 1000));
                 network_clone.update_network_statistics();
+            }
+        });
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(std::time::Duration::from_millis(5 * 1000));
+                cpu_clone.update_cpu_statistics();
             }
         });
     }
@@ -457,93 +494,55 @@ async fn device_information(session: Session, state: Data<AppState>) -> HttpResp
 
     #[derive(Serialize)]
     struct JsonResponse {
-        os_name: String,
         hostname: String,
         ip: String,
-        uptime: String,
+        uptime: u128,
         temperature: f32,
         zentrox_pid: u16,
         process_number: u32,
         net_up: f64,
         net_down: f64,
         net_interface: String,
+        net_connected_interfaces: i32,
         memory_total: u64,
         memory_free: u64,
         cpu_usage: f32,
-        amount_installed_packages: u64,
-        package_manager: String,
-        package_updates: u32 // TODO Implement update viewer (also for packages section) NOTE
+        ssh_active: bool,
     }
 
-    let os_name = match Command::new("lsb_release").arg("-d").output() {
-        Ok(output_value) => {
-            String::from_utf8_lossy(&output_value.stdout)
-                .to_string()
-                .replace("Description:", "") // Operating System Name Like Fedora or Debian
-        }
-        Err(_) => {
-            let data = fs::read_to_string("/etc/os-release").unwrap();
-            let lines = data.lines();
-            let mut rv = "Unknown OS".to_string();
-            for line in lines {
-                let line_split = line.split("=").collect::<Vec<&str>>();
-                if line_split.len() == 2 && line_split[0] == "NAME" {
-                    rv = line_split[1].replace("\"", "").to_string();
-                    break;
-                }
-            }
-            rv
-        }
-    };
-
-    println!("OS Name {}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
-
     // Current machines hostname. i.e.: debian_pc or 192.168.1.3
-    let hostname = {
-        match Command::new("hostname").output() {
-            Ok(v) => String::from_utf8_lossy(&v.stdout).replace("\n", ""),
-            Err(_) => fs::read_to_string("/etc/hostname")
-                .unwrap_or("No Hostname".to_string())
-                .to_string(),
-        }
-    };
+    let hostname = fs::read_to_string("/etc/hostname")
+                .unwrap_or("Unknown hostname".to_string())
+                .to_string();
 
     println!("Hostname {}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
 
-    let uptime =
-        String::from_utf8_lossy(&Command::new("uptime").arg("-p").output().unwrap().stdout)
-            .to_string()
-            .replace("up ", "");
+    let uptime = state.system.lock().unwrap().uptime().unwrap().as_millis();
 
     println!("Uptime {}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
     
     let temperature = match state.system.lock().unwrap().cpu_temp() {
         Ok(t) => t,
-        Err(_) => -300.0,
+        Err(e) => {
+            dbg!(e);
+            -300.0
+        },
     };
 
 
     println!("Temp {}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
 
-let cpu_usage = match state.system.lock().unwrap().cpu_load_aggregate() {
-        Ok(cpu) => {
-            std::thread::sleep(std::time::Duration::from_secs(1));
-            let cpu = cpu.done().unwrap();
-            cpu.user * 100.0
-        }
-        Err(err) => {
-            eprintln!("CPU Ussage Error (Returned f32 0.0) {}", err);
-            0.0
-        }
-    };
-
+    let cpu_usage = *state.cpu_usage.lock().unwrap();
 
     println!("CPU Usage {}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
 
 
     let mut process_number_system = SysInfoSystem::new_all();
     process_number_system.refresh_processes(sysinfo::ProcessesToUpdate::All);
-    let process_number = process_number_system.processes().len() as u32;
+    let processes = process_number_system.processes();
+    let has_sshd = processes.values().any(|e| e.name().to_str() == Some("sshd"));
+    
+    let process_count = processes.len() as u32;
 
     println!("procn {}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
     let mut memory_total: u64 = 0;
@@ -559,18 +558,16 @@ let cpu_usage = match state.system.lock().unwrap().cpu_load_aggregate() {
 
     println!("memuse {}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
 
-    let amount_installed_packages = packages::list_installed_packages().unwrap_or(vec![]).len();
-
     HttpResponse::Ok().json(JsonResponse {
         zentrox_pid: std::process::id() as u16,
-        os_name,
         hostname,
         uptime,
         temperature,
-        process_number,
+        process_number: process_count,
         net_down: *state.net_down.lock().unwrap(),
         net_up: *state.net_up.lock().unwrap(),
         net_interface: state.net_interface.lock().unwrap().to_string(),
+        net_connected_interfaces: *state.net_connected_interfaces.lock().unwrap(),
         ip: match private_ip() {
             Ok(v) => v.to_string(),
             Err(_) => "No route".to_string(),
@@ -578,8 +575,7 @@ let cpu_usage = match state.system.lock().unwrap().cpu_load_aggregate() {
         memory_free,
         memory_total,
         cpu_usage,
-        amount_installed_packages: amount_installed_packages.try_into().unwrap_or(0),
-        package_manager: packages::get_package_manager().unwrap_or("".to_string())
+        ssh_active: has_sshd
     })
 }
 
@@ -738,10 +734,10 @@ async fn update_ftp_config(
 
 #[derive(Serialize)]
 struct PackageResponseJson {
-    apps: Vec<Vec<std::string::String>>, // Any "package" that has a .desktop file
     packages: Vec<String>, // Any package the supported package managers (apt, pacman and dnf) say
     // would be installed on the system (names only)
     others: Vec<String>, // Not installed and not a .desktop file
+    packageManager: String
 }
 
 /// Return the current package database.
@@ -762,29 +758,12 @@ async fn package_database(session: Session, state: Data<AppState>) -> HttpRespon
         }
     };
 
-    let desktops = match packages::list_desktop_applications() {
-        Ok(v) => v,
-        Err(_) => {
-            return HttpResponse::InternalServerError().body("Failed to list desktop applications")
-        }
-    };
-
-    let desktops_clear = {
-        let mut clear: Vec<Vec<String>> = Vec::new();
-
-        for entry in desktops {
-            clear.push(vec![entry.name, entry.exec_name]);
-        }
-
-        clear
-    };
-
     let available = packages::list_available_packages().unwrap();
 
     HttpResponse::Ok().json(PackageResponseJson {
-        apps: desktops_clear, // Placeholder
         packages: installed,
-        others: available, // Placeholder
+        others: available,
+        packageManager: packages::get_package_manager().unwrap_or("".to_string())
     })
 }
 
@@ -1874,7 +1853,7 @@ async fn upload_vault(
     let tmp_file_path = form.file.file.path().to_owned();
     let _ = fs::copy(&tmp_file_path, &in_vault_path);
 
-    let _ = tokio::fs::copy(&tmp_file_path, &in_vault_path);
+    let _ = tokio::fs::copy(&tmp_file_path, &in_vault_path).await;
 
     let file_size = fs::metadata(&tmp_file_path).unwrap().len();
     let mut i = 0;

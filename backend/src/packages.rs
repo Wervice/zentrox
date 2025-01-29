@@ -2,7 +2,7 @@
 /// install packages, remove package, list installed/available/unnecessary packages
 use crate::sudo::SwitchedUserCommand;
 use std::collections::HashMap;
-use std::{fs, process::Command};
+use std::{fs, process::Command, process::Stdio};
 
 /// Determines which package manager is used by the system.
 ///
@@ -11,14 +11,13 @@ use std::{fs, process::Command};
 /// If no supported package manager is founed None will be returned.
 /// package managers, an Err is returned.
 pub fn get_package_manager() -> Option<String> {
-    let lsb_release_output = Command::new("lsb_release").arg("-is").output();
-    let binding = match lsb_release_output {
-        Ok(value) => String::from_utf8_lossy(&value.stdout).to_string(),
-        Err(_) => String::new(),
+    let os_release = fs::read_to_string("/etc/os-release").unwrap();
+    let mut id = "".to_string();
+    for line in os_release.lines() {
+        if line.starts_with("ID=") {
+            id = line.split("ID=").nth(1).unwrap_or("").to_string();
+        }
     }
-    .to_lowercase();
-    let lsb_release_id_clear = binding.replace("\n", "");
-    let lsb_release_id = lsb_release_id_clear.as_str();
     let debain_distros = [
         "debian",
         "linuxmint",
@@ -35,11 +34,11 @@ pub fn get_package_manager() -> Option<String> {
     ];
     let redhat_distros = ["rhel", "fedora", "centos", "mageia"];
     let arch_distros = ["arch", "manajaro", "arch", "blackarch"];
-    if debain_distros.contains(&lsb_release_id) {
+    if debain_distros.contains(&id.as_str()) {
         Some("apt".to_string())
-    } else if redhat_distros.contains(&lsb_release_id) {
+    } else if redhat_distros.contains(&id.as_str()) {
         Some("dnf".to_string())
-    } else if arch_distros.contains(&lsb_release_id) {
+    } else if arch_distros.contains(&id.as_str()) {
         Some("pacman".to_string())
     } else {
         // Use commands to see which ones are supported.
@@ -75,7 +74,10 @@ pub fn auto_remove(password: String) -> Result<(), String> {
         let mut packages = String::from_utf8(
             std::process::Command::new("pacman")
                 .arg("-Qdtq")
-                .output()
+        .stdout(Stdio::piped())
+                .spawn()
+            .unwrap()
+            .wait_with_output()
                 .unwrap()
                 .stdout,
         )
@@ -171,7 +173,11 @@ pub fn list_installed_packages() -> Result<Vec<String>, String> {
         let command = Command::new("apt")
             .arg("list")
             .arg("--installed")
-            .output()
+
+        .stdout(Stdio::piped())
+            .spawn()
+            .unwrap()
+            .wait_with_output()
             .unwrap();
         let output = String::from_utf8_lossy(&command.stdout).to_string();
         let vector = &output
@@ -198,7 +204,11 @@ pub fn list_installed_packages() -> Result<Vec<String>, String> {
         let command = Command::new("dnf")
             .arg("list")
             .arg("installed")
-            .output()
+
+        .stdout(Stdio::piped())
+             .spawn()
+            .unwrap()
+            .wait_with_output()
             .unwrap();
         let output = String::from_utf8_lossy(&command.stdout).to_string();
         let vector = &output
@@ -225,7 +235,11 @@ pub fn list_installed_packages() -> Result<Vec<String>, String> {
         let command = Command::new("pacman")
             .arg("--noconfirm")
             .arg("-Qq")
-            .output()
+
+        .stdout(Stdio::piped())
+            .spawn()
+            .unwrap()
+            .wait_with_output()
             .unwrap();
         let output = String::from_utf8_lossy(&command.stdout).to_string();
         let vector = &output
@@ -278,7 +292,13 @@ pub fn list_installed_packages() -> Result<Vec<String>, String> {
 pub fn list_available_packages() -> Result<Vec<String>, String> {
     let package_manager = get_package_manager().unwrap();
     if package_manager == "apt" {
-        let command = Command::new("apt").arg("list").output().unwrap();
+        let command = Command::new("apt").arg("list")
+            
+        .stdout(Stdio::piped())
+            .spawn()
+            .unwrap()
+            .wait_with_output()
+            .unwrap();
         let output = String::from_utf8_lossy(&command.stdout).to_string();
         let lines = &output.lines().filter(|x| !x.is_empty());
         let mut installed = Vec::new();
@@ -315,7 +335,12 @@ pub fn list_available_packages() -> Result<Vec<String>, String> {
         let command = Command::new("dnf")
             .arg("list")
             .arg("available")
-            .output()
+
+
+        .stdout(Stdio::piped())
+            .spawn()
+            .unwrap()
+            .wait_with_output()
             .unwrap();
         let output = String::from_utf8_lossy(&command.stdout).to_string();
         let vector = &output
@@ -342,7 +367,11 @@ pub fn list_available_packages() -> Result<Vec<String>, String> {
         let command = Command::new("pacman")
             .arg("--noconfirm")
             .arg("-Sl")
-            .output()
+
+        .stdout(Stdio::piped())
+            .spawn()
+            .unwrap()
+            .wait_with_output()
             .unwrap();
         let output = String::from_utf8_lossy(&command.stdout).to_string();
         let vector = &output
@@ -377,7 +406,11 @@ pub fn list_autoremoveable_packages() -> Result<Vec<String>, String> {
         let command = Command::new("apt")
             .arg("autoremove")
             .arg("--dry-run")
-            .output()
+
+        .stdout(Stdio::piped())
+            .spawn()
+            .unwrap()
+            .wait_with_output()
             .unwrap();
         let output = String::from_utf8_lossy(&command.stdout).to_string();
         let vector = &output
@@ -399,7 +432,11 @@ pub fn list_autoremoveable_packages() -> Result<Vec<String>, String> {
         let command = Command::new("dnf")
             .arg("repoquery")
             .arg("--unneeded")
-            .output()
+
+        .stdout(Stdio::piped())
+            .spawn()
+            .unwrap()
+            .wait_with_output()
             .unwrap();
         let output = String::from_utf8_lossy(&command.stdout).to_string();
         let vector = &output
@@ -426,8 +463,13 @@ pub fn list_autoremoveable_packages() -> Result<Vec<String>, String> {
         let command = Command::new("pacman")
             .arg("--noconfirm")
             .arg("-Qdtq")
-            .output()
+           
+        .stdout(Stdio::piped())
+            .spawn()
+            .unwrap()
+            .wait_with_output()
             .unwrap();
+
         let output = String::from_utf8_lossy(&command.stdout).to_string();
         let vector = &output
             .lines()
@@ -448,84 +490,6 @@ pub fn list_autoremoveable_packages() -> Result<Vec<String>, String> {
         return Err("Unknow package manager".to_string());
     }
 }
-
-pub fn list_updates() -> Result<Vec<String>, String> {
-    let package_manager = get_package_manager().unwrap();
-    if package_manager == "apt" {
-        let command = Command::new("apt")
-            .arg("list")
-            .arg("--upgradable")
-            .output()
-            .unwrap();
-        let output = String::from_utf8_lossy(&command.stdout).to_string();
-        let vector = &output
-            .lines()
-            .map(|e| {
-                let entry = e.to_string();
-                let split = entry.split(" - ");
-                let collection = split.collect::<Vec<&str>>();
-                if collection.len() != 2 {
-                    String::from("")
-                } else {
-                    collection[0].to_string()
-                }
-            })
-            .filter(|lines| lines.starts_with("Remv"))
-            .collect::<Vec<String>>();
-        Ok(vector.to_vec())
-    } else if package_manager == "dnf" {
-        let command = Command::new("dnf")
-            .arg("check-update")
-            .output()
-            .unwrap();
-        let output = String::from_utf8_lossy(&command.stdout).to_string();
-        let vector = &output
-            .lines()
-            .map(|e| {
-                let entry = e.to_string();
-                let split = entry.split(".");
-                let collection = split.collect::<Vec<&str>>();
-                if collection.len() != 2 {
-                    if entry.contains(&String::from("Autoremove Packages")) {
-                        String::from("Skip")
-                    } else {
-                        String::from("")
-                    }
-                } else {
-                    collection[0].to_string()
-                }
-            })
-            .skip_while(|x| x != "Skip")
-            .skip(1)
-            .collect::<Vec<String>>();
-        Ok(vector.to_vec())
-    } else if package_manager == "pacman" {
-        let command = Command::new("pacman")
-            .arg("--noconfirm")
-            .arg("-Qdtq")
-            .output()
-            .unwrap();
-        let output = String::from_utf8_lossy(&command.stdout).to_string();
-        let vector = &output
-            .lines()
-            .map(|e| {
-                let entry = e.to_string();
-                let split = entry.split("/");
-                let collection = split.collect::<Vec<&str>>();
-                if collection.len() != 2 {
-                    String::from("")
-                } else {
-                    collection[1].to_string()
-                }
-            })
-            .skip(1)
-            .collect::<Vec<String>>();
-        Ok(vector.to_vec())
-    } else {
-        return Err("Unknow package manager".to_string());
-    }
-}
-
 
 #[derive(Clone, Debug)]
 pub struct DesktopApplication {
