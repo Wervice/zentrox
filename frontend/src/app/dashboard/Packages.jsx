@@ -39,7 +39,6 @@ function Packages() {
  });
  var packageSudoPasswordInput = useRef();
  const [installedPackages, setInstalledPackages] = useState([]);
- const [installedApps, setInstalledApps] = useState([]);
  const [otherPackages, setOtherPackages] = useState([]);
  const [autoRemovePackages, setAutoRemovePackages] = useState([]);
  const [visible, setVisibility] = useState(false);
@@ -50,21 +49,6 @@ function Packages() {
  const [packagePopUpButtonState, setPackagePopUpButtonState] =
   useState("default");
 
- useEffect(() => {
-  const storedApps = localStorage.getItem("installedApps");
-  if (storedApps) {
-   setInstalledApps(JSON.parse(storedApps));
-
-   setVisibility(true);
-  }
- }, []);
-
- useEffect(() => {
-  if (installedApps.length > 0) {
-   localStorage.setItem("installedApps", JSON.stringify(installedApps));
-  }
-  setVisibility(true);
- }, [installedApps]);
 
  // Effect for managing installedPackages from localStorage
  useEffect(() => {
@@ -104,7 +88,7 @@ function Packages() {
 
  function fetchPackageList() {
   if (
-   installedPackages.length + installedApps.length + otherPackages.length !==
+   installedPackages.length + otherPackages.length !==
    0
   )
    return;
@@ -116,7 +100,6 @@ function Packages() {
    if (res.ok) {
     res.json().then((json) => {
      setInstalledPackages(Array.from(json["packages"]));
-     setInstalledApps(Array.from(json["apps"]));
      setOtherPackages(Array.from(json["others"]));
      setVisibility(true);
     });
@@ -480,25 +463,19 @@ function Packages() {
     </Dialog>
 
     <StatCard
-     name="Installed Packages"
+     name="Installed packages"
      value={installedPackages.length}
      Icon={<HardDriveIcon className="h-5 w-5 inline-block" />}
      Info="Packages that are installed on your system. This includes apps."
     />
     <StatCard
-     name="Installed Apps"
-     value={installedApps.length}
-     Icon={<AppWindow className="h-5 w-5 inline-block" />}
-     Info="Packages that have a graphical interface and are installed on your system."
-    />
-    <StatCard
-     name="Other Packages"
+     name="Available packages"
      value={otherPackages.length}
      Icon={<Package2 className="h-5 w-5 inline-block" />}
      Info="Packages including apps, that are not installed on your system but listed in your package manager."
     />
     <StatCard
-     name="Autoremove Packages"
+     name="Unused packages"
      value={autoRemovePackages.length}
      Icon={<TrashIcon className="h-5 w-5 inline-block" />}
      Info="Packages that are not required by the system anymore"
@@ -507,11 +484,11 @@ function Packages() {
     <br />
     <div className="h-fit">
      <Input
-      placeholder="Search for package"
+      placeholder="e.g. Apache, Nginx or Nextcloud"
       onChange={(e) => {
        setPackageSearchValue(e.target.value);
       }}
-      className="mt-2 inline-block"
+      className="mt-2 w-[300px] w-max-[75vw] inline-block"
      />{" "}
      <AutoRemoveButon />
     </div>

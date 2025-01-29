@@ -9,6 +9,11 @@ module.exports = {
  ],
  prefix: "",
  theme: {
+	 fontFamily: {
+		digit: [
+			"segment7"
+		]
+	 },
   backgroundSize: {
    auto: "auto",
    cover: "cover",

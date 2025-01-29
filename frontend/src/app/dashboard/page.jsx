@@ -1,26 +1,18 @@
 "use client";
 
-import { QRCodeSVG } from "qrcode.react";
-import { Checkbox } from "@/components/ui/checkbox.jsx";
 import { Button } from "@/components/ui/button.jsx";
-import { CalendarButton } from "@/components/ui/calendar.jsx";
-import { DataTable } from "@/components/ui/dataTable.jsx";
-import { Link } from "lucide-react";
 import { useEffect, useState, useRef } from "react";
-import { Label } from "@/components/ui/label";
 import "./table.css";
 import "./scroll.css";
 import { Input } from "@/components/ui/input";
 import { Toaster } from "@/components/ui/toaster";
 import { toast } from "@/components/ui/use-toast";
-import InfoButton from "@/components/ui/InfoButton.jsx";
 import {
  Dialog,
  DialogContent,
  DialogDescription,
  DialogHeader,
  DialogTitle,
- DialogTrigger,
  DialogFooter,
  DialogClose,
 } from "@/components/ui/dialog";
@@ -113,7 +105,7 @@ function Account() {
 
  useEffect(() => {
   if (account.username == "") {
-   fetch("/api/accountDetails", {
+   fetch(fetchURLPrefix + "/api/accountDetails", {
     method: "POST",
    }).then((r) => {
     if (r.ok) {
@@ -127,7 +119,7 @@ function Account() {
     }
    });
   }
- }, [account]);
+ }, []);
 
  // Callbacks to handle state updates
  const handleEditDetailsClick = useCallback(() => {

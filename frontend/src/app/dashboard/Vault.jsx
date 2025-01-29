@@ -12,6 +12,9 @@ import {
  PenLineIcon,
  UploadIcon,
  ArrowUp,
+ DeleteIcon,
+ LoaderIcon,
+ FileIcon
 } from "lucide-react";
 import {
  Dialog,
@@ -32,6 +35,12 @@ import {
  AlertDialogFooter,
  AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+ ContextMenu,
+ ContextMenuContent,
+ ContextMenuItem,
+ ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import "./scroll.css";
 import { useToast } from "@/components/ui/use-toast";
 import Page from "@/components/ui/PageWrapper";
@@ -62,7 +71,7 @@ function Vault() {
 
  useEffect(() => {
   if (vaultState == "locked") {
-   fetch("/api/isVaultConfigured").then((r) => {
+   fetch(fetchURLPrefix + "/api/isVaultConfigured").then((r) => {
     if (r.ok) {
      r.text().then((t) => {
       console.log(t);
@@ -496,14 +505,20 @@ function Vault() {
        <LockIcon className="m-auto h-52 w-52" />
        Vault Is Locked
       </div>
+		<ContextMenu modal={false}>
+		<ContextMenuTrigger>
       <Button
        className="m-auto block mt-4"
        onClick={() => {
         setDecryptKeyModalVisibility(true);
        }}
       >
-       Unlock Vault
-      </Button>
+       Unlock vault
+      </Button></ContextMenuTrigger>
+		<ContextMenuContent>
+			<ContextMenuItem onClick={() => console.log("hello")}>ABC</ContextMenuItem>
+		</ContextMenuContent>
+		</ContextMenu>
      </span>
     ) : vaultState == "unconfigured" ? (
      <span className="h-fit">
@@ -530,7 +545,7 @@ function Vault() {
       .filter((entry) => {
        return isDirectChild(entry, currentVaultPath);
       })
-      .map((entry) => {
+      .map((entry, k) => {
        var type = "";
        if (entry.endsWith("/")) {
         type = "folder";
@@ -538,7 +553,7 @@ function Vault() {
         type = "file";
        }
        return (
-        <ContextMenu>
+        <ContextMenu key={k} modal={false}>
          <ContextMenuContent>
           <ContextMenuItem
            onClick={() => {
@@ -557,7 +572,7 @@ function Vault() {
            <PenLineIcon className="w-4 h-4 inline-block mr-1" /> Rename
           </ContextMenuItem>
          </ContextMenuContent>
-         <ContextMenuTrigger>
+         <ContextMenuTrigger asChild>
           <span
            className="w-full p-4 bg-transparent block cursor-default select-none hover:bg-neutral-900 hover:transition-bg hover:duration-300 focus:outline-blue-500 focus:duration-50"
            onClick={

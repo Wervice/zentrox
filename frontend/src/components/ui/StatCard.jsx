@@ -7,7 +7,7 @@ export default function StatCard({ name, value, Info = null, Icon = <></> }) {
   var I = <></>;
  }
  return (
-  <div className="inline-block border border-neutral-600 rounded-xl w-64 p-4 mb-2 mt-2 mr-5">
+  <div className="p-4 m-2 ml-0 mb-0 rounded-xl overflow-hidden overflow-ellipsis whitespace-pre bg-zinc-950 border-zinc-900 border inline-block hover:border-zinc-800 duration-500">
    <span className="text-neutral-400 block">
     {Icon} {name} {I}
    </span>

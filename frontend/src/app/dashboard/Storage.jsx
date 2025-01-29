@@ -94,7 +94,7 @@ function Storage() {
   });
  }
 
- function DriveEntry({ entry, inset = 0, key }) {
+ function DriveEntry({ entry, inset = 0 }) {
   var children = <></>;
   if (entry.children != null) {
    children = entry.children.map((entry) => {
@@ -103,9 +103,9 @@ function Storage() {
   }
 
   return (
-   <span key={key}>
+   <span>
     <span
-     className="w-full p-4 bg-transparent border border-neutral-800 border-x-transparent block cursor-default select-none hover:bg-neutral-800 hover:transition-bg hover:duration-400 duration-200 animate-fadein focus:bg-neutral-800 focus:duration-50"
+     className="w-full p-4 bg-transparent border border-neutral-800 border-x-transparent block cursor-default select-none hover:bg-neutral-800 hover:transition-bg hover:duration-400 duration-200 focus:bg-neutral-800 focus:duration-50"
      style={{
       paddingLeft: 16 + inset * 10,
      }}

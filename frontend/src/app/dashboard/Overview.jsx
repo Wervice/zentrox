@@ -1,23 +1,23 @@
 import {
  ArrowDownIcon,
  ArrowUpIcon,
- WifiIcon,
  EthernetPortIcon,
- DownloadIcon,
- BotIcon,
+ HourglassIcon,
+ KeyIcon
 } from "lucide-react";
 
 import { useState, useEffect } from "react";
 import Page from "@/components/ui/PageWrapper";
 import fetchURLPrefix from "@/lib/fetchPrefix";
 import InfoButton from "@/components/ui/InfoButton";
+import localFont from 'next/font/local'
+const segment7 = localFont({ src: '../../../public/7segment.ttf' })
 
 function Card({ title, children, skeleton, variant = "square" }) {
- console.log(skeleton);
  return (
   <span
    className={
-    "p-4 m-2 rounded-xl overflow-hidden overflow-ellipsis whitespace-pre bg-zinc-950 border-zinc-900 border inline-block hover:bg-zinc-900 hover:duration-300" +
+    "p-4 m-2 rounded-xl overflow-hidden overflow-ellipsis whitespace-pre bg-zinc-950 border-zinc-900 border inline-block hover:border-zinc-800 duration-500" +
     (skeleton ? " animate-pulse duration-[5000ms]" : "") +
     (variant == "square" ? " h-44 aspect-square" : " h-44 aspect-video")
    }
@@ -32,8 +32,34 @@ function Card({ title, children, skeleton, variant = "square" }) {
  );
 }
 
+function FancyCounter ({ children }) {
+	return (
+		// Google Fonts' "Workbench" for smaller texts
+		// https://torinak.com/font/7-segment for larger numbers
+		<span className="bg-black/5 p-2 rounded-lg w-full block text-white transition-all duration-200 hover:bg-black/25 text-center cursor-default select-none">
+			{
+				children
+			}
+		</span>
+	)
+}
+function FancyCounterDigit ({ children }) {
+	return <span className="pl-1 pr-1 h-auto inline-block relative">
+		<span className={segment7.className + " font-semibold text-4xl absolute bottom-[-2px] z-10"}>
+		{children}
+</span>
+<span className={segment7.className + " font-semibold text-4xl inline-block bottom-[-2px] relative z-0 opacity-15"}>8</span>
+	</span>
+}
+function FancyCounterCaption ({children}) {
+	return <span className={segment7.className + " mr-1 text-xl text-white/80 relative bottom-[-2px]"}>
+		{children}
+	</span>
+}
+
 export default function Overview() {
  async function overviewFetch() {
+  var t_a = Date.now()
   setReadyForFetch(false);
   // Fetch new data for CPU usage
    // Fetch new data for Device Information
@@ -44,34 +70,41 @@ export default function Overview() {
     },
    });
 
+
+
    devInfoFetch.json().then((json) => {
     setDeviceInformation(json);
    });
-	 
+
+	 setFetchDuration(Date.now() - t_a)
   setTimeout(() => {
   setReadyForFetch(true);}, 500)
  }
 
  const [deviceInformation, setDeviceInformation] = useState({
-  os_name: "",
   zentrox_pid: "",
   process_number: "",
   hostname: "",
-  uptime: "",
+  uptime: 0,
   temperature: "",
   net_up: 0,
   net_down: 0,
+  net_connected_interfaces: 0,
   net_interface: "",
   memory_total: 0,
   memory_free: 0,
   cpu_usage: 0,
-  amount_installed_packages: 0,
-  package_manager: ""
+  package_manager: "",
+	 ssh_active: false
  });
+ const [packageStatistics, setPackageStatistics] = useState({
+	installed: [""],
+	available: [""],
+	packageManager: ""
+ })
  const [readyForFetch, setReadyForFetch] = useState(true);
-
+ const [fetchDuration, setFetchDuration] = useState(0)
  const tryOverviewFetch = () => {
-  console.log(readyForFetch)
 	 if (readyForFetch) {
    overviewFetch();
   }
@@ -80,15 +113,60 @@ export default function Overview() {
  useEffect(() => {
   const interval = setInterval(() => {
    tryOverviewFetch();
-  }, 1000);
+  }, 5000);
 
   return () => clearInterval(interval);
  }, [readyForFetch]);
 
  useEffect(() => {
   tryOverviewFetch();
+	 fetch(fetchURLPrefix + "/api/packageDatabase", {
+   headers: {
+    "Content-Type": "application/json",
+   },
+}).then((res) => {
+	 res.json().then((json) => {
+		 setPackageStatistics({
+			 installed: json.packages,
+			 available: json.others,
+			 packageManager: json.packageManager
+		 })
+	 })})
  }, []);
 
+
+function millisecondsToArray(milliseconds) {
+    const MS_IN_SECOND = 1000;
+    const MS_IN_MINUTE = MS_IN_SECOND * 60;
+    const MS_IN_HOUR = MS_IN_MINUTE * 60;
+    const MS_IN_DAY = MS_IN_HOUR * 24;
+
+    // Helper function to round down and reduce remaining milliseconds
+    const getUnitValue = (ms, unitMs) => {
+        const value = Math.floor(ms / unitMs);
+        return { value, remainder: ms % unitMs };
+    };
+
+    if (milliseconds >= MS_IN_DAY * 100) {
+        const days = Math.floor(milliseconds / MS_IN_DAY);
+        return [[days.toString(), "d"]];
+    } else if (milliseconds >= MS_IN_DAY) {
+        const { value: days, remainder } = getUnitValue(milliseconds, MS_IN_DAY);
+        const { value: hours } = getUnitValue(remainder, MS_IN_HOUR);
+        return [[days.toString(), "d"], [hours.toString(), "h"]];
+    } else if (milliseconds >= MS_IN_HOUR) {
+        const { value: hours, remainder } = getUnitValue(milliseconds, MS_IN_HOUR);
+        const { value: minutes } = getUnitValue(remainder, MS_IN_MINUTE);
+        return [[hours.toString(), "h"], [minutes.toString(), "m"]];
+    } else if (milliseconds >= MS_IN_MINUTE) {
+        const { value: minutes, remainder } = getUnitValue(milliseconds, MS_IN_MINUTE);
+        const { value: seconds } = getUnitValue(remainder, MS_IN_SECOND);
+        return [[minutes.toString(), "m"], [seconds.toString(), "s"]];
+    } else {
+        const seconds = Math.floor(milliseconds / MS_IN_SECOND);
+        return [[seconds.toString(), "s"]];
+    }
+}
  function prettyBytes(bytesPerSecond) {
   if (bytesPerSecond === 0) return "0 B/s";
 
@@ -190,16 +268,68 @@ export default function Overview() {
      <ArrowDownIcon className="h-4 w-4 ml-1 mr-1 inline-block" />
      {prettyBytes(deviceInformation.net_down)}
     </span>
-   </Card>
-	 <br />
-	 <Card variant="square" title={"Packages"} skeleton={deviceInformation.amount_installed_packages === 0}>
-		<span title={`${deviceInformation.amount_installed_packages} installed packages`}><DownloadIcon className="inline-block h-4 w-4 mr-1" /> {
-			deviceInformation.amount_installed_packages
-		} Packages</span><br />
-		<span title={`using ${deviceInformation.package_manager} as package manager`}>
-			<BotIcon className="w-4 h-4 inline-block mr-1" /> {deviceInformation.package_manager}
-		</span>
-    </Card>
+   </Card><br />
+	 <Card title={"Uptime"} variant="square" skeleton={deviceInformation.uptime === 0}>
+		<FancyCounter>
+	 {
+		 millisecondsToArray(deviceInformation.uptime).map((e, k) => {
+			 return <span key={k}>{e[0].split("").map((d, dk) => {
+			  return <FancyCounterDigit key={dk}>{d}</FancyCounterDigit>
+			 })}
+
+			 <FancyCounterCaption>{e[1]}</FancyCounterCaption>
+
+			</span>
+			 
+		 })
+	 }
+		</FancyCounter><strong>Active since:</strong><br />
+	{ new Date((Date.now() - deviceInformation.uptime)).toLocaleDateString("en-US",{
+		 day: "2-digit",
+		 weekday: "narrow",
+		 year: "numeric",
+		 month: "2-digit",
+	 }) }
+	 </Card>
+<Card title={"Packages" + {
+	"": "",
+	"pacman": " using PacMan",
+	"apt": " using APT",
+	"dnf": " using DNF",
+}[packageStatistics.packageManager]} variant="wide" skeleton={packageStatistics.available.length === 1}>
+	<span className="inline-block mr-2 mb-2">
+     <strong className="block">Available packages</strong>
+     {packageStatistics.available.length}
+    </span>
+
+	<span className="block mr-2 mb-2">
+     <strong className="block">Installed packages</strong>
+     {packageStatistics.installed.length}
+    </span>
+
+	</Card>
+	 
+<Card title={"Connectivity"} variant="square" skeleton={deviceInformation.net_interface == ""}>
+	<span title={deviceInformation.net_connected_interfaces + " connected interface" + (deviceInformation.net_connected_interfaces > 1 ? "s" : "")}>
+	<EthernetPortIcon className="h-4 w-4 mr-1 inline-block" />
+	{
+		deviceInformation.net_connected_interfaces
+	} interface {deviceInformation.net_connected_interfaces > 1 ? "s" : ""}</span><br />
+	<span title={deviceInformation.net_connected_interfaces + " connected interfaces"}>
+	<KeyIcon className="h-4 w-4 mr-1 inline-block" />
+	SSHd {deviceInformation.ssh_active ? "active" : "inactive"} <InfoButton title={"SSH activitiy detection"} info={
+		"Zentrox checks if the sshd command is running. It can not detect any other SSH servers."
+	} />
+	</span>
+	<br />
+<span title={"latency between Zentrox server and backend"}>
+	<HourglassIcon className="h-4 w-4 mr-1 inline-block" />
+	{Math.round(fetchDuration / 1000) < 1 ? "< 1" : Math.round(fetchDuration / 1000)}s latency <InfoButton title={"Latency measurement"} info={
+		"Zentrox measures the time it takes to complete a request for the current server status. Such a request is only sent every five seconds."
+	} />
+	</span>
+	</Card>
+
   </Page>
  );
 }
