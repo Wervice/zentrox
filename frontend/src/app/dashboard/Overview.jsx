@@ -74,6 +74,7 @@ export default function Overview() {
 
    devInfoFetch.json().then((json) => {
     setDeviceInformation(json);
+	setDeviceInformationFetched(true)
    });
 
 	 setFetchDuration(Date.now() - t_a)
@@ -95,13 +96,14 @@ export default function Overview() {
   memory_free: 0,
   cpu_usage: 0,
   package_manager: "",
-	 ssh_active: false,
+  ssh_active: false,
  });
+	const [deviceInformationFetched, setDeviceInformationFetched] = useState(false);
  const [packageStatistics, setPackageStatistics] = useState({
 	installed: [""],
 	available: [""],
 	packageManager: "",
-	 canProvideoUpdates: false,
+	 canProvideUpdates: false,
 	 updates: [""]
 	
  })
@@ -185,7 +187,7 @@ function millisecondsToArray(milliseconds) {
 
  return (
   <Page name="Overview" className="align-top">
-   <Card title={"Memory usage"} skeleton={deviceInformation.memory_total == 0}>
+   <Card title={"Memory usage"} skeleton={deviceInformationFetched}>
     <span
      className={
       "text-5xl mb-2 font-semibold inline-block" +
@@ -205,7 +207,7 @@ function millisecondsToArray(milliseconds) {
     {Math.round(deviceInformation.memory_total / Math.pow(1000, 3))}GB
    </Card>
 
-   <Card title={"CPU usage"} skeleton={deviceInformation.cpu_usage == 0}>
+   <Card title={"CPU usage"} skeleton={deviceInformationFetched}>
     <span
      className={
       "text-5xl mb-2 font-semibold inline-block" +
@@ -229,7 +231,7 @@ function millisecondsToArray(milliseconds) {
    <Card
     title={"Networking"}
     variant="wide"
-    skeleton={deviceInformation.hostname == ""}
+    skeleton={deviceInformationFetched}
    >
     <span className="inline-block mr-2 mb-2">
      <strong className="block">Hostname</strong>
@@ -274,7 +276,9 @@ function millisecondsToArray(milliseconds) {
      {prettyBytes(deviceInformation.net_down)}
     </span>
    </Card><br />
-	 <Card title={"Uptime"} variant="square" skeleton={deviceInformation.uptime === 0}>
+	 <Card title={"Uptime"} variant="square" 
+    skeleton={deviceInformationFetched}
+>
 		<FancyCounter>
 	 {
 		 millisecondsToArray(deviceInformation.uptime).map((e, k) => {
@@ -301,14 +305,14 @@ function millisecondsToArray(milliseconds) {
 	"pacman": " using PacMan",
 	"apt": " using APT",
 	"dnf": " using DNF",
-}[packageStatistics.packageManager]} variant="wide" skeleton={packageStatistics.available.length === 1}>
+}[packageStatistics.packageManager]} variant="wide" skeleton={packageStatistics.packageManager === ""}>
 	<span className="inline-block mr-2 mb-2">
      <strong className="block">Available packages</strong>
      {packageStatistics.available.length}
     </span>
 
 	{
-		!packageStatistics.canProvideoUpdates ?
+		!packageStatistics.canProvideUpdates ?
 	 <span className="block mr-2 mb-2">
      <strong className="block">Installed packages</strong>
      {packageStatistics.installed.length}
@@ -320,7 +324,7 @@ function millisecondsToArray(milliseconds) {
 
 	</Card>
 	 
-<Card title={"Connectivity"} variant="square" skeleton={deviceInformation.hostname == ""}>
+<Card title={"Connectivity"} variant="square" skeleton={deviceInformationFetched}>
 	<span title={deviceInformation.net_connected_interfaces + " connected interface" + (deviceInformation.net_connected_interfaces > 1 ? "s" : "")}>
 	<EthernetPortIcon className="h-4 w-4 mr-1 inline-block" />
 	{
