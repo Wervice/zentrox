@@ -95,12 +95,15 @@ export default function Overview() {
   memory_free: 0,
   cpu_usage: 0,
   package_manager: "",
-	 ssh_active: false
+	 ssh_active: false,
  });
  const [packageStatistics, setPackageStatistics] = useState({
 	installed: [""],
 	available: [""],
-	packageManager: ""
+	packageManager: "",
+	 canProvideoUpdates: false,
+	 updates: [""]
+	
  })
  const [readyForFetch, setReadyForFetch] = useState(true);
  const [fetchDuration, setFetchDuration] = useState(0)
@@ -129,7 +132,9 @@ export default function Overview() {
 		 setPackageStatistics({
 			 installed: json.packages,
 			 available: json.others,
-			 packageManager: json.packageManager
+			 packageManager: json.packageManager,
+			 canProvideUpdates: json.canProvideUpdates,
+			 updates: json.updates
 		 })
 	 })})
  }, []);
@@ -302,14 +307,20 @@ function millisecondsToArray(milliseconds) {
      {packageStatistics.available.length}
     </span>
 
-	<span className="block mr-2 mb-2">
+	{
+		!packageStatistics.canProvideoUpdates ?
+	 <span className="block mr-2 mb-2">
      <strong className="block">Installed packages</strong>
      {packageStatistics.installed.length}
+    </span> :  <span className="block mr-2 mb-2">
+     <strong className="block">Available updates</strong>
+     {packageStatistics.updates.length}
     </span>
+	}
 
 	</Card>
 	 
-<Card title={"Connectivity"} variant="square" skeleton={deviceInformation.net_interface == ""}>
+<Card title={"Connectivity"} variant="square" skeleton={deviceInformation.hostname == ""}>
 	<span title={deviceInformation.net_connected_interfaces + " connected interface" + (deviceInformation.net_connected_interfaces > 1 ? "s" : "")}>
 	<EthernetPortIcon className="h-4 w-4 mr-1 inline-block" />
 	{

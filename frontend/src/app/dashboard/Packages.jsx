@@ -403,7 +403,7 @@ function Packages() {
       <SearchIcon className="w-16 h-16 m-auto mt-8 text-neutral-600" />
       <br />
       <h3 className="text-xl text-neutral-600 m-auto text-center">
-       Search for package to install or uninstall
+       Search for a package to install or uninstall
       </h3>
      </div>
     </>

@@ -17,7 +17,6 @@ use std::{
     fs::{self, File},
     io::{BufReader, Read, Seek, SeekFrom},
     path::{self, PathBuf},
-    process::Command,
     sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -71,7 +70,7 @@ struct AppState {
     net_up: Arc<Mutex<f64>>,
     net_interface: Arc<Mutex<String>>,
     cpu_usage: Arc<Mutex<f32>>,
-    net_connected_interfaces: Arc<Mutex<i32>>
+    net_connected_interfaces: Arc<Mutex<i32>>,
 }
 
 impl AppState {
@@ -89,7 +88,7 @@ impl AppState {
             net_down: Arc::new(Mutex::new(0_f64)),
             net_interface: Arc::new(Mutex::new(String::new())),
             net_connected_interfaces: Arc::new(Mutex::new(0_i32)),
-            cpu_usage: Arc::new(Mutex::new(0_f32))
+            cpu_usage: Arc::new(Mutex::new(0_f32)),
         }
     }
 
@@ -110,7 +109,9 @@ impl AppState {
     }
 
     fn update_network_statistics(&self) {
-        if (*self.username.lock().unwrap()).to_string().is_empty() { return; }
+        if (*self.username.lock().unwrap()).to_string().is_empty() {
+            return;
+        }
         let devices_a = net_data::interface_information();
         std::thread::sleep(std::time::Duration::from_millis(5000));
         let devices_b = net_data::interface_information();
@@ -123,7 +124,9 @@ impl AppState {
         let mut interface_a: String = "".into();
         let mut interface_b: String = "".into();
         devices_a.unwrap().into_iter().for_each(|d| {
-            if d.link_type == "loopback" || found_a { return; }
+            if d.link_type == "loopback" || found_a {
+                return;
+            }
             found_a = true;
             down_a = d.stats64.get("rx").unwrap().bytes;
             up_a = d.stats64.get("tx").unwrap().bytes;
@@ -131,14 +134,18 @@ impl AppState {
         });
         let mut devices_b_counter = 0_i32;
         devices_b.unwrap().into_iter().for_each(|d| {
-            if d.link_type == "loopback" || found_b { return; }
+            if d.link_type == "loopback" || found_b {
+                return;
+            }
             found_b = true;
             down_b = d.stats64.get("rx").unwrap().bytes;
             up_b = d.stats64.get("tx").unwrap().bytes;
             interface_b = d.ifname;
             devices_b_counter += 1
         });
-        if interface_a != interface_b { return; }
+        if interface_a != interface_b {
+            return;
+        }
 
         *self.net_up.lock().unwrap() = (up_b - up_a) / 5_f64;
         *self.net_down.lock().unwrap() = (down_b - down_a) / 5_f64;
@@ -148,24 +155,23 @@ impl AppState {
 
     /// Update CPU statistics
     fn update_cpu_statistics(&self) {
-        if (*self.username.lock().unwrap()).to_string().is_empty() { return; }
-*self.cpu_usage.lock().unwrap() = match &self.system.lock().unwrap().cpu_load() {
-        Ok(cpu) => {
-        std::thread::sleep(std::time::Duration::from_millis(1000));
-            let cpu = cpu.done().unwrap();
-            let cpu_len = cpu.len();
-            let mut cpu_sum = 0.0_f32;
-            cpu.into_iter().for_each(|core| {
-                cpu_sum += core.user
-            });
-            (cpu_sum / cpu_len as f32) * 100.0
+        if (*self.username.lock().unwrap()).to_string().is_empty() {
+            return;
         }
-        Err(err) => {
-            eprintln!("CPU Ussage Error (Returned f32 0.0) {}", err);
-            0.0
-        }
-    };
-
+        *self.cpu_usage.lock().unwrap() = match &self.system.lock().unwrap().cpu_load() {
+            Ok(cpu) => {
+                std::thread::sleep(std::time::Duration::from_millis(1000));
+                let cpu = cpu.done().unwrap();
+                let cpu_len = cpu.len();
+                let mut cpu_sum = 0.0_f32;
+                cpu.into_iter().for_each(|core| cpu_sum += core.user);
+                (cpu_sum / cpu_len as f32) * 100.0
+            }
+            Err(err) => {
+                eprintln!("CPU Ussage Error (Returned f32 0.0) {}", err);
+                0.0
+            }
+        };
     }
 
     /// Initiate a loop that periodically cleans up the login_requests of the current AppState.
@@ -173,28 +179,20 @@ impl AppState {
         let cleanup_clone = self.clone();
         let network_clone = self.clone();
         let cpu_clone = self.clone();
-        std::thread::spawn(move || {
-            loop {
-                std::thread::sleep(std::time::Duration::from_millis(2 * 60 * 1000));
-                cleanup_clone.cleanup_old_ips();
-            }
+        std::thread::spawn(move || loop {
+            std::thread::sleep(std::time::Duration::from_millis(2 * 60 * 1000));
+            cleanup_clone.cleanup_old_ips();
         });
-        std::thread::spawn(move || {
-            loop {
-                std::thread::sleep(std::time::Duration::from_millis(5 * 1000));
-                network_clone.update_network_statistics();
-            }
+        std::thread::spawn(move || loop {
+            std::thread::sleep(std::time::Duration::from_millis(5 * 1000));
+            network_clone.update_network_statistics();
         });
-        std::thread::spawn(move || {
-            loop {
-                std::thread::sleep(std::time::Duration::from_millis(5 * 1000));
-                cpu_clone.update_cpu_statistics();
-            }
+        std::thread::spawn(move || loop {
+            std::thread::sleep(std::time::Duration::from_millis(5 * 1000));
+            cpu_clone.update_cpu_statistics();
         });
     }
 }
-
-
 
 /// Root of the server.
 ///
@@ -512,39 +510,69 @@ async fn device_information(session: Session, state: Data<AppState>) -> HttpResp
 
     // Current machines hostname. i.e.: debian_pc or 192.168.1.3
     let hostname = fs::read_to_string("/etc/hostname")
-                .unwrap_or("Unknown hostname".to_string())
-                .to_string();
+        .unwrap_or("Unknown hostname".to_string())
+        .to_string();
 
-    println!("Hostname {}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
+    println!(
+        "Hostname {}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
 
     let uptime = state.system.lock().unwrap().uptime().unwrap().as_millis();
 
-    println!("Uptime {}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
-    
+    println!(
+        "Uptime {}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
+
     let temperature = match state.system.lock().unwrap().cpu_temp() {
         Ok(t) => t,
         Err(e) => {
             dbg!(e);
             -300.0
-        },
+        }
     };
 
-
-    println!("Temp {}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
+    println!(
+        "Temp {}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
 
     let cpu_usage = *state.cpu_usage.lock().unwrap();
 
-    println!("CPU Usage {}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
-
+    println!(
+        "CPU Usage {}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
 
     let mut process_number_system = SysInfoSystem::new_all();
     process_number_system.refresh_processes(sysinfo::ProcessesToUpdate::All);
     let processes = process_number_system.processes();
-    let has_sshd = processes.values().any(|e| e.name().to_str() == Some("sshd"));
-    
+    let has_sshd = processes
+        .values()
+        .any(|e| e.name().to_str() == Some("sshd"));
+
     let process_count = processes.len() as u32;
 
-    println!("procn {}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
+    println!(
+        "procn {}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
     let mut memory_total: u64 = 0;
     let mut memory_free: u64 = 0;
 
@@ -552,11 +580,17 @@ async fn device_information(session: Session, state: Data<AppState>) -> HttpResp
         Ok(memory) => {
             memory_total = memory.total.as_u64();
             memory_free = memory.free.as_u64();
-        },
+        }
         Err(_err) => {}
     };
 
-    println!("memuse {}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
+    println!(
+        "memuse {}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
 
     HttpResponse::Ok().json(JsonResponse {
         zentrox_pid: std::process::id() as u16,
@@ -575,7 +609,7 @@ async fn device_information(session: Session, state: Data<AppState>) -> HttpResp
         memory_free,
         memory_total,
         cpu_usage,
-        ssh_active: has_sshd
+        ssh_active: has_sshd,
     })
 }
 
@@ -737,7 +771,9 @@ struct PackageResponseJson {
     packages: Vec<String>, // Any package the supported package managers (apt, pacman and dnf) say
     // would be installed on the system (names only)
     others: Vec<String>, // Not installed and not a .desktop file
-    packageManager: String
+    packageManager: String,
+    canProvideUpdates: bool,
+    updates: Vec<String>
 }
 
 /// Return the current package database.
@@ -760,10 +796,21 @@ async fn package_database(session: Session, state: Data<AppState>) -> HttpRespon
 
     let available = packages::list_available_packages().unwrap();
 
+    let updates_execution = packages::list_updates();
+    let (can_provide_updates, updates) = {
+        if let Ok(u) = updates_execution {
+            (true, u)
+        } else {
+            (false, Vec::new())
+        }
+    };
+
     HttpResponse::Ok().json(PackageResponseJson {
         packages: installed,
         others: available,
-        packageManager: packages::get_package_manager().unwrap_or("".to_string())
+        packageManager: packages::get_package_manager().unwrap_or("".to_string()),
+        canProvideUpdates: can_provide_updates,
+        updates
     })
 }
 
@@ -3036,7 +3083,7 @@ async fn main() -> std::io::Result<()> {
     let secret_session_key = Key::try_generate().expect("Failed to generate session key");
     let app_state = AppState::new();
     app_state.clone().start_interval_tasks();
-    
+
     if !database::exists("Secrets", "name", "otp_secret").unwrap()
         && database::read_cols::<&str, (bool,)>("Admin", &["use_otp"]).unwrap()[0].0
     {

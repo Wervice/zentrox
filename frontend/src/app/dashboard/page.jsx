@@ -286,7 +286,7 @@ function Account() {
     </AlertDialogContent>
    </AlertDialog>
 
-   <DropdownMenu>
+   <DropdownMenu modal={false}>
     <DropdownMenuTrigger asChild>
      <Avatar
       className="block float-right cursor-pointer"

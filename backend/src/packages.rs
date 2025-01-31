@@ -30,7 +30,7 @@ pub fn get_package_manager() -> Option<String> {
         "parrot",
         "deepin",
         "pop",
-        "raspberryos"
+        "raspberryos",
     ];
     let redhat_distros = ["rhel", "fedora", "centos", "mageia"];
     let arch_distros = ["arch", "manajaro", "arch", "blackarch"];
@@ -74,10 +74,10 @@ pub fn auto_remove(password: String) -> Result<(), String> {
         let mut packages = String::from_utf8(
             std::process::Command::new("pacman")
                 .arg("-Qdtq")
-        .stdout(Stdio::piped())
+                .stdout(Stdio::piped())
                 .spawn()
-            .unwrap()
-            .wait_with_output()
+                .unwrap()
+                .wait_with_output()
                 .unwrap()
                 .stdout,
         )
@@ -173,8 +173,7 @@ pub fn list_installed_packages() -> Result<Vec<String>, String> {
         let command = Command::new("apt")
             .arg("list")
             .arg("--installed")
-
-        .stdout(Stdio::piped())
+            .stdout(Stdio::piped())
             .spawn()
             .unwrap()
             .wait_with_output()
@@ -182,61 +181,27 @@ pub fn list_installed_packages() -> Result<Vec<String>, String> {
         let output = String::from_utf8_lossy(&command.stdout).to_string();
         let vector = &output
             .lines()
-            .map(|e| {
+            .filter_map(|e| {
                 let entry = e.to_string();
                 let split = entry.split("/");
                 let collection = split.collect::<Vec<&str>>();
                 if collection.len() != 2 {
                     if entry.contains(&String::from("Listing...")) {
-                        String::from("Skip")
+                        None
                     } else {
-                        String::from("")
+                        None
                     }
                 } else {
-                    collection[0].to_string()
+                    Some(collection[0].to_string())
                 }
             })
-            .skip_while(|x| x != "Skip")
-            .filter(|x| !x.is_empty())
             .collect::<Vec<String>>();
         Ok(vector.to_vec())
     } else if package_manager == "dnf" {
         let command = Command::new("dnf")
             .arg("list")
             .arg("installed")
-
-        .stdout(Stdio::piped())
-             .spawn()
-            .unwrap()
-            .wait_with_output()
-            .unwrap();
-        let output = String::from_utf8_lossy(&command.stdout).to_string();
-        let vector = &output
-            .lines()
-            .map(|e| {
-                let entry = e.to_string();
-                let split = entry.split(".");
-                let collection = split.collect::<Vec<&str>>();
-                if collection.len() != 2 {
-                    if entry.contains(&String::from("Installed Packages")) {
-                        String::from("Skip")
-                    } else {
-                        String::from("")
-                    }
-                } else {
-                    collection[0].to_string()
-                }
-            })
-            .skip_while(|x| x != "Skip")
-            .filter(|x| !x.is_empty())
-            .collect::<Vec<String>>();
-        Ok(vector.to_vec())
-    } else if package_manager == "pacman" {
-        let command = Command::new("pacman")
-            .arg("--noconfirm")
-            .arg("-Qq")
-
-        .stdout(Stdio::piped())
+            .stdout(Stdio::piped())
             .spawn()
             .unwrap()
             .wait_with_output()
@@ -244,19 +209,118 @@ pub fn list_installed_packages() -> Result<Vec<String>, String> {
         let output = String::from_utf8_lossy(&command.stdout).to_string();
         let vector = &output
             .lines()
-            .map(|e| {
+            .filter_map(|e| {
+                let entry = e.to_string();
+                let split = entry.split(".");
+                let collection = split.collect::<Vec<&str>>();
+                if collection.len() != 2 {
+                    if entry.contains(&String::from("Installed Packages")) {
+                        None
+                    } else {
+                        None
+                    }
+                } else {
+                    Some(collection[0].to_string())
+                }
+            })
+            .collect::<Vec<String>>();
+        Ok(vector.to_vec())
+    } else if package_manager == "pacman" {
+        let command = Command::new("pacman")
+            .arg("--noconfirm")
+            .arg("-Qq")
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap()
+            .wait_with_output()
+            .unwrap();
+        let output = String::from_utf8_lossy(&command.stdout).to_string();
+        let vector = &output
+            .lines()
+            .filter_map(|e| {
                 let entry = e.to_string();
                 let split = entry.split("/");
                 let collection = split.collect::<Vec<&str>>();
                 if collection.len() != 1 {
-                    String::from("")
+                    None
                 } else {
-                    collection[0].to_string()
+                    Some(collection[0].to_string())
                 }
             })
-            .filter(|x| !x.is_empty())
             .collect::<Vec<String>>();
         Ok(vector.to_vec())
+    } else {
+        return Err("Unknow package manager".to_string());
+    }
+}
+
+/// List every package, that is out-dated according to the package manager.
+/// This binding does *not* support pacman, as it would require a sudo password
+///
+/// Commands:
+/// * `apt list --upgradable`
+/// * `dnf list-update`
+pub fn list_updates() -> Result<Vec<String>, String> {
+    let package_manager = get_package_manager().unwrap();
+    if package_manager == "apt" {
+        let command = Command::new("apt")
+            .arg("list")
+            .arg("--upgradable")
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap()
+            .wait_with_output()
+            .unwrap();
+        let output = String::from_utf8_lossy(&command.stdout).to_string();
+        let vector = &output
+            .lines()
+            .filter_map(|e| {
+                let entry = e.to_string();
+                let split = entry.split("/");
+                let collection = split.collect::<Vec<&str>>();
+                if collection.len() != 2 {
+                    if entry.contains(&String::from("Listing...")) {
+                        None
+                    } else {
+                        None
+                    }
+                } else {
+                    Some(collection[0].to_string())
+                }
+            })
+            .collect::<Vec<String>>();
+        Ok(vector.to_vec())
+    } else if package_manager == "dnf" {
+        let command = Command::new("dnf")
+            .arg("list-update")
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap()
+            .wait_with_output()
+            .unwrap();
+        let output = String::from_utf8_lossy(&command.stdout).to_string();
+        let vector = &output
+            .lines()
+            .filter_map(|e| {
+                let entry = e.to_string();
+                let split = entry.split(".");
+                let collection = split.collect::<Vec<&str>>();
+                if collection.len() != 2 {
+                    if entry.contains(&String::from("Updating and loading repositories:"))
+                        || entry.contains(&String::from("Repositories loaded."))
+                    {
+                        None
+                    } else {
+                        None
+                    }
+                } else {
+                    Some(collection[0].to_string())
+                }
+            })
+            .collect::<Vec<String>>();
+        Ok(vector.to_vec())
+    } else if package_manager == "pacman" {
+        return Err("PacMan requires sudo password for update listing.".to_string());
     } else {
         return Err("Unknow package manager".to_string());
     }
@@ -292,9 +356,9 @@ pub fn list_installed_packages() -> Result<Vec<String>, String> {
 pub fn list_available_packages() -> Result<Vec<String>, String> {
     let package_manager = get_package_manager().unwrap();
     if package_manager == "apt" {
-        let command = Command::new("apt").arg("list")
-            
-        .stdout(Stdio::piped())
+        let command = Command::new("apt")
+            .arg("list")
+            .stdout(Stdio::piped())
             .spawn()
             .unwrap()
             .wait_with_output()
@@ -335,9 +399,7 @@ pub fn list_available_packages() -> Result<Vec<String>, String> {
         let command = Command::new("dnf")
             .arg("list")
             .arg("available")
-
-
-        .stdout(Stdio::piped())
+            .stdout(Stdio::piped())
             .spawn()
             .unwrap()
             .wait_with_output()
@@ -345,30 +407,27 @@ pub fn list_available_packages() -> Result<Vec<String>, String> {
         let output = String::from_utf8_lossy(&command.stdout).to_string();
         let vector = &output
             .lines()
-            .map(|e| {
+            .filter_map(|e| {
                 let entry = e.to_string();
                 let split = entry.split(".");
                 let collection = split.collect::<Vec<&str>>();
                 if collection.len() != 2 {
                     if entry.contains(&String::from("Available Packages")) {
-                        String::from("Skip")
+                        None
                     } else {
-                        String::from("")
+                        None
                     }
                 } else {
-                    collection[0].to_string()
+                    Some(collection[0].to_string())
                 }
             })
-            .skip_while(|x| x != "Skip")
-            .filter(|x| !x.is_empty())
             .collect::<Vec<String>>();
         Ok(vector.to_vec())
     } else if package_manager == "pacman" {
         let command = Command::new("pacman")
             .arg("--noconfirm")
             .arg("-Sl")
-
-        .stdout(Stdio::piped())
+            .stdout(Stdio::piped())
             .spawn()
             .unwrap()
             .wait_with_output()
@@ -406,8 +465,7 @@ pub fn list_autoremoveable_packages() -> Result<Vec<String>, String> {
         let command = Command::new("apt")
             .arg("autoremove")
             .arg("--dry-run")
-
-        .stdout(Stdio::piped())
+            .stdout(Stdio::piped())
             .spawn()
             .unwrap()
             .wait_with_output()
@@ -432,8 +490,7 @@ pub fn list_autoremoveable_packages() -> Result<Vec<String>, String> {
         let command = Command::new("dnf")
             .arg("repoquery")
             .arg("--unneeded")
-
-        .stdout(Stdio::piped())
+            .stdout(Stdio::piped())
             .spawn()
             .unwrap()
             .wait_with_output()
@@ -441,30 +498,27 @@ pub fn list_autoremoveable_packages() -> Result<Vec<String>, String> {
         let output = String::from_utf8_lossy(&command.stdout).to_string();
         let vector = &output
             .lines()
-            .map(|e| {
+            .filter_map(|e| {
                 let entry = e.to_string();
                 let split = entry.split(".");
                 let collection = split.collect::<Vec<&str>>();
                 if collection.len() != 2 {
                     if entry.contains(&String::from("Autoremove Packages")) {
-                        String::from("Skip")
+                        None
                     } else {
-                        String::from("")
+                        None
                     }
                 } else {
-                    collection[0].to_string()
+                    Some(collection[0].to_string())
                 }
             })
-            .skip_while(|x| x != "Skip")
-            .skip(1)
             .collect::<Vec<String>>();
         Ok(vector.to_vec())
     } else if package_manager == "pacman" {
         let command = Command::new("pacman")
             .arg("--noconfirm")
             .arg("-Qdtq")
-           
-        .stdout(Stdio::piped())
+            .stdout(Stdio::piped())
             .spawn()
             .unwrap()
             .wait_with_output()

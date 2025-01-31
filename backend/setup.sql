@@ -43,3 +43,7 @@ CREATE TABLE Admin (
 	knows_otp boolean,
 	PRIMARY KEY (key)
 );
+CREATE TABLE VaultNames (
+	uuid varchar(127),
+	name varchar(16383)
+)

@@ -27,7 +27,7 @@ pub fn private_ip() -> Result<IpAddr, ()> {
                 r.push(c as char);
             });
             if !v.status.success() {
-                return Err(())
+                return Err(());
             }
             let routes: Vec<Route> = serde_json::from_str(&r).unwrap();
             if routes.len() == 0 {
@@ -49,7 +49,7 @@ pub struct TransmissionStatistics {
     pub over_errors: Option<i64>,
     pub multicast: Option<i64>,
     pub carrier_errors: Option<i64>,
-    pub collisions: Option<i64>
+    pub collisions: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -67,7 +67,7 @@ pub struct Interface {
     pub address: String,
     pub broadcast: String,
     pub stats64: HashMap<String, TransmissionStatistics>,
-    pub altnames: Option<Vec<String>>
+    pub altnames: Option<Vec<String>>,
 }
 
 pub fn interface_information() -> Result<Vec<Interface>, ()> {

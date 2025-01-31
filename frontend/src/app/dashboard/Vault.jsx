@@ -316,10 +316,10 @@ function Vault() {
            });
            return;
           }
-          if (newDirectoryInput.current.value.length > 64) {
+          if (new Blob([newDirectoryInput.current.value.length]).size > 16) {
            toast({
             title: "Filename too long",
-            description: "A filename can not be longer than 64 characters.",
+            description: "A filename can not be longer than 16 characters.",
            });
            return;
           }
@@ -339,7 +339,7 @@ function Vault() {
            } else {
             toast({
              title: "Failed to create new directory",
-             description: `Vault could not create a new directory ${newDirectoryInput.current.value} in ${currentVaultPath}`,
+             description: `Vault could not create a new directory ${newDirectoryInput.current.value} in /${currentVaultPath}`,
             });
            }
           });
@@ -473,10 +473,13 @@ function Vault() {
          setUploadButton("default");
         } else {
          setUploadButton("default");
-         toast({
+         res.text().then((errorMessage) => {
+
+			toast({
           title: "Failed to upload file",
-          description: "Zentrox failed to upload the file you provided",
+          description: `Zentrox failed to upload the file you provided\nError: ${errorMessage}`,
          });
+		 });
         }
        });
       }
@@ -536,7 +539,7 @@ function Vault() {
       </Button>
      </span>
     ) : (
-     ""
+     "/" + currentVaultPath
     )}
     {
      /*
@@ -545,7 +548,8 @@ function Vault() {
       .filter((entry) => {
        return isDirectChild(entry, currentVaultPath);
       })
-      .map((entry, k) => {
+      .map((entry, k) => { 
+		if (entry == ".vault" && currentVaultPath == "") return;
        var type = "";
        if (entry.endsWith("/")) {
         type = "folder";
