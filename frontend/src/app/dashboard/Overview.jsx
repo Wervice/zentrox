@@ -103,7 +103,8 @@ export default function Overview() {
 	available: [""],
 	packageManager: "",
 	 canProvideUpdates: false,
-	 updates: [""]
+	 updates: [""],
+	 unloaded: false
 	
  })
  const [readyForFetch, setReadyForFetch] = useState(true);
@@ -135,7 +136,8 @@ export default function Overview() {
 			 available: json.others,
 			 packageManager: json.packageManager,
 			 canProvideUpdates: json.canProvideUpdates,
-			 updates: json.updates
+			 updates: json.updates,
+			 unloaded: true
 		 })
 	 })})
  }, []);
@@ -305,7 +307,7 @@ skeleton={deviceInformation.unloaded === true}
 	"apt": " using APT",
 	"dnf": " using DNF",
 }[packageStatistics.packageManager]} variant="wide" 
-skeleton={deviceInformation.unloaded === true}
+skeleton={packageStatistics.unloaded === true}
 >
 	<span className="inline-block mr-2 mb-2">
      <strong className="block">Available packages</strong>
@@ -326,7 +328,7 @@ skeleton={deviceInformation.unloaded === true}
 	</Card>
 	 
 <Card title={"Connectivity"} variant="square" 
-skeleton={deviceInformation.unloaded === true}
+skeleton={deviceInformation.unloaded}
 >
 	<span title={deviceInformation.net_connected_interfaces + " connected interface" + (deviceInformation.net_connected_interfaces > 1 ? "s" : "")}>
 	<EthernetPortIcon className="h-4 w-4 mr-1 inline-block" />
