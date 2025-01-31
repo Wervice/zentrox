@@ -104,7 +104,7 @@ export default function Overview() {
 	packageManager: "",
 	 canProvideUpdates: false,
 	 updates: [""],
-	 unloaded: false
+	 unloaded: true
 	
  })
  const [readyForFetch, setReadyForFetch] = useState(true);
@@ -137,7 +137,7 @@ export default function Overview() {
 			 packageManager: json.packageManager,
 			 canProvideUpdates: json.canProvideUpdates,
 			 updates: json.updates,
-			 unloaded: true
+			 unloaded: false
 		 })
 	 })})
  }, []);
@@ -307,7 +307,7 @@ skeleton={deviceInformation.unloaded === true}
 	"apt": " using APT",
 	"dnf": " using DNF",
 }[packageStatistics.packageManager]} variant="wide" 
-skeleton={packageStatistics.unloaded === true}
+skeleton={packageStatistics.unloaded}
 >
 	<span className="inline-block mr-2 mb-2">
      <strong className="block">Available packages</strong>
