@@ -74,7 +74,6 @@ export default function Overview() {
 
    devInfoFetch.json().then((json) => {
     setDeviceInformation(json);
-	setDeviceInformationFetched(true)
    });
 
 	 setFetchDuration(Date.now() - t_a)
@@ -97,8 +96,8 @@ export default function Overview() {
   cpu_usage: 0,
   package_manager: "",
   ssh_active: false,
+  unloaded: true
  });
-	const [deviceInformationFetched, setDeviceInformationFetched] = useState(false);
  const [packageStatistics, setPackageStatistics] = useState({
 	installed: [""],
 	available: [""],
@@ -187,7 +186,7 @@ function millisecondsToArray(milliseconds) {
 
  return (
   <Page name="Overview" className="align-top">
-   <Card title={"Memory usage"} skeleton={deviceInformationFetched}>
+   <Card title={"Memory usage"} skeleton={deviceInformation.unloaded === true}>
     <span
      className={
       "text-5xl mb-2 font-semibold inline-block" +
@@ -207,7 +206,7 @@ function millisecondsToArray(milliseconds) {
     {Math.round(deviceInformation.memory_total / Math.pow(1000, 3))}GB
    </Card>
 
-   <Card title={"CPU usage"} skeleton={deviceInformationFetched}>
+   <Card title={"CPU usage"} skeleton={deviceInformation.unloaded === true}>
     <span
      className={
       "text-5xl mb-2 font-semibold inline-block" +
@@ -231,7 +230,7 @@ function millisecondsToArray(milliseconds) {
    <Card
     title={"Networking"}
     variant="wide"
-    skeleton={deviceInformationFetched}
+skeleton={deviceInformation.unloaded === true}
    >
     <span className="inline-block mr-2 mb-2">
      <strong className="block">Hostname</strong>
@@ -277,7 +276,7 @@ function millisecondsToArray(milliseconds) {
     </span>
    </Card><br />
 	 <Card title={"Uptime"} variant="square" 
-    skeleton={deviceInformationFetched}
+skeleton={deviceInformation.unloaded === true}
 >
 		<FancyCounter>
 	 {
@@ -305,7 +304,9 @@ function millisecondsToArray(milliseconds) {
 	"pacman": " using PacMan",
 	"apt": " using APT",
 	"dnf": " using DNF",
-}[packageStatistics.packageManager]} variant="wide" skeleton={packageStatistics.packageManager === ""}>
+}[packageStatistics.packageManager]} variant="wide" 
+skeleton={deviceInformation.unloaded === true}
+>
 	<span className="inline-block mr-2 mb-2">
      <strong className="block">Available packages</strong>
      {packageStatistics.available.length}
@@ -324,7 +325,9 @@ function millisecondsToArray(milliseconds) {
 
 	</Card>
 	 
-<Card title={"Connectivity"} variant="square" skeleton={deviceInformationFetched}>
+<Card title={"Connectivity"} variant="square" 
+skeleton={deviceInformation.unloaded === true}
+>
 	<span title={deviceInformation.net_connected_interfaces + " connected interface" + (deviceInformation.net_connected_interfaces > 1 ? "s" : "")}>
 	<EthernetPortIcon className="h-4 w-4 mr-1 inline-block" />
 	{
