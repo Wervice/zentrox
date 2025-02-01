@@ -3,6 +3,7 @@ use actix_files as afs;
 use actix_multipart::form::{tempfile::TempFile, text::Text, MultipartForm};
 use actix_session::{storage::CookieSessionStore, Session, SessionMiddleware};
 use actix_web::cookie::Key;
+use actix_web::web::Path;
 use actix_web::HttpRequest;
 use actix_web::{
     get, http::header, http::StatusCode, middleware, post, web, web::Data, App, HttpResponse,
@@ -11,6 +12,7 @@ use actix_web::{
 use dirs;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256, Sha512};
+use std::usize;
 use std::{
     collections::HashMap,
     env,
@@ -773,45 +775,88 @@ struct PackageResponseJson {
     others: Vec<String>, // Not installed and not a .desktop file
     packageManager: String,
     canProvideUpdates: bool,
-    updates: Vec<String>
+    updates: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct PackageResponseJsonCounts {
+    packages: usize, // Any package the supported package managers (apt, pacman and dnf) say
+    // would be installed on the system (names only)
+    others: usize, // Not installed and not a .desktop file
+    packageManager: String,
+    canProvideUpdates: bool,
+    updates: usize,
 }
 
 /// Return the current package database.
 ///
 /// This returns a list of every installed packages, every app the has a .desktop file and all
 /// available packages that are listed in the package manager.
-#[get("/api/packageDatabase")]
-async fn package_database(session: Session, state: Data<AppState>) -> HttpResponse {
+#[get("/api/packageDatabase/{count_only}")]
+async fn package_database(
+    session: Session,
+    state: Data<AppState>,
+    path: Path<bool>,
+) -> HttpResponse {
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    let installed = match packages::list_installed_packages() {
-        Ok(packages) => packages,
-        Err(err) => {
-            eprintln!("Listing installed packages failed: {}", err);
-            Vec::new()
-        }
-    };
+    if path.into_inner() {
+        let installed = match packages::list_installed_packages() {
+            Ok(packages) => packages.len(),
+            Err(err) => {
+                eprintln!("Listing installed packages failed: {}", err);
+                0
+            }
+        };
 
-    let available = packages::list_available_packages().unwrap();
+        let available = packages::list_available_packages().unwrap().len();
 
-    let updates_execution = packages::list_updates();
-    let (can_provide_updates, updates) = {
-        if let Ok(u) = updates_execution {
-            (true, u)
-        } else {
-            (false, Vec::new())
-        }
-    };
+        let updates_execution = packages::list_updates();
+        let (can_provide_updates, updates) = {
+            if let Ok(u) = updates_execution {
+                (true, u.len())
+            } else {
+                (false, 0)
+            }
+        };
 
-    HttpResponse::Ok().json(PackageResponseJson {
-        packages: installed,
-        others: available,
-        packageManager: packages::get_package_manager().unwrap_or("".to_string()),
-        canProvideUpdates: can_provide_updates,
-        updates
-    })
+        HttpResponse::Ok().json(PackageResponseJsonCounts {
+            packages: installed,
+            others: available,
+            packageManager: packages::get_package_manager().unwrap_or("".to_string()),
+            canProvideUpdates: can_provide_updates,
+            updates,
+        })
+    } else {
+        let installed = match packages::list_installed_packages() {
+            Ok(packages) => packages,
+            Err(err) => {
+                eprintln!("Listing installed packages failed: {}", err);
+                Vec::new()
+            }
+        };
+
+        let available = packages::list_available_packages().unwrap();
+
+        let updates_execution = packages::list_updates();
+        let (can_provide_updates, updates) = {
+            if let Ok(u) = updates_execution {
+                (true, u)
+            } else {
+                (false, Vec::new())
+            }
+        };
+
+        HttpResponse::Ok().json(PackageResponseJson {
+            packages: installed,
+            others: available,
+            packageManager: packages::get_package_manager().unwrap_or("".to_string()),
+            canProvideUpdates: can_provide_updates,
+            updates,
+        })
+    }
 }
 
 // Packages that would be affected by an autoremove

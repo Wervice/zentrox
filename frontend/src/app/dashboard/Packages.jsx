@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button.jsx";
 import {
+ RefreshCcw,
  HardDriveIcon,
- AppWindow,
  Package2,
  Loader2,
  CircleX,
@@ -9,6 +9,7 @@ import {
  TrashIcon,
  Paintbrush2,
  CircleCheck,
+ BotIcon,
 } from "lucide-react";
 import { useEffect, useState, useRef } from "react";
 import "./table.css";
@@ -40,6 +41,9 @@ function Packages() {
  var packageSudoPasswordInput = useRef();
  const [installedPackages, setInstalledPackages] = useState([]);
  const [otherPackages, setOtherPackages] = useState([]);
+ const [canProvideUpdates, setCanProvideUpdates] = useState(false);
+ const [updates, setUpdates] = useState([]);
+ const [packageManager, setPackageManager] = useState("");
  const [autoRemovePackages, setAutoRemovePackages] = useState([]);
  const [visible, setVisibility] = useState(false);
  const [packageSearchValue, setPackageSearchValue] = useState("");
@@ -92,7 +96,7 @@ function Packages() {
    0
   )
    return;
-  fetch(fetchURLPrefix + "/api/packageDatabase", {
+  fetch(fetchURLPrefix + "/api/packageDatabase/false", {
    headers: {
     "Content-Type": "application/json",
    },
@@ -101,6 +105,9 @@ function Packages() {
     res.json().then((json) => {
      setInstalledPackages(Array.from(json["packages"]));
      setOtherPackages(Array.from(json["others"]));
+	 setCanProvideUpdates(json.canProvideUpdates);
+	 setUpdates(json.updates)
+	 setPackageManager(json.packageManager)
      setVisibility(true);
     });
    } else {
@@ -481,6 +488,26 @@ function Packages() {
      Info="Packages that are not required by the system anymore"
     />
 
+	  {
+		  canProvideUpdates ?
+    <StatCard
+     name="Available updates"
+     value={updates.length}
+     Icon={<RefreshCcw className="h-5 w-5 inline-block" />}
+     Info="Packages that can be updated"
+    /> : <></>
+	  }
+
+{
+	packageManager != "" ?
+    <StatCard
+     name="Package manager"
+     value={packageManager}
+     Icon={<BotIcon className="h-5 w-5 inline-block" />}
+     Info="The package manager used by the system to install, remove and update packages."
+    /> : <></>
+	  }
+
     <br />
     <div className="h-fit">
      <Input
@@ -488,7 +515,7 @@ function Packages() {
       onChange={(e) => {
        setPackageSearchValue(e.target.value);
       }}
-      className="mt-2 w-[300px] w-max-[75vw] inline-block"
+      className="mt-2 w-[300px] mr-1 w-max-[75vw] inline-block"
      />{" "}
      <AutoRemoveButon />
     </div>

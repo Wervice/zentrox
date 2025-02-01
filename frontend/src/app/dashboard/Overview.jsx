@@ -11,6 +11,7 @@ import Page from "@/components/ui/PageWrapper";
 import fetchURLPrefix from "@/lib/fetchPrefix";
 import InfoButton from "@/components/ui/InfoButton";
 import localFont from 'next/font/local'
+import { toast } from "@/components/ui/use-toast";
 const segment7 = localFont({ src: '../../../public/7segment.ttf' })
 
 function Card({ title, children, skeleton, variant = "square" }) {
@@ -99,11 +100,11 @@ export default function Overview() {
   unloaded: true
  });
  const [packageStatistics, setPackageStatistics] = useState({
-	installed: [""],
-	available: [""],
+	installed: 0,
+	available: 0,
 	packageManager: "",
 	 canProvideUpdates: false,
-	 updates: [""],
+	 updates: 0,
 	 unloaded: true
 	
  })
@@ -125,7 +126,8 @@ export default function Overview() {
 
  useEffect(() => {
   tryOverviewFetch();
-	 fetch(fetchURLPrefix + "/api/packageDatabase", {
+	 // Only fetches the number of packages
+	 fetch(fetchURLPrefix + "/api/packageDatabase/true", {
    headers: {
     "Content-Type": "application/json",
    },
@@ -221,7 +223,7 @@ function millisecondsToArray(milliseconds) {
            : " text-purple-500")
      }
     >
-     {Math.round(deviceInformation.cpu_usage)}%
+     {Math.round(deviceInformation.cpu_usage) == 0 ? "< 1" : Math.round(deviceInformation.cpu_usage)}%
     </span>
     <br />
     {deviceInformation.temperature == -300
@@ -236,20 +238,36 @@ skeleton={deviceInformation.unloaded === true}
    >
     <span className="inline-block mr-2 mb-2">
      <strong className="block">Hostname</strong>
-     {deviceInformation.hostname}
-    </span>
-    <span className="inline-block mr-2 mb-2">
-     <strong className="block">Private IP</strong>
-     <span
-      className="cursor-pointer acitve:text-green-500"
+
+     <button
+      className="cursor-pointer active:scale-110 active:text-green-500 transition-all duration-75 bg-transparent border-transparent inline-block"
       onClick={() => {
        try {
         window.navigator.clipboard.writeText(deviceInformation.ip);
+		toast({
+			title: "Copied hostname to clipboard"
+		})
+       } catch {}
+      }}
+     >
+     {deviceInformation.hostname}
+	 </button>
+    </span>
+    <span className="inline-block mr-2 mb-2">
+     <strong className="block">Private IP</strong>
+     <button
+      className="cursor-pointer active:scale-110 active:text-green-500 transition-all duration-75 bg-transparent border-transparent inline-block"
+      onClick={() => {
+       try {
+        window.navigator.clipboard.writeText(deviceInformation.ip);
+		toast({
+			title: "Copied private IP to clipboard"
+		})
        } catch {}
       }}
      >
       {deviceInformation.ip}
-     </span>
+     </button>
     </span>
     <br />
     <span className="inline-block mr-2 mb-2">
@@ -311,17 +329,17 @@ skeleton={packageStatistics.unloaded}
 >
 	<span className="inline-block mr-2 mb-2">
      <strong className="block">Available packages</strong>
-     {packageStatistics.available.length}
+     {packageStatistics.available}
     </span>
 
 	{
 		!packageStatistics.canProvideUpdates ?
 	 <span className="block mr-2 mb-2">
      <strong className="block">Installed packages</strong>
-     {packageStatistics.installed.length}
+     {packageStatistics.installed}
     </span> :  <span className="block mr-2 mb-2">
      <strong className="block">Available updates</strong>
-     {packageStatistics.updates.length}
+     {packageStatistics.updates}
     </span>
 	}
 
@@ -330,11 +348,11 @@ skeleton={packageStatistics.unloaded}
 <Card title={"Connectivity"} variant="square" 
 skeleton={deviceInformation.unloaded}
 >
-	<span title={deviceInformation.net_connected_interfaces + " connected interface" + (deviceInformation.net_connected_interfaces > 1 ? "s" : "")}>
+	<span title={deviceInformation.net_connected_interfaces + " connected interface" + (deviceInformation.net_connected_interfaces !== 1 ? "s" : "")}>
 	<EthernetPortIcon className="h-4 w-4 mr-1 inline-block" />
 	{
 		deviceInformation.net_connected_interfaces
-	} interface {deviceInformation.net_connected_interfaces > 1 ? "s" : ""}</span><br />
+	} interface{deviceInformation.net_connected_interfaces !== 1 ? "s" : ""}</span><br />
 	<span title={deviceInformation.net_connected_interfaces + " connected interfaces"}>
 	<KeyIcon className="h-4 w-4 mr-1 inline-block" />
 	SSHd {deviceInformation.ssh_active ? "active" : "inactive"} <InfoButton title={"SSH activitiy detection"} info={
