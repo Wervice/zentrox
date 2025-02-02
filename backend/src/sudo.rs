@@ -1,4 +1,5 @@
 use rand::distributions::{Alphanumeric, DistString};
+use std::fmt::Display;
 use std::io::BufReader;
 use std::io::{Read, Write};
 use std::process::Command;
@@ -36,7 +37,7 @@ impl SwitchedUserCommand {
     /// Create new SwitchedUserCommand.
     /// * `password` - The password used for `sudo`
     /// * `command` - The command without arguments that will be launched
-    pub fn new<T: ToString>(password: T, command: T) -> SwitchedUserCommand {
+    pub fn new<A: Display, B: Display>(password: A, command: B) -> SwitchedUserCommand {
         SwitchedUserCommand {
             password: password.to_string(),
             command: command.to_string(),
@@ -46,10 +47,10 @@ impl SwitchedUserCommand {
 
     /// Adds an argument to an exisiting SwitchedUserCommand
     /// * `argument` - The argument that will be added
-    pub fn arg(&mut self, argument: String) -> &mut Self {
+    pub fn arg<T: Display>(&mut self, argument: T) -> &mut Self {
         self.args = {
             let mut v = self.args.clone();
-            v.push(argument);
+            v.push(argument.to_string());
             v
         };
 

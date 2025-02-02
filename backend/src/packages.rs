@@ -1,6 +1,6 @@
 /// APT, DNF, PacMan bindings to
 /// install packages, remove package, list installed/available/unnecessary packages
-use crate::sudo::SwitchedUserCommand;
+use crate::sudo::{SudoExecutionResult, SwitchedUserCommand};
 use std::collections::HashMap;
 use std::{fs, process::Command, process::Stdio};
 
@@ -61,7 +61,7 @@ pub fn get_package_manager() -> Option<String> {
 /// package managers, an Err is returned.
 /// * `password` - Password used to run sudo
 
-pub fn auto_remove(password: String) -> Result<(), String> {
+pub fn remove_orphaned_packages(password: String) -> Result<(), String> {
     let package_mamager = get_package_manager().unwrap();
 
     let command: String;
@@ -122,9 +122,10 @@ pub fn install_package(name: String, password: String) -> Result<(), String> {
         return Err("Unknown package manager".to_string());
     }
 
-    let _ = SwitchedUserCommand::new(password, command).spawn();
-
-    Ok(())
+    match SwitchedUserCommand::new(password, command).spawn() {
+        SudoExecutionResult::Success(_) => Ok(()),
+        _ => Err("Failed to spawn with sudo command".to_string())
+    }
 }
 
 /// Removes package from the system.
@@ -150,9 +151,85 @@ pub fn remove_package(name: String, password: String) -> Result<(), String> {
         return Err("Unknown package manager".to_string());
     }
 
-    let _ = SwitchedUserCommand::new(password, command).spawn();
+    match SwitchedUserCommand::new(password, command).spawn() {
+        SudoExecutionResult::Success(_) => Ok(()),
+        _ => Err("Failed to spawn with sudo command".to_string())
+    }
+}
 
-    Ok(())
+/// Update a package to the next version.
+///
+/// This only works on apt, dnf and pacman based systems.
+/// If the function is called on a system that does not use one of the descriped
+/// package managers, an Err is returned.
+///
+/// * `name` - Name of the package
+/// * `password` - Password used to run sudo
+pub fn update_package(name: String, password: String) -> Result<(), String> {
+    let package_manager = get_package_manager().unwrap();
+
+    let command;
+
+    if package_manager == "apt" {
+        command = format!("apt --only-upgrade install {} -y -q", name);
+    } else if package_manager == "dnf" {
+        command = format!("dnf update {} -y -q", name);
+    } else if package_manager == "pacman" {
+        command = format!("pacman --noconfirm -S {}", name)
+    } else {
+        return Err("Unknown package manager".to_string());
+    }
+
+    match SwitchedUserCommand::new(password, command).spawn() {
+        SudoExecutionResult::Success(_) => Ok(()),
+        _ => Err("Failed to spawn with sudo command".to_string())
+    }
+}
+
+pub fn update_all_packages(password: String) -> Result<(), String> {
+    let package_manager = get_package_manager().unwrap();
+
+    let command;
+    if package_manager == "apt" {
+        command = format!("apt upgrade -y -q");
+    } else if package_manager == "dnf" {
+        command = format!("dnf update -y -q");
+    } else if package_manager == "pacman" {
+        command = format!("pacman --noconfirm -Su")
+    } else {
+        return Err("Unknown package manager".to_string());
+    }
+
+    match SwitchedUserCommand::new(password, command).spawn() {
+        SudoExecutionResult::Success(_) => Ok(()),
+        _ => Err("Failed to spawn with sudo command".to_string())
+    }
+}
+
+pub fn update_database(password: String) -> Result<(), String> {
+    let package_manager = get_package_manager().unwrap();
+    
+    if package_manager == "apt" {
+        match SwitchedUserCommand::new(password, "apt").arg("update").arg("-y").spawn() {
+            SudoExecutionResult::Success(_) => Ok(()),
+            _ => Err("Failed to spawn command".to_string())
+        }
+
+    } else if package_manager == "dnf" {
+        match SwitchedUserCommand::new(password, "dnf").arg("makecache").arg("-y").spawn() {
+            SudoExecutionResult::Success(_) => Ok(()),
+            _ => Err("Failed to spawn command".to_string())
+        }
+
+    } else if package_manager == "pacman" {
+        match SwitchedUserCommand::new(password, "pacman").arg("-Syy").arg("--noconfirm").spawn() {
+            SudoExecutionResult::Success(_) => Ok(()),
+            _ => Err("Failed to spawn command".to_string())
+        }
+    } else {
+        return Err("Unknown package manager".to_string());
+    }
+
 }
 
 /// List every package, the package manager says is installed
@@ -320,7 +397,21 @@ pub fn list_updates() -> Result<Vec<String>, String> {
             .collect::<Vec<String>>();
         Ok(vector.to_vec())
     } else if package_manager == "pacman" {
-        return Err("PacMan requires sudo password for update listing.".to_string());
+        let command = Command::new("pacman")
+            .arg("-Qu")
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap()
+            .wait_with_output()
+            .unwrap();
+        let output = String::from_utf8_lossy(&command.stdout).to_string();
+        let vector = &output
+            .lines()
+            .map(|e| e.split(" ").nth(0).unwrap_or(e).to_string())
+            .collect::<Vec<String>>();
+
+        Ok(vector.to_vec())
+
     } else {
         return Err("Unknow package manager".to_string());
     }
@@ -459,7 +550,7 @@ pub fn list_available_packages() -> Result<Vec<String>, String> {
 /// an error is returned.
 ///
 /// For APT --dry-run is used.
-pub fn list_autoremoveable_packages() -> Result<Vec<String>, String> {
+pub fn list_orphaned_packages() -> Result<Vec<String>, String> {
     let package_manager = get_package_manager().unwrap();
     if package_manager == "apt" {
         let command = Command::new("apt")
@@ -527,17 +618,7 @@ pub fn list_autoremoveable_packages() -> Result<Vec<String>, String> {
         let output = String::from_utf8_lossy(&command.stdout).to_string();
         let vector = &output
             .lines()
-            .map(|e| {
-                let entry = e.to_string();
-                let split = entry.split("/");
-                let collection = split.collect::<Vec<&str>>();
-                if collection.len() != 2 {
-                    String::from("")
-                } else {
-                    collection[1].to_string()
-                }
-            })
-            .skip(1)
+            .map(|e| e.to_string())
             .collect::<Vec<String>>();
         Ok(vector.to_vec())
     } else {

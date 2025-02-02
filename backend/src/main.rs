@@ -867,15 +867,28 @@ struct PackageDatabaseAutoremoveJson {
 }
 
 /// Return a list of all packages that would be affected by an autoremove.
-#[get("/api/packageDatabaseAutoremove")]
-async fn package_database_autoremove(session: Session, state: Data<AppState>) -> HttpResponse {
+#[get("/api/listOrphanedPackages")]
+async fn orphaned_packages(session: Session, state: Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    let packages = packages::list_autoremoveable_packages().unwrap();
+    let packages = packages::list_orphaned_packages().unwrap();
 
     HttpResponse::Ok().json(PackageDatabaseAutoremoveJson { packages })
+}
+
+/// Update package database
+#[post("/api/updatePackageDatabase")]
+async fn update_package_database(session: Session, state: Data<AppState>, json: web::Json<SudoPasswordOnlyRequest>) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    match packages::update_database(json.into_inner().sudoPassword) {
+        Ok(_) => HttpResponse::Ok().json(EmptyJson {}),
+        Err(e) => HttpResponse::InternalServerError().body("Failed to update database")
+    }
 }
 
 #[derive(Deserialize)]
@@ -931,9 +944,35 @@ async fn remove_package(
     }
 }
 
-#[post("/api/clearAutoRemove")]
-/// Run an autoremove command on the users computer.
-async fn clear_auto_remove(
+#[post("/api/updatePackage")]
+/// Remove a package from the users system.
+///
+/// It requires the package name along side the sudo password in the request body.
+/// This only works under apt, dnf and pacman.
+async fn update_package(
+    session: Session,
+    json: web::Json<PackageActionRequest>,
+    state: Data<AppState>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    let package_mame = &json.packageName;
+    let sudo_password = &json.sudoPassword;
+
+    match packages::update_package(package_mame.to_string(), sudo_password.to_string()) {
+        Ok(_) => HttpResponse::Ok().finish(),
+        Err(_) => HttpResponse::InternalServerError().body("Failed to update package."),
+    }
+}
+
+#[post("/api/updateAllPackages")]
+/// Remove a package from the users system.
+///
+/// It requires the package name along side the sudo password in the request body.
+/// This only works under apt, dnf and pacman.
+async fn update_all_packages(
     session: Session,
     json: web::Json<SudoPasswordOnlyRequest>,
     state: Data<AppState>,
@@ -944,7 +983,26 @@ async fn clear_auto_remove(
 
     let sudo_password = &json.sudoPassword;
 
-    match packages::auto_remove(sudo_password.to_string()) {
+    match packages::update_all_packages(sudo_password.to_string()) {
+        Ok(_) => HttpResponse::Ok().finish(),
+        Err(_) => HttpResponse::InternalServerError().body("Failed to update all packages."),
+    }
+}
+
+#[post("/api/removeOrphanedPackages")]
+/// Run an autoremove command on the users computer.
+async fn remove_orphaned_packages(
+    session: Session,
+    json: web::Json<SudoPasswordOnlyRequest>,
+    state: Data<AppState>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    let sudo_password = &json.sudoPassword;
+
+    match packages::remove_orphaned_packages(sudo_password.to_string()) {
         Ok(_) => HttpResponse::Ok().finish(),
         Err(_) => HttpResponse::InternalServerError().body("Failed to autoremove package."),
     }
@@ -3196,7 +3254,7 @@ async fn main() -> std::io::Result<()> {
     println!("🚀 Serving Zentrox on Port 8080");
 
     HttpServer::new(move || {
-        let cors_permissive: bool = true; // Enable or disable strict cors for developement. Leaving this
+        let cors_permissive: bool = false; // Enable or disable strict cors for developement. Leaving this
                                           // enabled poses a grave security vulnerability and shows a
                                           // disclaimer.
         if cors_permissive {
@@ -3243,10 +3301,13 @@ async fn main() -> std::io::Result<()> {
             .service(update_ftp_config)
             // API Packages
             .service(package_database)
-            .service(package_database_autoremove)
+            .service(orphaned_packages)
+            .service(remove_orphaned_packages)
             .service(install_package)
             .service(remove_package)
-            .service(clear_auto_remove)
+            .service(update_package)
+            .service(update_all_packages)
+            .service(update_package_database)
             // API Firewall
             .service(firewall_information)
             .service(switch_ufw)
