@@ -40,14 +40,10 @@ function startTask(adress, options = {}, interval = 3000) {
     fetch(adress, options).then((res) => {
       if (res.ok) {
         res.text().then((uuid) => {
-			let ready_for_fetch = true;
 
           let ivd = setInterval(() => {
-			  if (!ready_for_fetch) return;
-			  ready_for_fetch = false
             fetch(fetchURLPrefix + "/api/fetchJobStatus/" + uuid).then(
               (checkRes) => {
-				ready_for_fetch = true;
                 if (checkRes.status === 200) {
                   clearInterval(ivd);
                   resolve(checkRes);
