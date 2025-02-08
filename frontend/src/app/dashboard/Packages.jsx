@@ -35,15 +35,19 @@ import Page from "@/components/ui/PageWrapper";
 import { useToast } from "@/components/ui/use-toast";
 import fetchURLPrefix from "@/lib/fetchPrefix";
 
-function startTask(adress, options = {}, interval = 500) {
+function startTask(adress, options = {}, interval = 3000) {
   return new Promise((resolve, reject) => {
     fetch(adress, options).then((res) => {
       if (res.ok) {
         res.text().then((uuid) => {
+			let ready_for_fetch = true;
+
           let ivd = setInterval(() => {
-            console.log(interval);
+			  if (!ready_for_fetch) return;
+			  ready_for_fetch = false
             fetch(fetchURLPrefix + "/api/fetchJobStatus/" + uuid).then(
               (checkRes) => {
+				ready_for_fetch = true;
                 if (checkRes.status === 200) {
                   clearInterval(ivd);
                   resolve(checkRes);
