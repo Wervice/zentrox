@@ -1,28 +1,28 @@
 {
- "short_name": "Alerts",
- "name": "Zentrox Alerts",
- "icons": [
-  {
-   "src": "/zentrox_dark_512.svg",
-   "sizes": "512x512",
-   "purpose": "maskable",
-   "type": "image/svg"
-  },
-  {
-   "src": "/zentrox_dark_256.svg",
-   "sizes": "512x512",
-   "purpose": "maskable",
-   "type": "image/svg"
-  },
-  {
-   "src": "/zentrox_dark_128.svg",
-   "sizes": "512x512",
-   "purpose": "maskable",
-   "type": "image/svg"
-  }
- ],
- "start_url": "/alerts",
- "display": "fullscreen",
- "theme_color": "#000000",
- "background_color": "#000000"
+  "short_name": "Alerts",
+  "name": "Zentrox Alerts",
+  "icons": [
+    {
+      "src": "/zentrox_dark_512.svg",
+      "sizes": "512x512",
+      "purpose": "maskable",
+      "type": "image/svg"
+    },
+    {
+      "src": "/zentrox_dark_256.svg",
+      "sizes": "512x512",
+      "purpose": "maskable",
+      "type": "image/svg"
+    },
+    {
+      "src": "/zentrox_dark_128.svg",
+      "sizes": "512x512",
+      "purpose": "maskable",
+      "type": "image/svg"
+    }
+  ],
+  "start_url": "/alerts",
+  "display": "fullscreen",
+  "theme_color": "#000000",
+  "background_color": "#000000"
 }
