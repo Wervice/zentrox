@@ -214,6 +214,7 @@ function Firewall() {
             type="password"
             placeholder="Sudo password"
             ref={sudoPasswordInput}
+			className="w-full"
           />
           <DialogFooter>
             <DialogClose asChild>

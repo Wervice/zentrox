@@ -297,13 +297,14 @@ function Logs() {
             type="password"
             placeholder="Sudo password"
             ref={sudoPasswordInput}
+			className="w-full"
           />
 
           <DialogFooter>
-            <DialogClose>
+            <DialogClose asChild>
               <Button variant="outline">Cancel</Button>
             </DialogClose>
-            <DialogClose>
+            <DialogClose asChild>
               <Button
                 onClick={() => {
                   setSudoPassword(sudoPasswordInput.current.value);
@@ -337,28 +338,6 @@ function Logs() {
             setTableFilter(searchInput.current.value);
           }
         }}
-      />
-      <InfoButton
-        title="Search filters"
-        info={
-          <>
-            <p>
-              You can use search filters to query system logs for specific
-              entries.
-              <br /> This is done by writing{" "}
-              <code className="p-1 rounded bg-white/10 m-1">prefix: query</code>
-              <br />
-              The following prefixes are supported:
-              <br />
-              <ul className="list-dice">
-                <li>application</li>
-                <li>time</li>
-                <li>priority</li>
-              </ul>
-            </p>
-            <p>Or simply enter a keyword to search for a message</p>
-          </>
-        }
       />
 
       <CalendarButton

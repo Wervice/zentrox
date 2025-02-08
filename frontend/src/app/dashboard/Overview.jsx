@@ -12,6 +12,11 @@ import fetchURLPrefix from "@/lib/fetchPrefix";
 import InfoButton from "@/components/ui/InfoButton";
 import localFont from "next/font/local";
 import { toast } from "@/components/ui/use-toast";
+import { VT323 } from "next/font/google";
+const vt323 = VT323({
+	weight: "400",
+	subsets: ["latin"]
+})
 const segment7 = localFont({ src: "../../../public/7segment.ttf" });
 
 function Card({ title, children, skeleton, variant = "square" }) {
@@ -68,7 +73,7 @@ function FancyCounterCaption({ children }) {
   return (
     <span
       className={
-        segment7.className +
+		  vt323.className + 
         " mr-1 text-xl text-white/80 relative bottom-[-2px]"
       }
     >
@@ -162,53 +167,35 @@ export default function Overview() {
     });
   }, []);
 
-  function millisecondsToArray(milliseconds) {
-    const MS_IN_SECOND = 1000;
-    const MS_IN_MINUTE = MS_IN_SECOND * 60;
-    const MS_IN_HOUR = MS_IN_MINUTE * 60;
-    const MS_IN_DAY = MS_IN_HOUR * 24;
-
-    // Helper function to round down and reduce remaining milliseconds
-    const getUnitValue = (ms, unitMs) => {
-      const value = Math.floor(ms / unitMs);
-      return { value, remainder: ms % unitMs };
-    };
-
-    if (milliseconds >= MS_IN_DAY * 100) {
-      const days = Math.floor(milliseconds / MS_IN_DAY);
-      return [[days.toString(), "d"]];
-    } else if (milliseconds >= MS_IN_DAY) {
-      const { value: days, remainder } = getUnitValue(milliseconds, MS_IN_DAY);
-      const { value: hours } = getUnitValue(remainder, MS_IN_HOUR);
-      return [
-        [days.toString(), "d"],
-        [hours.toString(), "h"],
-      ];
-    } else if (milliseconds >= MS_IN_HOUR) {
-      const { value: hours, remainder } = getUnitValue(
-        milliseconds,
-        MS_IN_HOUR,
-      );
-      const { value: minutes } = getUnitValue(remainder, MS_IN_MINUTE);
-      return [
-        [hours.toString(), "h"],
-        [minutes.toString(), "m"],
-      ];
-    } else if (milliseconds >= MS_IN_MINUTE) {
-      const { value: minutes, remainder } = getUnitValue(
-        milliseconds,
-        MS_IN_MINUTE,
-      );
-      const { value: seconds } = getUnitValue(remainder, MS_IN_SECOND);
-      return [
-        [minutes.toString(), "m"],
-        [seconds.toString(), "s"],
-      ];
-    } else {
-      const seconds = Math.floor(milliseconds / MS_IN_SECOND);
-      return [[seconds.toString(), "s"]];
+  function millisecondsToArray(ms) {
+   const units = [
+        { label: "y", value: 1000 * 60 * 60 * 24 * 365 }, // years
+        { label: "mo", value: 1000 * 60 * 60 * 24 * 30 }, // months
+        { label: "w", value: 1000 * 60 * 60 * 24 * 7 }, // weeks
+        { label: "d", value: 1000 * 60 * 60 * 24 }, // days
+        { label: "h", value: 1000 * 60 * 60 }, // hours
+        { label: "m", value: 1000 * 60 }, // minutes
+        { label: "s", value: 1000 } // seconds
+    ];
+    
+    let result = [];
+    let remaining = ms;
+    
+    for (let unit of units) {
+        if (remaining >= unit.value) {
+            let amount = Math.floor(remaining / unit.value);
+            remaining %= unit.value;
+            result.push([amount, unit.label]);
+            
+            // Ensure the total digits do not exceed 6
+            let digitCount = result.reduce((acc, [num]) => acc + num.toString().length, 0);
+            if (digitCount >= 2) break;
+        }
     }
+
+    return result;
   }
+
   function prettyBytes(bytesPerSecond) {
     if (bytesPerSecond === 0) return "0 B/s";
 
@@ -363,7 +350,7 @@ export default function Overview() {
           {millisecondsToArray(deviceInformation.uptime).map((e, k) => {
             return (
               <span key={k}>
-                {e[0].split("").map((d, dk) => {
+                {e[0].toString().split("").map((d, dk) => {
                   return <FancyCounterDigit key={dk}>{d}</FancyCounterDigit>;
                 })}
 

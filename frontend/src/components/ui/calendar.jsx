@@ -221,6 +221,9 @@ export default function CalendarButton({
                 className="mb-2"
                 onClick={() => {
                   onValueChange(currentSelectedTime);
+				  setCalendarModalStyle({
+					  display: "none"
+				  })
                 }}
               >
                 Confirm
