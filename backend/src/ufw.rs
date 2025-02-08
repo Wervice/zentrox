@@ -4,9 +4,6 @@
 // 4. List rules
 use crate::sudo::{SudoExecutionOutput, SudoExecutionResult, SwitchedUserCommand};
 use regex::Regex;
-use std::fs;
-use std::path::PathBuf;
-use uuid;
 
 #[derive(serde::Serialize)]
 pub struct UfwRule {
@@ -163,7 +160,6 @@ pub fn new_rule_port<T: ToString>(
         sender.to_component(),
         destination_port.to_component()
     );
-    dbg!(&command);
     // sudo ufw allow from any to any port 22 proto tcp
     match SwitchedUserCommand::new(password.to_string(), command).spawn() {
         SudoExecutionResult::Success(_) => Ok(()),
@@ -191,7 +187,6 @@ pub fn new_rule_range<T: ToString>(
         sender.to_component(),
         destination_range.to_port_component()
     );
-    dbg!(&command);
     // sudo ufw allow from any to any port 22 proto tcp
     match SwitchedUserCommand::new(password.to_string(), command).spawn() {
         SudoExecutionResult::Success(_) => Ok(()),
