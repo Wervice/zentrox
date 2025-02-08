@@ -95,7 +95,7 @@ impl SwitchedUserCommand {
                 .args(args)
                 .stdin(Stdio::piped())
                 .stderr(Stdio::piped())
-                // .stdout(Stdio::piped())
+                .stdout(Stdio::piped())
                 .spawn()
                 .expect("Failed to spawn process");
 
@@ -105,13 +105,10 @@ impl SwitchedUserCommand {
             let sent_prompt = &mut [0; 16];
             let sent_prompt_read = stderr.read(sent_prompt);
             if let Err(e) = sent_prompt_read {
-                println!("{e}");
                 return SudoExecutionResult::ExecutionError(
                     "Failed to read prompt from sudo".to_string(),
                 );
             }
-            dbg!(&sent_prompt);
-            dbg!(&random_prompt);
             let sent_prompt_string: String = sent_prompt.map(|x| (x as char).to_string()).join("");
             if sent_prompt_string != random_prompt {
                 return SudoExecutionResult::ExecutionError("Unequal prompts".to_string());
@@ -189,13 +186,10 @@ impl SwitchedUserCommand {
             let sent_prompt = &mut [0; 16];
             let sent_prompt_read = stderr.read(sent_prompt);
             if let Err(e) = sent_prompt_read {
-                println!("{e}");
                 return SudoExecutionOutput::ExecutionError(
                     "Failed to read prompt from sudo".to_string(),
                 );
             }
-            dbg!(&sent_prompt);
-            dbg!(&random_prompt);
             if sent_prompt.iter().map(|x| *x).collect::<Vec<u8>>()
                 != random_prompt
                     .chars()
@@ -226,7 +220,6 @@ impl SwitchedUserCommand {
             if stderr_content.contains("incorrect password attempt")
                 || stderr_content.contains("Sorry, try again.")
             {
-                dbg!(stderr_content);
                 return SudoExecutionOutput::WrongPassword;
             }
             if stderr_content.contains("is not in the sudoers file.") {
