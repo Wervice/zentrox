@@ -21,7 +21,7 @@ use std::{
     fs::{self, File},
     io::{BufReader, Read, Seek, SeekFrom},
     path::{self, PathBuf},
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
 use sysinfo::System as SysInfoSystem;
@@ -85,7 +85,7 @@ struct AppState {
     net_interface: Arc<Mutex<String>>,
     cpu_usage: Arc<Mutex<f32>>,
     net_connected_interfaces: Arc<Mutex<i32>>,
-    update_jobs: Arc<RwLock<HashMap<Uuid, BackgroundTaskState>>>
+    update_jobs: Arc<Mutex<HashMap<Uuid, BackgroundTaskState>>>
 }
 
 impl AppState {
@@ -104,7 +104,7 @@ impl AppState {
             net_interface: Arc::new(Mutex::new(String::new())),
             net_connected_interfaces: Arc::new(Mutex::new(0_i32)),
             cpu_usage: Arc::new(Mutex::new(0_f32)),
-            update_jobs: Arc::new(RwLock::new(HashMap::new()))
+            update_jobs: Arc::new(Mutex::new(HashMap::new()))
         }
     }
 
@@ -856,12 +856,12 @@ async fn update_package_database(session: Session, state: Data<AppState>, json: 
 
     let job_id = Uuid::new_v4();
 
-    state.update_jobs.write().unwrap().insert(job_id, BackgroundTaskState::Pending);
+    state.update_jobs.lock().unwrap().insert(job_id, BackgroundTaskState::Pending);
 
     tokio::spawn(async move {
  match packages::update_database(json.into_inner().sudoPassword) {
-        Ok(_) => state.update_jobs.write().unwrap().insert(job_id, BackgroundTaskState::Success),
-        Err(_) => state.update_jobs.write().unwrap().insert(job_id, BackgroundTaskState::Fail),
+        Ok(_) => state.update_jobs.lock().unwrap().insert(job_id, BackgroundTaskState::Success),
+        Err(_) => state.update_jobs.lock().unwrap().insert(job_id, BackgroundTaskState::Fail),
     }
     });
 
@@ -893,8 +893,8 @@ async fn install_package(
 
     tokio::spawn(async move {
     match packages::install_package(json.packageName.to_string(), json.sudoPassword.to_string()) {
-        Ok(_) => state.update_jobs.write().unwrap().insert(job_id, BackgroundTaskState::Success),
-        Err(_) => state.update_jobs.write().unwrap().insert(job_id, BackgroundTaskState::Fail),
+        Ok(_) => state.update_jobs.lock().unwrap().insert(job_id, BackgroundTaskState::Success),
+        Err(_) => state.update_jobs.lock().unwrap().insert(job_id, BackgroundTaskState::Fail),
     }});
 
     HttpResponse::Ok().body(job_id.to_string())
@@ -918,8 +918,8 @@ async fn remove_package(
 
     tokio::spawn(async move {
     match packages::remove_package(json.packageName.to_string(), json.sudoPassword.to_string()) {
-        Ok(_) => state.update_jobs.write().unwrap().insert(job_id, BackgroundTaskState::Success),
-        Err(_) => state.update_jobs.write().unwrap().insert(job_id, BackgroundTaskState::Fail),
+        Ok(_) => state.update_jobs.lock().unwrap().insert(job_id, BackgroundTaskState::Success),
+        Err(_) => state.update_jobs.lock().unwrap().insert(job_id, BackgroundTaskState::Fail),
     }});
 
     HttpResponse::Ok().body(job_id.to_string())
@@ -943,8 +943,8 @@ async fn update_package(
 
     tokio::spawn(async move {
     match packages::update_package(json.packageName.to_string(), json.sudoPassword.to_string()) {
-        Ok(_) => state.update_jobs.write().unwrap().insert(job_id, BackgroundTaskState::Success),
-        Err(_) => state.update_jobs.write().unwrap().insert(job_id, BackgroundTaskState::Fail),
+        Ok(_) => state.update_jobs.lock().unwrap().insert(job_id, BackgroundTaskState::Success),
+        Err(_) => state.update_jobs.lock().unwrap().insert(job_id, BackgroundTaskState::Fail),
     }});
 
     HttpResponse::Ok().body(job_id.to_string())
@@ -967,12 +967,12 @@ async fn update_all_packages(
     let sudo_password = json.sudoPassword.clone();
     let job_id = Uuid::new_v4();
 
-    state.update_jobs.write().unwrap().insert(job_id, BackgroundTaskState::Pending);
+    state.update_jobs.lock().unwrap().insert(job_id, BackgroundTaskState::Pending);
 
     tokio::spawn(async move {
         match packages::update_all_packages(sudo_password.to_string()) {
-            Ok(_) => state.update_jobs.write().unwrap().insert(job_id, BackgroundTaskState::Success),
-            Err(_) => state.update_jobs.write().unwrap().insert(job_id, BackgroundTaskState::Fail),
+            Ok(_) => state.update_jobs.lock().unwrap().insert(job_id, BackgroundTaskState::Success),
+            Err(_) => state.update_jobs.lock().unwrap().insert(job_id, BackgroundTaskState::Fail),
         }
     });
 
@@ -980,10 +980,6 @@ async fn update_all_packages(
 }
 
 #[get("/api/fetchJobStatus/{jobId}")]
-/// Remove a package from the users system.
-///
-/// It requires the package name along side the sudo password in the request body.
-/// This only works under apt, dnf and pacman.
 async fn fetch_job_status(
     session: Session,
     state: Data<AppState>,
@@ -994,15 +990,13 @@ async fn fetch_job_status(
     }
 
     let requested_id = path.into_inner().to_string();
-    let jobs = state.update_jobs.read().unwrap().clone();
+    let jobs = state.update_jobs.lock().unwrap().clone();
     let background_state = jobs.get(&uuid::Uuid::parse_str(&requested_id).unwrap());
-    
-    dbg!(&jobs);
 
     fn clear_task(state: Data<AppState>, task: String) {
-        let mut jobs = state.update_jobs.write().unwrap().clone();
+        let mut jobs = state.update_jobs.lock().unwrap().clone();
         jobs.remove(&uuid::Uuid::from_str(&task).unwrap());
-        *state.update_jobs.write().unwrap() = jobs;
+        *state.update_jobs.lock().unwrap() = jobs;
         ()
     }
 
@@ -1010,18 +1004,13 @@ async fn fetch_job_status(
         Some(bs) => {
             match bs {
                 BackgroundTaskState::Success => {
-                    clear_task(state, requested_id);
                     HttpResponse::Ok().finish()
                 },
                 BackgroundTaskState::Fail => {
-                    clear_task(state, requested_id);
                     HttpResponse::UnprocessableEntity().finish()},
                 BackgroundTaskState::SuccessOutput(s) =>{
-                    
-                    clear_task(state, requested_id);
                     HttpResponse::Ok().body(s.clone())},
                 BackgroundTaskState::FailOutput(f) => {
-                    clear_task(state, requested_id);
                     HttpResponse::UnprocessableEntity().body(f.clone())},
                 BackgroundTaskState::Pending => HttpResponse::Accepted().finish()
             }
@@ -1044,11 +1033,11 @@ async fn remove_orphaned_packages(
     let sudo_password = json.sudoPassword.clone();
     let job_id = Uuid::new_v4();
     
-    state.update_jobs.write().unwrap().insert(job_id, BackgroundTaskState::Pending);
+    state.update_jobs.lock().unwrap().insert(job_id, BackgroundTaskState::Pending);
 
     tokio::spawn(async move {match packages::remove_orphaned_packages(sudo_password.to_string()) {
-        Ok(_) => state.update_jobs.write().unwrap().insert(job_id, BackgroundTaskState::Success),
-        Err(_) => state.update_jobs.write().unwrap().insert(job_id, BackgroundTaskState::Fail),
+        Ok(_) => state.update_jobs.lock().unwrap().insert(job_id, BackgroundTaskState::Success),
+        Err(_) => state.update_jobs.lock().unwrap().insert(job_id, BackgroundTaskState::Fail),
     }});
 
     return HttpResponse::Ok().body(job_id.to_string());
@@ -3300,7 +3289,7 @@ async fn main() -> std::io::Result<()> {
     println!("🚀 Serving Zentrox on Port 8080");
 
     HttpServer::new(move || {
-        let cors_permissive: bool = false; // Enable or disable strict cors for developement. Leaving this
+        let cors_permissive: bool = true; // Enable or disable strict cors for developement. Leaving this
                                           // enabled poses a grave security vulnerability and shows a
                                           // disclaimer.
         if cors_permissive {
