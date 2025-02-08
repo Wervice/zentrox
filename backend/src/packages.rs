@@ -4,6 +4,13 @@ use crate::sudo::{SudoExecutionResult, SwitchedUserCommand};
 use std::collections::HashMap;
 use std::{fs, process::Command, process::Stdio};
 
+#[derive(Debug)]
+pub enum PackageManagerError {
+    SudoError,
+    UnknownPackageManager,
+    ExecutionError
+}
+
 /// Determines which package manager is used by the system.
 ///
 /// The only supported package managers are apt (debian-based), dnf (rhel-based) and pacman
@@ -61,7 +68,7 @@ pub fn get_package_manager() -> Option<String> {
 /// package managers, an Err is returned.
 /// * `password` - Password used to run sudo
 
-pub fn remove_orphaned_packages(password: String) -> Result<(), String> {
+pub fn remove_orphaned_packages(password: String) -> Result<(), PackageManagerError> {
     let package_mamager = get_package_manager().unwrap();
 
     let command: String;
@@ -75,6 +82,7 @@ pub fn remove_orphaned_packages(password: String) -> Result<(), String> {
             std::process::Command::new("pacman")
                 .arg("-Qdtq")
                 .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
                 .spawn()
                 .unwrap()
                 .wait_with_output()
@@ -85,19 +93,17 @@ pub fn remove_orphaned_packages(password: String) -> Result<(), String> {
         .replace("\n", " ");
 
         packages = packages.trim().to_string();
-        dbg!(&packages);
         command = format!("pacman --noconfirm -Rc {}", packages);
-
-        dbg!(&command);
     } else {
-        return Err("Unknow package manager".to_string());
+        return Err(PackageManagerError::UnknownPackageManager);
     }
 
-    dbg!(&password);
-
-    let _ = SwitchedUserCommand::new(password, command.to_string()).spawn();
-
-    Ok(())
+    match SwitchedUserCommand::new(password, command.to_string()).spawn() {
+        SudoExecutionResult::Success(_) => Ok(()),
+        SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
+        SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
+        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError)
+    }
 }
 
 /// Installs package on the system.
@@ -107,7 +113,7 @@ pub fn remove_orphaned_packages(password: String) -> Result<(), String> {
 /// package managers, an Err is returned.
 /// * `name` - Name of the package
 /// * `password` - Password used to run sudo
-pub fn install_package(name: String, password: String) -> Result<(), String> {
+pub fn install_package(name: String, password: String) -> Result<(), PackageManagerError> {
     let package_manager = get_package_manager().unwrap();
 
     let command;
@@ -119,12 +125,14 @@ pub fn install_package(name: String, password: String) -> Result<(), String> {
     } else if package_manager == "pacman" {
         command = format!("pacman --noconfirm -Sy {}", name);
     } else {
-        return Err("Unknown package manager".to_string());
+        return Err(PackageManagerError::UnknownPackageManager);
     }
 
-    match SwitchedUserCommand::new(password, command).spawn() {
+     match SwitchedUserCommand::new(password, command.to_string()).spawn() {
         SudoExecutionResult::Success(_) => Ok(()),
-        _ => Err("Failed to spawn with sudo command".to_string())
+        SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
+        SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
+        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError)
     }
 }
 
@@ -136,7 +144,7 @@ pub fn install_package(name: String, password: String) -> Result<(), String> {
 ///
 /// * `name` - Name of the package
 /// * `password` - Password used to run sudo
-pub fn remove_package(name: String, password: String) -> Result<(), String> {
+pub fn remove_package(name: String, password: String) -> Result<(), PackageManagerError> {
     let package_manager = get_package_manager().unwrap();
 
     let command;
@@ -148,13 +156,17 @@ pub fn remove_package(name: String, password: String) -> Result<(), String> {
     } else if package_manager == "pacman" {
         command = format!("pacman --noconfirm -R {}", name)
     } else {
-        return Err("Unknown package manager".to_string());
+        return Err(PackageManagerError::UnknownPackageManager);
     }
 
-    match SwitchedUserCommand::new(password, command).spawn() {
+    
+     match SwitchedUserCommand::new(password, command.to_string()).spawn() {
         SudoExecutionResult::Success(_) => Ok(()),
-        _ => Err("Failed to spawn with sudo command".to_string())
+        SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
+        SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
+        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError)
     }
+
 }
 
 /// Update a package to the next version.
@@ -165,7 +177,7 @@ pub fn remove_package(name: String, password: String) -> Result<(), String> {
 ///
 /// * `name` - Name of the package
 /// * `password` - Password used to run sudo
-pub fn update_package(name: String, password: String) -> Result<(), String> {
+pub fn update_package(name: String, password: String) -> Result<(), PackageManagerError> {
     let package_manager = get_package_manager().unwrap();
 
     let command;
@@ -177,16 +189,19 @@ pub fn update_package(name: String, password: String) -> Result<(), String> {
     } else if package_manager == "pacman" {
         command = format!("pacman --noconfirm -S {}", name)
     } else {
-        return Err("Unknown package manager".to_string());
+        return Err(PackageManagerError::UnknownPackageManager);
     }
 
-    match SwitchedUserCommand::new(password, command).spawn() {
+       
+     match SwitchedUserCommand::new(password, command.to_string()).spawn() {
         SudoExecutionResult::Success(_) => Ok(()),
-        _ => Err("Failed to spawn with sudo command".to_string())
+        SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
+        SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
+        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError)
     }
 }
 
-pub fn update_all_packages(password: String) -> Result<(), String> {
+pub fn update_all_packages(password: String) -> Result<(), PackageManagerError> {
     let package_manager = get_package_manager().unwrap();
 
     let command;
@@ -197,37 +212,52 @@ pub fn update_all_packages(password: String) -> Result<(), String> {
     } else if package_manager == "pacman" {
         command = format!("pacman --noconfirm -Su")
     } else {
-        return Err("Unknown package manager".to_string());
+        return Err(PackageManagerError::UnknownPackageManager);
     }
 
-    match SwitchedUserCommand::new(password, command).spawn() {
+    
+       
+     match SwitchedUserCommand::new(password, command.to_string()).spawn() {
         SudoExecutionResult::Success(_) => Ok(()),
-        _ => Err("Failed to spawn with sudo command".to_string())
+        SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
+        SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
+        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError)
     }
+
 }
 
-pub fn update_database(password: String) -> Result<(), String> {
+pub fn update_database(password: String) -> Result<(), PackageManagerError> {
     let package_manager = get_package_manager().unwrap();
-    
+
     if package_manager == "apt" {
         match SwitchedUserCommand::new(password, "apt").arg("update").arg("-y").spawn() {
             SudoExecutionResult::Success(_) => Ok(()),
-            _ => Err("Failed to spawn command".to_string())
+        SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
+        SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
+        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError)
+
         }
 
     } else if package_manager == "dnf" {
         match SwitchedUserCommand::new(password, "dnf").arg("makecache").arg("-y").spawn() {
+            
             SudoExecutionResult::Success(_) => Ok(()),
-            _ => Err("Failed to spawn command".to_string())
+        SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
+        SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
+        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError)
+
         }
 
     } else if package_manager == "pacman" {
         match SwitchedUserCommand::new(password, "pacman").arg("-Syy").arg("--noconfirm").spawn() {
+            
             SudoExecutionResult::Success(_) => Ok(()),
-            _ => Err("Failed to spawn command".to_string())
+        SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
+        SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
+        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError)
         }
     } else {
-        return Err("Unknown package manager".to_string());
+        return Err(PackageManagerError::UnknownPackageManager);
     }
 
 }
@@ -244,13 +274,14 @@ pub fn update_database(password: String) -> Result<(), String> {
 /// // Returns vector of the names of all installed packages
 ///
 /// ```
-pub fn list_installed_packages() -> Result<Vec<String>, String> {
+pub fn list_installed_packages() -> Result<Vec<String>, PackageManagerError> {
     let package_manager = get_package_manager().unwrap();
     if package_manager == "apt" {
         let command = Command::new("apt")
             .arg("list")
             .arg("--installed")
             .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .spawn()
             .unwrap()
             .wait_with_output()
@@ -279,6 +310,7 @@ pub fn list_installed_packages() -> Result<Vec<String>, String> {
             .arg("list")
             .arg("installed")
             .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .spawn()
             .unwrap()
             .wait_with_output()
@@ -307,6 +339,7 @@ pub fn list_installed_packages() -> Result<Vec<String>, String> {
             .arg("--noconfirm")
             .arg("-Qq")
             .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .spawn()
             .unwrap()
             .wait_with_output()
@@ -327,7 +360,7 @@ pub fn list_installed_packages() -> Result<Vec<String>, String> {
             .collect::<Vec<String>>();
         Ok(vector.to_vec())
     } else {
-        return Err("Unknow package manager".to_string());
+        return Err(PackageManagerError::UnknownPackageManager);
     }
 }
 
@@ -337,13 +370,14 @@ pub fn list_installed_packages() -> Result<Vec<String>, String> {
 /// Commands:
 /// * `apt list --upgradable`
 /// * `dnf list-update`
-pub fn list_updates() -> Result<Vec<String>, String> {
+pub fn list_updates() -> Result<Vec<String>, PackageManagerError> {
     let package_manager = get_package_manager().unwrap();
     if package_manager == "apt" {
         let command = Command::new("apt")
             .arg("list")
             .arg("--upgradable")
             .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .spawn()
             .unwrap()
             .wait_with_output()
@@ -371,6 +405,7 @@ pub fn list_updates() -> Result<Vec<String>, String> {
         let command = Command::new("dnf")
             .arg("list-update")
             .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .spawn()
             .unwrap()
             .wait_with_output()
@@ -400,6 +435,7 @@ pub fn list_updates() -> Result<Vec<String>, String> {
         let command = Command::new("pacman")
             .arg("-Qu")
             .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .spawn()
             .unwrap()
             .wait_with_output()
@@ -413,7 +449,7 @@ pub fn list_updates() -> Result<Vec<String>, String> {
         Ok(vector.to_vec())
 
     } else {
-        return Err("Unknow package manager".to_string());
+        return Err(PackageManagerError::UnknownPackageManager);
     }
 }
 
@@ -444,12 +480,13 @@ pub fn list_updates() -> Result<Vec<String>, String> {
 /// ## PacMan
 /// 1. `pacman -Sl` is called without root permissions.
 /// 2. The output is split into lines and returned as a vector.
-pub fn list_available_packages() -> Result<Vec<String>, String> {
+pub fn list_available_packages() -> Result<Vec<String>, PackageManagerError> {
     let package_manager = get_package_manager().unwrap();
     if package_manager == "apt" {
         let command = Command::new("apt")
             .arg("list")
             .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .spawn()
             .unwrap()
             .wait_with_output()
@@ -491,6 +528,7 @@ pub fn list_available_packages() -> Result<Vec<String>, String> {
             .arg("list")
             .arg("available")
             .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .spawn()
             .unwrap()
             .wait_with_output()
@@ -519,6 +557,7 @@ pub fn list_available_packages() -> Result<Vec<String>, String> {
             .arg("--noconfirm")
             .arg("-Sl")
             .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .spawn()
             .unwrap()
             .wait_with_output()
@@ -539,7 +578,7 @@ pub fn list_available_packages() -> Result<Vec<String>, String> {
             .collect::<Vec<String>>();
         Ok(vector.to_vec())
     } else {
-        return Err("Unknow package manager".to_string());
+        return Err(PackageManagerError::UnknownPackageManager);
     }
 }
 
@@ -550,13 +589,14 @@ pub fn list_available_packages() -> Result<Vec<String>, String> {
 /// an error is returned.
 ///
 /// For APT --dry-run is used.
-pub fn list_orphaned_packages() -> Result<Vec<String>, String> {
+pub fn list_orphaned_packages() -> Result<Vec<String>, PackageManagerError> {
     let package_manager = get_package_manager().unwrap();
     if package_manager == "apt" {
         let command = Command::new("apt")
             .arg("autoremove")
             .arg("--dry-run")
             .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .spawn()
             .unwrap()
             .wait_with_output()
@@ -582,6 +622,7 @@ pub fn list_orphaned_packages() -> Result<Vec<String>, String> {
             .arg("repoquery")
             .arg("--unneeded")
             .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .spawn()
             .unwrap()
             .wait_with_output()
@@ -610,6 +651,7 @@ pub fn list_orphaned_packages() -> Result<Vec<String>, String> {
             .arg("--noconfirm")
             .arg("-Qdtq")
             .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .spawn()
             .unwrap()
             .wait_with_output()
@@ -622,7 +664,7 @@ pub fn list_orphaned_packages() -> Result<Vec<String>, String> {
             .collect::<Vec<String>>();
         Ok(vector.to_vec())
     } else {
-        return Err("Unknow package manager".to_string());
+        return Err(PackageManagerError::UnknownPackageManager);
     }
 }
 
