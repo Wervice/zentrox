@@ -12,6 +12,8 @@ use actix_web::{
 use dirs;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256, Sha512};
+use uuid::Uuid;
+use std::str::FromStr;
 use std::usize;
 use std::{
     collections::HashMap,
@@ -19,7 +21,7 @@ use std::{
     fs::{self, File},
     io::{BufReader, Read, Seek, SeekFrom},
     path::{self, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, RwLock},
     time::{SystemTime, UNIX_EPOCH},
 };
 use sysinfo::System as SysInfoSystem;
@@ -49,6 +51,16 @@ use is_admin::is_admin_state;
 use net_data::private_ip;
 use visit_dirs::visit_dirs;
 
+#[derive(Debug)]
+#[derive(Clone)]
+enum BackgroundTaskState {
+    Success,
+    Fail,
+    SuccessOutput(String),
+    FailOutput(String),
+    Pending
+}
+
 #[allow(non_snake_case)]
 #[derive(Clone)]
 /// Current state of the application used to keep track of the logged in users, DoS/Brute force
@@ -73,6 +85,7 @@ struct AppState {
     net_interface: Arc<Mutex<String>>,
     cpu_usage: Arc<Mutex<f32>>,
     net_connected_interfaces: Arc<Mutex<i32>>,
+    update_jobs: Arc<RwLock<HashMap<Uuid, BackgroundTaskState>>>
 }
 
 impl AppState {
@@ -91,6 +104,7 @@ impl AppState {
             net_interface: Arc::new(Mutex::new(String::new())),
             net_connected_interfaces: Arc::new(Mutex::new(0_i32)),
             cpu_usage: Arc::new(Mutex::new(0_f32)),
+            update_jobs: Arc::new(RwLock::new(HashMap::new()))
         }
     }
 
@@ -281,6 +295,7 @@ struct EmptyJson {}
 /// This struct implements serde::Derserialize. It can be used to parse a single sudoPassword from
 /// the user. It only has the String filed sudoPassword.
 #[derive(Deserialize)]
+#[derive(Debug)]
 #[allow(non_snake_case)]
 struct SudoPasswordOnlyRequest {
     sudoPassword: String,
@@ -420,6 +435,7 @@ async fn login(
 async fn logout(session: Session, state: Data<AppState>) -> HttpResponse {
     if is_admin_state(&session, state.clone()) {
         session.purge();
+
         *state.username.lock().unwrap() = "".to_string();
         *state.login_token.lock().unwrap() =
             hex::encode((0..64).map(|_| rand::random::<u8>()).collect::<Vec<u8>>()).to_string();
@@ -515,23 +531,7 @@ async fn device_information(session: Session, state: Data<AppState>) -> HttpResp
         .unwrap_or("Unknown hostname".to_string())
         .to_string();
 
-    println!(
-        "Hostname {}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis()
-    );
-
     let uptime = state.system.lock().unwrap().uptime().unwrap().as_millis();
-
-    println!(
-        "Uptime {}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis()
-    );
 
     let temperature = match state.system.lock().unwrap().cpu_temp() {
         Ok(t) => t,
@@ -541,23 +541,7 @@ async fn device_information(session: Session, state: Data<AppState>) -> HttpResp
         }
     };
 
-    println!(
-        "Temp {}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis()
-    );
-
     let cpu_usage = *state.cpu_usage.lock().unwrap();
-
-    println!(
-        "CPU Usage {}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis()
-    );
 
     let mut process_number_system = SysInfoSystem::new_all();
     process_number_system.refresh_processes(sysinfo::ProcessesToUpdate::All);
@@ -568,13 +552,6 @@ async fn device_information(session: Session, state: Data<AppState>) -> HttpResp
 
     let process_count = processes.len() as u32;
 
-    println!(
-        "procn {}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis()
-    );
     let mut memory_total: u64 = 0;
     let mut memory_free: u64 = 0;
 
@@ -585,14 +562,6 @@ async fn device_information(session: Session, state: Data<AppState>) -> HttpResp
         }
         Err(_err) => {}
     };
-
-    println!(
-        "memuse {}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis()
-    );
 
     HttpResponse::Ok().json(JsonResponse {
         zentrox_pid: std::process::id() as u16,
@@ -806,7 +775,7 @@ async fn package_database(
         let installed = match packages::list_installed_packages() {
             Ok(packages) => packages.len(),
             Err(err) => {
-                eprintln!("Listing installed packages failed: {}", err);
+                eprintln!("Listing installed packages failed");
                 0
             }
         };
@@ -833,7 +802,7 @@ async fn package_database(
         let installed = match packages::list_installed_packages() {
             Ok(packages) => packages,
             Err(err) => {
-                eprintln!("Listing installed packages failed: {}", err);
+                eprintln!("Listing installed packages failed");
                 Vec::new()
             }
         };
@@ -881,14 +850,22 @@ async fn orphaned_packages(session: Session, state: Data<AppState>) -> HttpRespo
 /// Update package database
 #[post("/api/updatePackageDatabase")]
 async fn update_package_database(session: Session, state: Data<AppState>, json: web::Json<SudoPasswordOnlyRequest>) -> HttpResponse {
-    if !is_admin_state(&session, state) {
+    if !is_admin_state(&session, state.clone()) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    match packages::update_database(json.into_inner().sudoPassword) {
-        Ok(_) => HttpResponse::Ok().json(EmptyJson {}),
-        Err(e) => HttpResponse::InternalServerError().body("Failed to update database")
+    let job_id = Uuid::new_v4();
+
+    state.update_jobs.write().unwrap().insert(job_id, BackgroundTaskState::Pending);
+
+    tokio::spawn(async move {
+ match packages::update_database(json.into_inner().sudoPassword) {
+        Ok(_) => state.update_jobs.write().unwrap().insert(job_id, BackgroundTaskState::Success),
+        Err(_) => state.update_jobs.write().unwrap().insert(job_id, BackgroundTaskState::Fail),
     }
+    });
+
+    HttpResponse::Ok().body(job_id.to_string())
 }
 
 #[derive(Deserialize)]
@@ -908,17 +885,19 @@ async fn install_package(
     json: web::Json<PackageActionRequest>,
     state: Data<AppState>,
 ) -> HttpResponse {
-    if !is_admin_state(&session, state) {
+    if !is_admin_state(&session, state.clone()) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    let package_mame = &json.packageName;
-    let sudo_password = &json.sudoPassword;
+    let job_id = Uuid::new_v4();
 
-    match packages::install_package(package_mame.to_string(), sudo_password.to_string()) {
-        Ok(_) => HttpResponse::Ok().finish(),
-        Err(_) => HttpResponse::InternalServerError().body("Failed to install package."),
-    }
+    tokio::spawn(async move {
+    match packages::install_package(json.packageName.to_string(), json.sudoPassword.to_string()) {
+        Ok(_) => state.update_jobs.write().unwrap().insert(job_id, BackgroundTaskState::Success),
+        Err(_) => state.update_jobs.write().unwrap().insert(job_id, BackgroundTaskState::Fail),
+    }});
+
+    HttpResponse::Ok().body(job_id.to_string())
 }
 
 #[post("/api/removePackage")]
@@ -931,17 +910,19 @@ async fn remove_package(
     json: web::Json<PackageActionRequest>,
     state: Data<AppState>,
 ) -> HttpResponse {
-    if !is_admin_state(&session, state) {
+    if !is_admin_state(&session, state.clone()) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    let package_mame = &json.packageName;
-    let sudo_password = &json.sudoPassword;
+    let job_id = Uuid::new_v4();
 
-    match packages::remove_package(package_mame.to_string(), sudo_password.to_string()) {
-        Ok(_) => HttpResponse::Ok().finish(),
-        Err(_) => HttpResponse::InternalServerError().body("Failed to remove package."),
-    }
+    tokio::spawn(async move {
+    match packages::remove_package(json.packageName.to_string(), json.sudoPassword.to_string()) {
+        Ok(_) => state.update_jobs.write().unwrap().insert(job_id, BackgroundTaskState::Success),
+        Err(_) => state.update_jobs.write().unwrap().insert(job_id, BackgroundTaskState::Fail),
+    }});
+
+    HttpResponse::Ok().body(job_id.to_string())
 }
 
 #[post("/api/updatePackage")]
@@ -954,17 +935,19 @@ async fn update_package(
     json: web::Json<PackageActionRequest>,
     state: Data<AppState>,
 ) -> HttpResponse {
-    if !is_admin_state(&session, state) {
+    if !is_admin_state(&session, state.clone()) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    let package_mame = &json.packageName;
-    let sudo_password = &json.sudoPassword;
+    let job_id = Uuid::new_v4();
 
-    match packages::update_package(package_mame.to_string(), sudo_password.to_string()) {
-        Ok(_) => HttpResponse::Ok().finish(),
-        Err(_) => HttpResponse::InternalServerError().body("Failed to update package."),
-    }
+    tokio::spawn(async move {
+    match packages::update_package(json.packageName.to_string(), json.sudoPassword.to_string()) {
+        Ok(_) => state.update_jobs.write().unwrap().insert(job_id, BackgroundTaskState::Success),
+        Err(_) => state.update_jobs.write().unwrap().insert(job_id, BackgroundTaskState::Fail),
+    }});
+
+    HttpResponse::Ok().body(job_id.to_string())
 }
 
 #[post("/api/updateAllPackages")]
@@ -977,15 +960,73 @@ async fn update_all_packages(
     json: web::Json<SudoPasswordOnlyRequest>,
     state: Data<AppState>,
 ) -> HttpResponse {
-    if !is_admin_state(&session, state) {
+    if !is_admin_state(&session, state.clone()) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    let sudo_password = &json.sudoPassword;
+    let sudo_password = json.sudoPassword.clone();
+    let job_id = Uuid::new_v4();
 
-    match packages::update_all_packages(sudo_password.to_string()) {
-        Ok(_) => HttpResponse::Ok().finish(),
-        Err(_) => HttpResponse::InternalServerError().body("Failed to update all packages."),
+    state.update_jobs.write().unwrap().insert(job_id, BackgroundTaskState::Pending);
+
+    tokio::spawn(async move {
+        match packages::update_all_packages(sudo_password.to_string()) {
+            Ok(_) => state.update_jobs.write().unwrap().insert(job_id, BackgroundTaskState::Success),
+            Err(_) => state.update_jobs.write().unwrap().insert(job_id, BackgroundTaskState::Fail),
+        }
+    });
+
+    HttpResponse::Ok().body(job_id.to_string())
+}
+
+#[get("/api/fetchJobStatus/{jobId}")]
+/// Remove a package from the users system.
+///
+/// It requires the package name along side the sudo password in the request body.
+/// This only works under apt, dnf and pacman.
+async fn fetch_job_status(
+    session: Session,
+    state: Data<AppState>,
+    path: web::Path<String>
+) -> HttpResponse {
+    if !is_admin_state(&session, state.clone()) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    let requested_id = path.into_inner().to_string();
+    let jobs = state.update_jobs.read().unwrap().clone();
+    let background_state = jobs.get(&uuid::Uuid::parse_str(&requested_id).unwrap());
+    
+    dbg!(&jobs);
+
+    fn clear_task(state: Data<AppState>, task: String) {
+        let mut jobs = state.update_jobs.write().unwrap().clone();
+        jobs.remove(&uuid::Uuid::from_str(&task).unwrap());
+        *state.update_jobs.write().unwrap() = jobs;
+        ()
+    }
+
+    match background_state {
+        Some(bs) => {
+            match bs {
+                BackgroundTaskState::Success => {
+                    clear_task(state, requested_id);
+                    HttpResponse::Ok().finish()
+                },
+                BackgroundTaskState::Fail => {
+                    clear_task(state, requested_id);
+                    HttpResponse::UnprocessableEntity().finish()},
+                BackgroundTaskState::SuccessOutput(s) =>{
+                    
+                    clear_task(state, requested_id);
+                    HttpResponse::Ok().body(s.clone())},
+                BackgroundTaskState::FailOutput(f) => {
+                    clear_task(state, requested_id);
+                    HttpResponse::UnprocessableEntity().body(f.clone())},
+                BackgroundTaskState::Pending => HttpResponse::Accepted().finish()
+            }
+        },
+        None => HttpResponse::InternalServerError().body("Failed to fetch background task state")
     }
 }
 
@@ -996,16 +1037,21 @@ async fn remove_orphaned_packages(
     json: web::Json<SudoPasswordOnlyRequest>,
     state: Data<AppState>,
 ) -> HttpResponse {
-    if !is_admin_state(&session, state) {
+    if !is_admin_state(&session, state.clone()) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    let sudo_password = &json.sudoPassword;
+    let sudo_password = json.sudoPassword.clone();
+    let job_id = Uuid::new_v4();
+    
+    state.update_jobs.write().unwrap().insert(job_id, BackgroundTaskState::Pending);
 
-    match packages::remove_orphaned_packages(sudo_password.to_string()) {
-        Ok(_) => HttpResponse::Ok().finish(),
-        Err(_) => HttpResponse::InternalServerError().body("Failed to autoremove package."),
-    }
+    tokio::spawn(async move {match packages::remove_orphaned_packages(sudo_password.to_string()) {
+        Ok(_) => state.update_jobs.write().unwrap().insert(job_id, BackgroundTaskState::Success),
+        Err(_) => state.update_jobs.write().unwrap().insert(job_id, BackgroundTaskState::Fail),
+    }});
+
+    return HttpResponse::Ok().body(job_id.to_string());
 }
 
 // Firewall API
@@ -3308,6 +3354,7 @@ async fn main() -> std::io::Result<()> {
             .service(update_package)
             .service(update_all_packages)
             .service(update_package_database)
+            .service(fetch_job_status)
             // API Firewall
             .service(firewall_information)
             .service(switch_ufw)
