@@ -24,7 +24,7 @@ pub struct Ussage {
     pub mounted: String,
 }
 
-#[derive(Deserialize, serde::Serialize, Clone)]
+#[derive(Deserialize, serde::Serialize, Clone, Debug)]
 pub struct Drive {
     model: Option<String>,
     path: Option<String>,
@@ -123,17 +123,16 @@ pub fn drive_information(device_name: String) -> Option<Drive> {
     let o: LsblkOutputExhaustive =
         serde_json::from_str(&c_output_s).expect("❌ Parsing Lsblk failed");
 
-    for bkdv in o.blockdevices {
-        if *bkdv.name.as_ref().unwrap() == device_name {
-            return Some(bkdv);
-        } else if bkdv.children.is_some() {
-            for child in &mut bkdv.children.unwrap() {
-                if child.name.clone().unwrap() == device_name {
-                    return Some(child.clone());
-                }
+    fn scan(o: Vec<Drive>, device_name: String) -> Option<Drive> {
+        for dev in o {
+            if dev.clone().name.unwrap() == device_name {
+                return Some(dev.clone());
+            } else if dev.children.is_some() {
+                return scan(dev.children.unwrap(), device_name)
             }
         }
+        None
     }
 
-    None
+    scan(o.blockdevices, device_name)
 }
