@@ -8,7 +8,7 @@ use std::{fs, process::Command, process::Stdio};
 pub enum PackageManagerError {
     SudoError,
     UnknownPackageManager,
-    ExecutionError
+    ExecutionError,
 }
 
 /// Determines which package manager is used by the system.
@@ -93,7 +93,7 @@ pub fn remove_orphaned_packages(password: String) -> Result<(), PackageManagerEr
         .replace("\n", " ");
 
         packages = packages.trim().to_string();
-        command = format!("pacman --noconfirm -Rc {}", packages);
+        command = format!("pacman --noconfirm -R {}", packages);
     } else {
         return Err(PackageManagerError::UnknownPackageManager);
     }
@@ -102,7 +102,7 @@ pub fn remove_orphaned_packages(password: String) -> Result<(), PackageManagerEr
         SudoExecutionResult::Success(_) => Ok(()),
         SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
         SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
-        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError)
+        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError),
     }
 }
 
@@ -128,11 +128,11 @@ pub fn install_package(name: String, password: String) -> Result<(), PackageMana
         return Err(PackageManagerError::UnknownPackageManager);
     }
 
-     match SwitchedUserCommand::new(password, command.to_string()).spawn() {
+    match SwitchedUserCommand::new(password, command.to_string()).spawn() {
         SudoExecutionResult::Success(_) => Ok(()),
         SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
         SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
-        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError)
+        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError),
     }
 }
 
@@ -159,14 +159,12 @@ pub fn remove_package(name: String, password: String) -> Result<(), PackageManag
         return Err(PackageManagerError::UnknownPackageManager);
     }
 
-    
-     match SwitchedUserCommand::new(password, command.to_string()).spawn() {
+    match SwitchedUserCommand::new(password, command.to_string()).spawn() {
         SudoExecutionResult::Success(_) => Ok(()),
         SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
         SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
-        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError)
+        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError),
     }
-
 }
 
 /// Update a package to the next version.
@@ -192,12 +190,11 @@ pub fn update_package(name: String, password: String) -> Result<(), PackageManag
         return Err(PackageManagerError::UnknownPackageManager);
     }
 
-       
-     match SwitchedUserCommand::new(password, command.to_string()).spawn() {
+    match SwitchedUserCommand::new(password, command.to_string()).spawn() {
         SudoExecutionResult::Success(_) => Ok(()),
         SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
         SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
-        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError)
+        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError),
     }
 }
 
@@ -215,51 +212,53 @@ pub fn update_all_packages(password: String) -> Result<(), PackageManagerError> 
         return Err(PackageManagerError::UnknownPackageManager);
     }
 
-    
-       
-     match SwitchedUserCommand::new(password, command.to_string()).spawn() {
+    match SwitchedUserCommand::new(password, command.to_string()).spawn() {
         SudoExecutionResult::Success(_) => Ok(()),
         SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
         SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
-        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError)
+        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError),
     }
-
 }
 
 pub fn update_database(password: String) -> Result<(), PackageManagerError> {
     let package_manager = get_package_manager().unwrap();
 
     if package_manager == "apt" {
-        match SwitchedUserCommand::new(password, "apt").arg("update").arg("-y").spawn() {
+        match SwitchedUserCommand::new(password, "apt")
+            .arg("update")
+            .arg("-y")
+            .spawn()
+        {
             SudoExecutionResult::Success(_) => Ok(()),
-        SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
-        SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
-        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError)
-
+            SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
+            SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
+            SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError),
         }
-
     } else if package_manager == "dnf" {
-        match SwitchedUserCommand::new(password, "dnf").arg("makecache").arg("-y").spawn() {
-            
+        match SwitchedUserCommand::new(password, "dnf")
+            .arg("makecache")
+            .arg("-y")
+            .spawn()
+        {
             SudoExecutionResult::Success(_) => Ok(()),
-        SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
-        SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
-        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError)
-
+            SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
+            SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
+            SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError),
         }
-
     } else if package_manager == "pacman" {
-        match SwitchedUserCommand::new(password, "pacman").arg("-Syy").arg("--noconfirm").spawn() {
-            
+        match SwitchedUserCommand::new(password, "pacman")
+            .arg("-Syy")
+            .arg("--noconfirm")
+            .spawn()
+        {
             SudoExecutionResult::Success(_) => Ok(()),
-        SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
-        SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
-        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError)
+            SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
+            SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
+            SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError),
         }
     } else {
         return Err(PackageManagerError::UnknownPackageManager);
     }
-
 }
 
 /// List every package, the package manager says is installed
@@ -294,11 +293,7 @@ pub fn list_installed_packages() -> Result<Vec<String>, PackageManagerError> {
                 let split = entry.split("/");
                 let collection = split.collect::<Vec<&str>>();
                 if collection.len() != 2 {
-                    if entry.contains(&String::from("Listing...")) {
-                        None
-                    } else {
-                        None
-                    }
+                    None
                 } else {
                     Some(collection[0].to_string())
                 }
@@ -323,11 +318,7 @@ pub fn list_installed_packages() -> Result<Vec<String>, PackageManagerError> {
                 let split = entry.split(".");
                 let collection = split.collect::<Vec<&str>>();
                 if collection.len() != 2 {
-                    if entry.contains(&String::from("Installed Packages")) {
-                        None
-                    } else {
-                        None
-                    }
+                    None
                 } else {
                     Some(collection[0].to_string())
                 }
@@ -348,8 +339,7 @@ pub fn list_installed_packages() -> Result<Vec<String>, PackageManagerError> {
         let vector = &output
             .lines()
             .filter_map(|e| {
-                let entry = e.to_string();
-                let split = entry.split("/");
+                let split = e.split("/");
                 let collection = split.collect::<Vec<&str>>();
                 if collection.len() != 1 {
                     None
@@ -390,11 +380,7 @@ pub fn list_updates() -> Result<Vec<String>, PackageManagerError> {
                 let split = entry.split("/");
                 let collection = split.collect::<Vec<&str>>();
                 if collection.len() != 2 {
-                    if entry.contains(&String::from("Listing...")) {
-                        None
-                    } else {
-                        None
-                    }
+                    None
                 } else {
                     Some(collection[0].to_string())
                 }
@@ -418,13 +404,7 @@ pub fn list_updates() -> Result<Vec<String>, PackageManagerError> {
                 let split = entry.split(".");
                 let collection = split.collect::<Vec<&str>>();
                 if collection.len() != 2 {
-                    if entry.contains(&String::from("Updating and loading repositories:"))
-                        || entry.contains(&String::from("Repositories loaded."))
-                    {
-                        None
-                    } else {
-                        None
-                    }
+                    None
                 } else {
                     Some(collection[0].to_string())
                 }
@@ -447,7 +427,6 @@ pub fn list_updates() -> Result<Vec<String>, PackageManagerError> {
             .collect::<Vec<String>>();
 
         Ok(vector.to_vec())
-
     } else {
         return Err(PackageManagerError::UnknownPackageManager);
     }
@@ -541,11 +520,7 @@ pub fn list_available_packages() -> Result<Vec<String>, PackageManagerError> {
                 let split = entry.split(".");
                 let collection = split.collect::<Vec<&str>>();
                 if collection.len() != 2 {
-                    if entry.contains(&String::from("Available Packages")) {
-                        None
-                    } else {
-                        None
-                    }
+                    None
                 } else {
                     Some(collection[0].to_string())
                 }
@@ -566,10 +541,9 @@ pub fn list_available_packages() -> Result<Vec<String>, PackageManagerError> {
         let vector = &output
             .lines()
             .filter_map(|e| {
-                let entry = e.to_string();
-                let split = entry.split(" ");
+                if e.contains("[installed") {
+                let split = e.split(" ");
                 let collection = split.collect::<Vec<&str>>();
-                if !entry.contains("[installed") {
                     Some(collection[1].to_string())
                 } else {
                     None
@@ -605,8 +579,7 @@ pub fn list_orphaned_packages() -> Result<Vec<String>, PackageManagerError> {
         let vector = &output
             .lines()
             .map(|e| {
-                let entry = e.to_string();
-                let split = entry.split(" - ");
+                let split = e.split(" - ");
                 let collection = split.collect::<Vec<&str>>();
                 if collection.len() != 2 {
                     String::from("")
@@ -631,15 +604,10 @@ pub fn list_orphaned_packages() -> Result<Vec<String>, PackageManagerError> {
         let vector = &output
             .lines()
             .filter_map(|e| {
-                let entry = e.to_string();
-                let split = entry.split(".");
+                let split = e.split(".");
                 let collection = split.collect::<Vec<&str>>();
                 if collection.len() != 2 {
-                    if entry.contains(&String::from("Autoremove Packages")) {
-                        None
-                    } else {
-                        None
-                    }
+                    None
                 } else {
                     Some(collection[0].to_string())
                 }
