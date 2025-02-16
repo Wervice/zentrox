@@ -15,8 +15,6 @@ import {
   Clock2,
   HouseIcon,
   PlugIcon,
-  ListIcon,
-  GridIcon,
 } from "lucide-react";
 
 import {
@@ -38,6 +36,7 @@ import {
 } from "@/components/ui/dialog";
 
 import { useEffect, useState, useRef } from "react";
+import PathViewer from "@/components/ui/pathViewer"
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -65,7 +64,6 @@ export default function FileView({ className = "" }) {
   const [renameFile, setRenameFile] = useState("");
   const [burnPopupVisible, setBurnPopupVisible] = useState(false);
   const [burnFile, setBurnFile] = useState("");
-  const [view, setView] = useState("list");
 
   var renameFileInput = useRef();
   var currentPathInput = useRef();
@@ -101,19 +99,6 @@ export default function FileView({ className = "" }) {
     );
   }
 
-  /**
-   * Get parrent directory
-   * @param {string} path
-   * @returns string */
-
-  function parentDir(path) {
-    if (!path.endsWith("/")) path += "/";
-    var parsedPath = path.split("/");
-    parsedPath.pop();
-    parsedPath.pop();
-    return parsedPath.join("/") + "/";
-  }
-
   useEffect(() => {
     fetchFiles();
   }, []);
@@ -143,15 +128,9 @@ export default function FileView({ className = "" }) {
       }),
   );
 
-  if (view === "list") {
-    var viewClassName =
-      "w-full p-4 bg-transparent border border-neutral-800 border-x-transparent block cursor-default select-none hover:bg-neutral-800 hover:transition-bg hover:duration-400 focus:bg-neutral-800 focus:duration-50";
-    var iconViewClassName = "inline-block h-6 w-6 pr-1";
-  } else if (view === "grid") {
-    var viewClassName =
-      "m-1 pt-4 pb-4 w-32 bg-transparent text-center border border-neutral-800 rounded cursor-default select-none hover:bg-neutral-800 hover:transition-bg hover:duration-400 duration-200 focus:bg-neutral-800 focus:duration-50 inline-block align-middle overflow-hidden";
-    var iconViewClassName = "block h-6 w-6 pr-1 mr-auto ml-auto";
-  }
+  var viewClassName =
+    "w-full p-4 bg-transparent border border-neutral-800 border-x-transparent block cursor-default select-none hover:bg-neutral-800 hover:transition-bg hover:duration-400 focus:bg-neutral-800 focus:duration-50";
+  var iconViewClassName = "inline-block h-6 w-6 pr-1";
 
   function requestDeletion(name) {
     setDeletionPopupVisible(true);
@@ -171,9 +150,6 @@ export default function FileView({ className = "" }) {
   return (
     <div
       className={`${className} no-scroll overflow-scroll`}
-      style={{
-        maxHeight: "calc(100vh - 150px)",
-      }}
       onContextMenu={(e) => e.preventDefault()}
     >
       <AlertDialog
@@ -245,7 +221,7 @@ export default function FileView({ className = "" }) {
                 });
               }}
             >
-              <Flame className="inline h-6 w-6 mr-1" /> Burn
+              Burn file
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>{" "}
@@ -261,11 +237,13 @@ export default function FileView({ className = "" }) {
           <Input
             id="renameFileInput"
             ref={renameFileInput}
-            placeholder="New Path"
+			defaultValue={renameFile}
+			className="w-full"
+            placeholder="New path"
           />
           <DialogFooter>
             <DialogClose>
-              <Button variant="secondary">Cancel</Button>
+              <Button variant="outline">Cancel</Button>
             </DialogClose>
             <DialogClose>
               <Button
@@ -300,83 +278,15 @@ export default function FileView({ className = "" }) {
         </DialogContent>
       </Dialog>
       <Toaster />
-      <Button
-        className="mr-1"
-        onClick={() => {
-          fetchFiles(parentDir(currentPath));
-        }}
-      >
-        {" "}
-        <ArrowUp className="inline mr-1" />
-        Up
-      </Button>
-      <Button
-        className="mr-1"
-        onClick={() => {
-          if (view === "list") {
-            setView("grid");
-          } else {
-            setView("list");
-          }
-        }}
-      >
-        {view === "list" ? (
-          <ListIcon className="inline h-6 w-6" />
-        ) : (
-          <GridIcon className="inline h-6 w-6" />
-        )}
-      </Button>
-      <Dialog>
-        <DialogTrigger asChild>
-          <Button className="mr-1">
-            <MapPin className="inline mr-1" />
-            Specific location
-          </Button>
-        </DialogTrigger>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Specific location</DialogTitle>
-            <DialogDescription>
-              Enter a specific path to open on the file system
-            </DialogDescription>
-            <label htmlFor="pathInput">Path</label>
-            <Input id="pathInput" ref={currentPathInput} />
-          </DialogHeader>
-          <DialogFooter>
-            <DialogClose>
-              <Button variant="secondary">Close</Button>
-            </DialogClose>
-            <DialogClose>
-              <Button
-                type="submit"
-                onClick={() => {
-                  if (currentPathInput.current.value.endsWith("/")) {
-                    var currentPathInputValueNormalized =
-                      currentPathInput.current.value;
-                  } else {
-                    var currentPathInputValueNormalized =
-                      currentPathInput.current.value + "/";
-                  }
-                  fetchFiles(currentPathInputValueNormalized);
-                }}
-              >
-                Go
-              </Button>
-            </DialogClose>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <span
-        className="block m-4 mb-2 text-xl cursor-pointer active:text-green-500 focus:duration-400"
-        onClick={() => {
-          navigator.clipboard.writeText(currentPath);
-        }}
-      >
-        {currentPath}
-      </span>
+	  <PathViewer onValueChange={(e) => {
+		  setCurrentPath(e);
+		  fetchFiles(e);
+	  }} home="/home/" value={currentPath} />
       <div
         className="rounded-xl m-2 overflow-hidden overflow-y-scroll border-2 border-neutral-800"
-        style={{ maxHeight: "calc(100vh - 255px)" }}
+	    style={{
+			maxHeight: "calc(100vh - 200px)"
+		}}
       >
         {entries.map((entry, index) => {
           if (entry[1] === "d") {
@@ -467,11 +377,11 @@ export default function FileView({ className = "" }) {
             );
           }
 
-          const contextMenuIcon = "inline-block pr-1 h-6 w-6";
+          const contextMenuIcon = "inline-block pr-1 h-5 w-5 mb-[-2px]";
 
           if (entry[1] === "f") {
             return (
-              <ContextMenu key={index}>
+              <ContextMenu key={index} modal={false}>
                 <ContextMenuTrigger>
                   <span
                     id={index}
@@ -525,7 +435,7 @@ export default function FileView({ className = "" }) {
             );
           } else {
             return (
-              <ContextMenu>
+              <ContextMenu modal={false}>
                 <ContextMenuTrigger>
                   <span
                     id={index}
