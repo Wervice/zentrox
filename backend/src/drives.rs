@@ -128,7 +128,7 @@ pub fn drive_information(device_name: String) -> Option<Drive> {
             if dev.clone().name.unwrap() == device_name {
                 return Some(dev.clone());
             } else if dev.children.is_some() {
-                return scan(dev.children.unwrap(), device_name)
+                return scan(dev.children.unwrap(), device_name);
             }
         }
         None

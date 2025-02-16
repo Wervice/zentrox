@@ -1,15 +1,14 @@
 // Library to manage the database store
-use dirs;
 use rusqlite::types::FromSql;
 use rusqlite::{Connection, Row};
 use std::{fmt::Display, path::PathBuf};
 
 pub const ST_BOOL_TRUE: &str = "TRUE";
-/// Some columns can only use text. If a boolean has to be
-/// stored in one of these columns use and ST_BOOL
+// Some columns can only use text. If a boolean has to be
+// stored in one of these columns use and ST_BOOL
 pub const ST_BOOL_FALSE: &str = "FALSE";
-/// Some columns can only use text. If a boolean has to be
-/// stored in one of these columns use and ST_BOOL
+// Some columns can only use text. If a boolean has to be
+// stored in one of these columns use and ST_BOOL
 
 /// Enumaration used to categorize values for storage in SQL.
 /// Use InsertValue::from to automatically convert most common types into an InsertValue.
@@ -215,10 +214,10 @@ pub fn read_kv<T: Into<String> + Display>(table: T, key: T) -> Result<String, SQ
             while let Some(row) = r.as_mut().unwrap().next().unwrap() {
                 vec.push(row.get_unwrap::<usize, String>(0))
             }
-            if vec.len() < 1 {
+            if vec.is_empty() {
                 return Err(SQLError::NoRow("No such row was found.".to_string()));
             }
-            return Ok(vec[0].clone());
+            Ok(vec[0].clone())
         }
         Err(e) => Err(SQLError::ExecutionError(e.to_string())),
     }
@@ -243,12 +242,12 @@ pub fn write_kv<T: Into<String> + Display + ToString>(
             s.pop();
             s
         });
-        execution = conn.execute(&query.as_str(), ());
+        execution = conn.execute(query.as_str(), ());
     } else {
         let query = format!("INSERT INTO '{table}' VALUES ('{key}', {})", {
             value.to_sql_query_segment()
         });
-        execution = conn.execute(&query.as_str(), ());
+        execution = conn.execute(query.as_str(), ());
     }
     match execution {
         Ok(v) => Ok(v),
@@ -331,6 +330,10 @@ where
 }
 
 /// Read all the specified columns from the specified table.
+/// Example
+/// ´´´
+/// database::read_cols::<&str, (u64,)>("PackageActions", &["last_database_update"]).unwrap();
+/// ´´´
 #[allow(unused)]
 pub fn read_cols<T: Into<String> + Display, R: FromRow>(
     table: T,
@@ -360,7 +363,7 @@ pub fn read_cols<T: Into<String> + Display, R: FromRow>(
                 let parsed = R::from_row(row);
                 vec.push(parsed)
             }
-            return Ok(vec);
+            Ok(vec)
         }
         Err(e) => Err(SQLError::ExecutionError(e.to_string())),
     }
@@ -431,11 +434,8 @@ pub fn update_where<T: Into<String> + Display>(
             "UPDATE \"{table}\" SET {} WHERE \"{where_left}\"=\"{where_right}\"",
             {
                 let mut s = String::new();
-                let mut i = 0;
-                for ele in values {
+                for (i, ele) in values.iter().enumerate() {
                     s = format!("{s}{}={},", cols[i], { ele.to_sql_query_segment() });
-
-                    i += 1;
                 }
                 s.pop();
                 s
@@ -459,17 +459,10 @@ pub fn write<T: Into<String> + Display + Clone>(
     unique_column: T,
     unique_key: T,
 ) -> Result<usize, SQLError> {
-    println!("The functions not dead");
     if exists(table.clone(), unique_column.clone(), unique_key.clone()).unwrap() {
-        println!("We got so far");
-        let uw = update_where(table, cols, values, unique_column, unique_key);
-        println!("Update where also lives");
-        uw
+        update_where(table, cols, values, unique_column, unique_key)
     } else {
-        println!("Well hope inserting isnt fucked");
-        let i = insert(table, cols, values);
-        println!("It isnt");
-        i
+        insert(table, cols, values)
     }
 }
 

@@ -10,7 +10,7 @@ use crate::database;
 pub fn argon2_derive_key(password: &str) -> Option<[u8; 32]> {
     let salt: SaltString;
     if database::read_kv("Secrets", "a2_salt")
-        .unwrap_or(String::new())
+        .unwrap_or_default()
         .is_empty()
     {
         salt = SaltString::generate(&mut OsRng);
@@ -29,7 +29,7 @@ pub fn argon2_derive_key(password: &str) -> Option<[u8; 32]> {
     } else {
         salt = SaltString::from_b64(
             database::read_kv("Secrets", "a2_salt")
-                .unwrap_or(String::new())
+                .unwrap_or_default()
                 .as_ref(),
         )
         .unwrap();
