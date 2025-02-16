@@ -23,26 +23,8 @@ if (fetchURLPrefix.length > 0) {
   console.error("Fetch URL Prefix is enabled");
 }
 
-function OTPInputField({ value, onChange }) {
-  const useOtpFetch = async () => {
-    fetch(fetchURLPrefix + "/login/useOtp", { method: "POST" }).then((res) => {
-      if (res.ok) {
-        res.json().then((json) => {
-          if (json["used"]) {
-            setVisibility(true);
-          } else {
-            setVisibility(false);
-          }
-        });
-      }
-    });
-  };
-  useEffect(() => {
-    useOtpFetch();
-  }, []);
-
-  const [isShown, setVisibility] = useState(false);
-  if (isShown) {
+function OTPInputField({ value, onChange, hidden }) {
+  if (!hidden) {
     return (
       <>
         <Label>
@@ -60,8 +42,8 @@ function OTPInputField({ value, onChange }) {
                   "Content-Type": "application/json",
                 },
                 body: JSON.stringify({
-                  username: userName,
-                  password: passWord,
+                  username: username,
+                  password: password,
                   userOtp: otpKey,
                 }),
               }).then((res) => {
@@ -96,10 +78,27 @@ function OTPInputField({ value, onChange }) {
 }
 
 export default function Login() {
-  const [userName, changeUserName] = useState("");
-  const [passWord, changePassWord] = useState("");
+  const [username, changeUsername] = useState("");
+  const [password, changePassword] = useState("");
   const [otpKey, changeOtpKey] = useState("");
   const { toast } = useToast();
+  const [otpVisible, setOtpVisible] = useState(null);
+const useOtpFetch = async () => {
+    fetch(fetchURLPrefix + "/login/useOtp", { method: "POST" }).then((res) => {
+      if (res.ok) {
+        res.json().then((json) => {
+          if (json["used"]) {
+            setOtpVisible(true);
+          } else {
+            setOtpVisible(false);
+          }
+        });
+      }
+    });
+  };
+  useEffect(() => {
+    useOtpFetch();
+  }, []);
 
   useEffect(() => {
     fetch(fetchURLPrefix + "/login/otpSecret", {
@@ -109,18 +108,18 @@ export default function Login() {
         res.json().then((json) => {
           toast({
             title: "OTP Secret",
-            description: "Your OTP secret is: " + json["secret"],
-            duration: 200000,
-            action: (
-              <ToastAction
+            description: <>Your OTP secret is: <code>{json["secret"]}</code>
+<ToastAction
                 altText="Copy"
                 onClick={() => {
                   navigator.clipboard.writeText(json["secret"]);
                 }}
               >
-                <ClipboardIcon className="w-6 h-6 inline-block mr-1" /> Copy
+                <ClipboardIcon className="w-4 h-4 inline-block mr-1 mt-[2px]" /> Copy
               </ToastAction>
-            ),
+
+			  </>,
+            duration: 200000,
           });
         });
       }
@@ -130,10 +129,10 @@ export default function Login() {
   return (
     <>
       <Toaster />
-      <TopBarInformative>Login</TopBarInformative>
-      <div className="p-5">
+      <div className={"w-screen h-screen relative justify-center items-center" + (otpVisible === null ? " hidden" : " flex") }>
+	  <div className="p-5 rounded-lg bg-neutral-900/10 border border-neutral-700/30 animate-fadeup duration-500 absolute">
         <Image src="zentrox_dark.svg" />
-        <Caption text="Welcome back!" />
+        <Caption text="Welcome" />
         <Label>
           <User className="inline-block pr-1" /> Username
         </Label>
@@ -141,7 +140,7 @@ export default function Login() {
           className="mb-2"
           type="text"
           onChange={(event) => {
-            changeUserName(event.target.value);
+            changeUsername(event.target.value);
           }}
         />
         <Label>
@@ -151,7 +150,7 @@ export default function Login() {
           className="mb-2"
           type="password"
           onChange={(event) => {
-            changePassWord(event.target.value);
+            changePassword(event.target.value);
           }}
           onKeyPress={(event) => {
             if (event.key == "Enter") {
@@ -161,8 +160,8 @@ export default function Login() {
                   "Content-Type": "application/json",
                 },
                 body: JSON.stringify({
-                  username: userName,
-                  password: passWord,
+                  username: username,
+                  password: password,
                   userOtp: otpKey,
                 }),
               }).then((res) => {
@@ -189,8 +188,10 @@ export default function Login() {
         <OTPInputField
           value={otpKey}
           onChange={(value) => changeOtpKey(value)}
+	      hidden={!otpVisible}
         />
         <Button
+			className={!otpVisible ? "mt-2" : ""}
           onClick={() => {
             fetch(fetchURLPrefix + "/login", {
               method: "POST",
@@ -198,8 +199,8 @@ export default function Login() {
                 "Content-Type": "application/json",
               },
               body: JSON.stringify({
-                username: userName,
-                password: passWord,
+                username: username,
+                password: password,
                 userOtp: otpKey,
               }),
             }).then((res) => {
@@ -220,7 +221,7 @@ export default function Login() {
           }}
         >
           Login
-        </Button>
+        </Button></div>
       </div>
     </>
   );
