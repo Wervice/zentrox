@@ -1,7 +1,6 @@
 import { Switch } from "@/components/ui/switch.jsx";
 import { Button } from "@/components/ui/button.jsx";
 import {
-  TrashIcon,
   Plus,
   Ban,
   CircleCheck,
@@ -51,7 +50,7 @@ import fetchURLPrefix from "@/lib/fetchPrefix";
 
 function Firewall() {
   const [rules, setRules] = useState([]); // Firewall rules that are displayed on the frontend and fetched from UFW
-  const [fireWallEnabled, setFireWallEnabled] = useState(false); // Is the firewall enabled?
+  const [fireWallEnabled, setFireWallEnabled] = useState(null); // Is the firewall enabled?
 
   // New rule creation
   const [newRuleAction, setNewRuleAction] = useState("allow");
@@ -115,15 +114,15 @@ function Firewall() {
                   <tr key={i} className="w-fit">
                     <td>{rule.to.replaceAll("(v6)", "IPv6")}</td>
                     <td>{rule.from.replaceAll("(v6)", "IPv6")}</td>
-                    <td>
+                    <td className="align-middle">
                       {rule.action === "DENY" ? (
                         <>
-                          <Ban className="h-4 w-4 inline-block text-red-500 pr-1" />
+                          <Ban className="h-6 w-6 mt-[-2px] inline-block text-red-500 pr-1" />
                           Deny
                         </>
                       ) : (
                         <>
-                          <CircleCheck className="h-4 w-4 inline-block text-green-500 pr-1" />
+                          <CircleCheck className="h-6 w-6 mt-[-2px] inline-block text-green-500 pr-1" />
                           Allow
                         </>
                       )}
@@ -131,13 +130,13 @@ function Firewall() {
                     <td>
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
-                          <Button className="bg-transparent text-white p-0 m-0 hover:bg-red-500/20 active:bg-red-500/30 w-12">
-                            <TrashIcon />
+                          <Button className="bg-transparent text-red-500 hover:bg-transparent">
+                            Remove rule
                           </Button>
                         </AlertDialogTrigger>
                         <AlertDialogContent>
                           <AlertDialogHeader>
-                            <AlertDialogTitle>Delete Rule</AlertDialogTitle>
+                            <AlertDialogTitle>Delete rule</AlertDialogTitle>
                             <AlertDialogDescription>
                               Do you really want to remove this rule? This
                               action can not be undone.
@@ -214,7 +213,7 @@ function Firewall() {
             type="password"
             placeholder="Sudo password"
             ref={sudoPasswordInput}
-			className="w-full"
+            className="w-full"
           />
           <DialogFooter>
             <DialogClose asChild>
@@ -248,19 +247,20 @@ function Firewall() {
           </p>
         </details>
         <div className="w-64">
-          <div>
-            {sudoPassword.length === 0 ? (
-              <Button
-                className="block mb-2"
-                onClick={() => {
-                  setSudoDialogOpen(true);
-                }}
-              >
-                Enter sudo password
-              </Button>
-            ) : (
-              <></>
-            )}
+          {sudoPassword.length === 0 ? (
+            <Button
+              className="block mb-2"
+              onClick={() => {
+                setSudoDialogOpen(true);
+              }}
+            >
+              Enter sudo password
+            </Button>
+          ) : (
+            <></>
+          )}
+
+          <span className={sudoPassword.length === 0 ? "hidden" : ""}>
             <Dialog>
               <DialogTrigger disabled={sudoPassword.length === 0} asChild>
                 <Button className="mr-1" disabled={sudoPassword.length === 0}>
@@ -274,7 +274,7 @@ function Firewall() {
                   <DialogDescription>
                     You can create a new rule that applies to your firewall.
                   </DialogDescription>
-                  <div>
+                  <p>
                     <label htmlFor="ruleTo" className="block">
                       <ArrowUpFromDot className="w-4 h-4 inline" /> To
                     </label>
@@ -282,7 +282,7 @@ function Firewall() {
                       The port or port range on which protocol the request was
                       sent to
                     </small>
-                    <Select value={portOrRange} onValueChange={setPortOrRange}>
+                    <Select onValueChange={setPortOrRange}>
                       <SelectTrigger className="w-[210px] m-1">
                         <SelectValue placeholder="Port or port range" />
                       </SelectTrigger>
@@ -374,7 +374,7 @@ function Firewall() {
                         </SelectGroup>
                       </SelectContent>
                     </Select>
-                  </div>
+                  </p>
                   <DialogFooter>
                     <DialogClose asChild>
                       <Button variant="outline">Cancel</Button>
@@ -497,11 +497,12 @@ function Firewall() {
               }}
               value={fireWallEnabled ? "on" : "off"}
               checked={fireWallEnabled}
+			  hidden={fireWallEnabled === null}
               title="Enable Firewall"
               className="ml-1"
             />
-          </div>
-          <RuleView />
+            <RuleView />
+          </span>
         </div>
       </Page>
     </>
