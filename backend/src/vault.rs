@@ -3,7 +3,6 @@ use aes_gcm::{
     Aes256Gcm,
 };
 use sha2::{Digest, Sha256};
-
 use crate::crypto_utils;
 use std::fs;
 
