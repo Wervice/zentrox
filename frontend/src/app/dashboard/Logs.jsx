@@ -297,7 +297,7 @@ function Logs() {
             type="password"
             placeholder="Sudo password"
             ref={sudoPasswordInput}
-			className="w-full"
+            className="w-full"
           />
 
           <DialogFooter>
