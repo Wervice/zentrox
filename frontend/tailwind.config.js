@@ -94,6 +94,15 @@ module.exports = {
             opacity: 0,
           },
         },
+		  "fade-up": {
+          from: {
+			  opacity: 0,
+			  marginTop: "50px",
+		  },
+			  to: {
+            opacity: 1,
+          },
+        },
         "move-up": {
           "0%": {
             bottom: "-1vh",
@@ -137,6 +146,7 @@ module.exports = {
         fadeout: "fade-out ease-out 0.2s",
         movedown: "move-down ease-out 0.2s",
         colorchange: "color-change ease-in",
+        fadeup: "fade-up ease-out",
       },
       borderRadius: {
         lg: "var(--radius)",
