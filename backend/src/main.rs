@@ -9,12 +9,8 @@ use actix_web::{
     get, http::header, http::StatusCode, middleware, post, web, web::Data, App, HttpResponse,
     HttpServer,
 };
-use dirs;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256, Sha512};
-use uuid::Uuid;
-use std::str::FromStr;
-use std::usize;
 use std::{
     collections::HashMap,
     env,
@@ -26,6 +22,7 @@ use std::{
 };
 use sysinfo::System as SysInfoSystem;
 use systemstat::{Platform, System};
+use uuid::Uuid;
 extern crate inflector;
 use database::InsertValue;
 use inflector::Inflector;
@@ -51,14 +48,14 @@ use is_admin::is_admin_state;
 use net_data::private_ip;
 use visit_dirs::visit_dirs;
 
-#[derive(Debug)]
-#[derive(Clone)]
+#[derive(Debug, Clone)]
+#[allow(unused)]
 enum BackgroundTaskState {
     Success,
     Fail,
     SuccessOutput(String),
     FailOutput(String),
-    Pending
+    Pending,
 }
 
 #[allow(non_snake_case)]
@@ -85,13 +82,13 @@ struct AppState {
     net_interface: Arc<Mutex<String>>,
     cpu_usage: Arc<Mutex<f32>>,
     net_connected_interfaces: Arc<Mutex<i32>>,
-    update_jobs: Arc<Mutex<HashMap<Uuid, BackgroundTaskState>>>
+    update_jobs: Arc<Mutex<HashMap<Uuid, BackgroundTaskState>>>,
 }
 
 impl AppState {
     /// Initiate a new AppState
     fn new() -> Self {
-        let random_string: Vec<u8> = (0..128).map(|_| rand::random::<u8>()).collect();
+        let random_string: Arc<[u8]> = (0..128).map(|_| rand::random::<u8>()).collect();
         AppState {
             login_requests: Arc::new(Mutex::new(HashMap::new())),
             login_token: Arc::new(Mutex::new(
@@ -104,7 +101,7 @@ impl AppState {
             net_interface: Arc::new(Mutex::new(String::new())),
             net_connected_interfaces: Arc::new(Mutex::new(0_i32)),
             cpu_usage: Arc::new(Mutex::new(0_f32)),
-            update_jobs: Arc::new(Mutex::new(HashMap::new()))
+            update_jobs: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -294,8 +291,7 @@ struct EmptyJson {}
 ///
 /// This struct implements serde::Derserialize. It can be used to parse a single sudoPassword from
 /// the user. It only has the String filed sudoPassword.
-#[derive(Deserialize)]
-#[derive(Debug)]
+#[derive(Deserialize, Debug)]
 #[allow(non_snake_case)]
 struct SudoPasswordOnlyRequest {
     sudoPassword: String,
@@ -395,33 +391,41 @@ async fn login(
             if database::read_cols::<&str, (bool,)>("Admin", &["use_otp"]).unwrap()[0].0 {
                 let otp_secret = database::read_kv("Secrets", "otp_secret").unwrap();
                 if otp::calculate_current_otp(&otp_secret) == *otp_code {
+                    // User has logged in successfully using password and 2FA
                     let _ = session.insert("login_token", hex::encode(&login_token).to_string());
 
                     *state.login_token.lock().unwrap() = hex::encode(&login_token).to_string();
                     *state.username.lock().unwrap() = username.to_string();
+                    let state_copy = state.clone();
+                    std::thread::spawn(move || {
+                        state_copy.update_network_statistics();
+                        state_copy.update_cpu_statistics();
+                    });
 
                     return HttpResponse::build(StatusCode::OK).json(web::Json(EmptyJson {}));
-                } else {
-                    println!("Wrong OTP while authenticating");
                 }
             } else {
-                // for hashes
+                // User has logged in successfully using password
                 let _ = session.insert("login_token", hex::encode(&login_token).to_string());
 
                 *state.login_token.lock().unwrap() = hex::encode(&login_token).to_string();
                 *state.username.lock().unwrap() = username.to_string();
+                
+                    let state_copy = state.clone();
+                    std::thread::spawn(move || {
+                        state_copy.update_network_statistics();
+                        state_copy.update_cpu_statistics();
+                    });
+
 
                 return HttpResponse::build(StatusCode::OK).json(web::Json(EmptyJson {}));
             }
         } else {
-            println!("Wrong Password while authenticating");
             return HttpResponse::build(StatusCode::FORBIDDEN).body("Missing permissions");
         }
     } else {
-        println!("Wrong username while authenticationg.");
         return HttpResponse::build(StatusCode::FORBIDDEN).body("Missing permissions");
     }
-    println!("Drop Thru while authenticating");
     HttpResponse::build(StatusCode::FORBIDDEN).body("Missing permissions")
 }
 
@@ -452,14 +456,14 @@ async fn logout(session: Session, state: Data<AppState>) -> HttpResponse {
 /// This function will only return the users OTP secret when the web page is viewed for the first
 /// time. To keep track of this status, a key knows_otp_secret is used.
 #[post("/login/otpSecret")]
-async fn otp_secret_request(_state: Data<AppState>) -> HttpResponse {
+async fn otp_secret_request(state: Data<AppState>, session: Session) -> HttpResponse {
     #[derive(Serialize)]
     struct SecretJsonResponse {
         secret: String,
     }
 
-    if !database::read_cols::<&str, (bool,)>("Admin", &["knows_otp"]).unwrap()[0].0
-        && database::read_cols::<&str, (bool,)>("Admin", &["use_otp"]).unwrap()[0].0
+    if (!database::read_cols::<&str, (bool,)>("Admin", &["knows_otp"]).unwrap()[0].0
+        && database::read_cols::<&str, (bool,)>("Admin", &["use_otp"]).unwrap()[0].0) || is_admin_state(&session, state.clone())
     {
         let _u = database::update_where(
             "Admin",
@@ -474,6 +478,26 @@ async fn otp_secret_request(_state: Data<AppState>) -> HttpResponse {
         })
     } else {
         HttpResponse::Forbidden().body("You can not access this value anymore.")
+    }
+}
+
+#[get("/api/updateOtp/{status}")]
+async fn update_otp_status(state: Data<AppState>, session: Session, path: Path<bool>) -> HttpResponse {
+    if !is_admin_state(&session, state.clone()) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    };
+
+    if path.into_inner() {
+        let _a = database::write("Admin", &["use_otp"], &[InsertValue::Bool(true)], "key", "0");
+        let secret = otp::generate_otp_secret();
+        let _b = database::write_kv("Secrets", "otp_secret", InsertValue::Text(secret.clone()));
+        let _ = database::write("Admin", &["knows_otp"], &[InsertValue::Bool(true)], "key", "0");
+        return HttpResponse::Ok().body(secret)
+    } else {
+        let _a = database::write("Admin", &["use_otp"], &[InsertValue::Bool(false)], "key", "0");
+        let _b = database::delete_row("Secrets", "name", "otp_secret");
+        let _ = database::write("Admin", &["knows_otp"], &[InsertValue::Bool(false)], "key", "0");
+        return HttpResponse::Ok().finish()
     }
 }
 
@@ -529,7 +553,7 @@ async fn device_information(session: Session, state: Data<AppState>) -> HttpResp
     // Current machines hostname. i.e.: debian_pc or 192.168.1.3
     let hostname = fs::read_to_string("/etc/hostname")
         .unwrap_or("Unknown hostname".to_string())
-        .to_string();
+        .replace("\n", "").to_string();
 
     let uptime = state.system.lock().unwrap().uptime().unwrap().as_millis();
 
@@ -563,7 +587,8 @@ async fn device_information(session: Session, state: Data<AppState>) -> HttpResp
         Err(_err) => {}
     };
 
-    HttpResponse::Ok().json(JsonResponse {
+    HttpResponse::Ok()
+        .json(JsonResponse {
         zentrox_pid: std::process::id() as u16,
         hostname,
         uptime,
@@ -738,6 +763,7 @@ async fn update_ftp_config(
 // Package API
 
 #[derive(Serialize)]
+#[allow(non_snake_case)]
 struct PackageResponseJson {
     packages: Vec<String>, // Any package the supported package managers (apt, pacman and dnf) say
     // would be installed on the system (names only)
@@ -745,9 +771,11 @@ struct PackageResponseJson {
     packageManager: String,
     canProvideUpdates: bool,
     updates: Vec<String>,
+    lastDatabaseUpdate: u64
 }
 
 #[derive(Serialize)]
+#[allow(non_snake_case)]
 struct PackageResponseJsonCounts {
     packages: usize, // Any package the supported package managers (apt, pacman and dnf) say
     // would be installed on the system (names only)
@@ -755,6 +783,7 @@ struct PackageResponseJsonCounts {
     packageManager: String,
     canProvideUpdates: bool,
     updates: usize,
+    lastDatabaseUpdate: u64
 }
 
 /// Return the current package database.
@@ -771,10 +800,18 @@ async fn package_database(
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
+    let query = database::read_cols::<&str, (u64,)>("PackageActions", &["last_database_update"]).unwrap();
+    let last_database_update;
+    if query.len() != 1 {
+        last_database_update = 0
+    } else {
+        last_database_update = query[0].0
+    }
+
     if path.into_inner() {
         let installed = match packages::list_installed_packages() {
             Ok(packages) => packages.len(),
-            Err(err) => {
+            Err(_err) => {
                 eprintln!("Listing installed packages failed");
                 0
             }
@@ -797,11 +834,12 @@ async fn package_database(
             packageManager: packages::get_package_manager().unwrap_or("".to_string()),
             canProvideUpdates: can_provide_updates,
             updates,
+            lastDatabaseUpdate: last_database_update
         })
     } else {
         let installed = match packages::list_installed_packages() {
             Ok(packages) => packages,
-            Err(err) => {
+            Err(_err) => {
                 eprintln!("Listing installed packages failed");
                 Vec::new()
             }
@@ -818,13 +856,15 @@ async fn package_database(
             }
         };
 
-        HttpResponse::Ok().json(PackageResponseJson {
+        HttpResponse::Ok()
+            .json(PackageResponseJson {
             packages: installed,
             others: available,
             packageManager: packages::get_package_manager().unwrap_or("".to_string()),
             canProvideUpdates: can_provide_updates,
             updates,
-        })
+            lastDatabaseUpdate: last_database_update
+            })
     }
 }
 
@@ -849,20 +889,46 @@ async fn orphaned_packages(session: Session, state: Data<AppState>) -> HttpRespo
 
 /// Update package database
 #[post("/api/updatePackageDatabase")]
-async fn update_package_database(session: Session, state: Data<AppState>, json: web::Json<SudoPasswordOnlyRequest>) -> HttpResponse {
+async fn update_package_database(
+    session: Session,
+    state: Data<AppState>,
+    json: web::Json<SudoPasswordOnlyRequest>,
+) -> HttpResponse {
     if !is_admin_state(&session, state.clone()) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
     let job_id = Uuid::new_v4();
 
-    state.update_jobs.lock().unwrap().insert(job_id, BackgroundTaskState::Pending);
+    state
+        .update_jobs
+        .lock()
+        .unwrap()
+        .insert(job_id, BackgroundTaskState::Pending);
 
     tokio::spawn(async move {
- match packages::update_database(json.into_inner().sudoPassword) {
-        Ok(_) => state.update_jobs.lock().unwrap().insert(job_id, BackgroundTaskState::Success),
-        Err(_) => state.update_jobs.lock().unwrap().insert(job_id, BackgroundTaskState::Fail),
-    }
+        match packages::update_database(json.into_inner().sudoPassword) {
+            Ok(_) => {
+                let x = database::write("PackageActions", &["last_database_update", "key"], &[
+                    InsertValue::UnsignedInt64(std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()),
+                    InsertValue::UnsignedInt64(0_u64)
+                ], "key", "0");
+                if x.is_ok() {
+                    state
+                    .update_jobs
+                    .lock()
+                    .unwrap()
+                    .insert(job_id, BackgroundTaskState::Success)
+                } else {
+                    state.update_jobs.lock().unwrap().insert(job_id, BackgroundTaskState::FailOutput("Zentrox was unable to update package actions database".to_string()))
+                }
+            },
+            Err(_) => state
+                .update_jobs
+                .lock()
+                .unwrap()
+                .insert(job_id, BackgroundTaskState::Fail),
+        }
     });
 
     HttpResponse::Ok().body(job_id.to_string())
@@ -892,10 +958,20 @@ async fn install_package(
     let job_id = Uuid::new_v4();
 
     tokio::spawn(async move {
-    match packages::install_package(json.packageName.to_string(), json.sudoPassword.to_string()) {
-        Ok(_) => state.update_jobs.lock().unwrap().insert(job_id, BackgroundTaskState::Success),
-        Err(_) => state.update_jobs.lock().unwrap().insert(job_id, BackgroundTaskState::Fail),
-    }});
+        match packages::install_package(json.packageName.to_string(), json.sudoPassword.to_string())
+        {
+            Ok(_) => state
+                .update_jobs
+                .lock()
+                .unwrap()
+                .insert(job_id, BackgroundTaskState::Success),
+            Err(_) => state
+                .update_jobs
+                .lock()
+                .unwrap()
+                .insert(job_id, BackgroundTaskState::Fail),
+        }
+    });
 
     HttpResponse::Ok().body(job_id.to_string())
 }
@@ -917,10 +993,20 @@ async fn remove_package(
     let job_id = Uuid::new_v4();
 
     tokio::spawn(async move {
-    match packages::remove_package(json.packageName.to_string(), json.sudoPassword.to_string()) {
-        Ok(_) => state.update_jobs.lock().unwrap().insert(job_id, BackgroundTaskState::Success),
-        Err(_) => state.update_jobs.lock().unwrap().insert(job_id, BackgroundTaskState::Fail),
-    }});
+        match packages::remove_package(json.packageName.to_string(), json.sudoPassword.to_string())
+        {
+            Ok(_) => state
+                .update_jobs
+                .lock()
+                .unwrap()
+                .insert(job_id, BackgroundTaskState::Success),
+            Err(_) => state
+                .update_jobs
+                .lock()
+                .unwrap()
+                .insert(job_id, BackgroundTaskState::Fail),
+        }
+    });
 
     HttpResponse::Ok().body(job_id.to_string())
 }
@@ -942,10 +1028,20 @@ async fn update_package(
     let job_id = Uuid::new_v4();
 
     tokio::spawn(async move {
-    match packages::update_package(json.packageName.to_string(), json.sudoPassword.to_string()) {
-        Ok(_) => state.update_jobs.lock().unwrap().insert(job_id, BackgroundTaskState::Success),
-        Err(_) => state.update_jobs.lock().unwrap().insert(job_id, BackgroundTaskState::Fail),
-    }});
+        match packages::update_package(json.packageName.to_string(), json.sudoPassword.to_string())
+        {
+            Ok(_) => state
+                .update_jobs
+                .lock()
+                .unwrap()
+                .insert(job_id, BackgroundTaskState::Success),
+            Err(_) => state
+                .update_jobs
+                .lock()
+                .unwrap()
+                .insert(job_id, BackgroundTaskState::Fail),
+        }
+    });
 
     HttpResponse::Ok().body(job_id.to_string())
 }
@@ -967,12 +1063,24 @@ async fn update_all_packages(
     let sudo_password = json.sudoPassword.clone();
     let job_id = Uuid::new_v4();
 
-    state.update_jobs.lock().unwrap().insert(job_id, BackgroundTaskState::Pending);
+    state
+        .update_jobs
+        .lock()
+        .unwrap()
+        .insert(job_id, BackgroundTaskState::Pending);
 
     tokio::spawn(async move {
         match packages::update_all_packages(sudo_password.to_string()) {
-            Ok(_) => state.update_jobs.lock().unwrap().insert(job_id, BackgroundTaskState::Success),
-            Err(_) => state.update_jobs.lock().unwrap().insert(job_id, BackgroundTaskState::Fail),
+            Ok(_) => state
+                .update_jobs
+                .lock()
+                .unwrap()
+                .insert(job_id, BackgroundTaskState::Success),
+            Err(_) => state
+                .update_jobs
+                .lock()
+                .unwrap()
+                .insert(job_id, BackgroundTaskState::Fail),
         }
     });
 
@@ -983,7 +1091,7 @@ async fn update_all_packages(
 async fn fetch_job_status(
     session: Session,
     state: Data<AppState>,
-    path: web::Path<String>
+    path: web::Path<String>,
 ) -> HttpResponse {
     if !is_admin_state(&session, state.clone()) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
@@ -993,29 +1101,17 @@ async fn fetch_job_status(
     let jobs = state.update_jobs.lock().unwrap().clone();
     let background_state = jobs.get(&uuid::Uuid::parse_str(&requested_id).unwrap());
 
-    fn clear_task(state: Data<AppState>, task: String) {
-        let mut jobs = state.update_jobs.lock().unwrap().clone();
-        jobs.remove(&uuid::Uuid::from_str(&task).unwrap());
-        *state.update_jobs.lock().unwrap() = jobs;
-        ()
-    }
-
     match background_state {
-        Some(bs) => {
-            match bs {
-                BackgroundTaskState::Success => {
-                    HttpResponse::Ok().finish()
-                },
-                BackgroundTaskState::Fail => {
-                    HttpResponse::UnprocessableEntity().finish()},
-                BackgroundTaskState::SuccessOutput(s) =>{
-                    HttpResponse::Ok().body(s.clone())},
-                BackgroundTaskState::FailOutput(f) => {
-                    HttpResponse::UnprocessableEntity().body(f.clone())},
-                BackgroundTaskState::Pending => HttpResponse::Accepted().finish()
+        Some(bs) => match bs {
+            BackgroundTaskState::Success => HttpResponse::Ok().finish(),
+            BackgroundTaskState::Fail => HttpResponse::UnprocessableEntity().finish(),
+            BackgroundTaskState::SuccessOutput(s) => HttpResponse::Ok().body(s.clone()),
+            BackgroundTaskState::FailOutput(f) => {
+                HttpResponse::UnprocessableEntity().body(f.clone())
             }
+            BackgroundTaskState::Pending => HttpResponse::Accepted().finish(),
         },
-        None => HttpResponse::InternalServerError().body("Failed to fetch background task state")
+        None => HttpResponse::InternalServerError().body("Failed to fetch background task state"),
     }
 }
 
@@ -1032,13 +1128,27 @@ async fn remove_orphaned_packages(
 
     let sudo_password = json.sudoPassword.clone();
     let job_id = Uuid::new_v4();
-    
-    state.update_jobs.lock().unwrap().insert(job_id, BackgroundTaskState::Pending);
 
-    tokio::spawn(async move {match packages::remove_orphaned_packages(sudo_password.to_string()) {
-        Ok(_) => state.update_jobs.lock().unwrap().insert(job_id, BackgroundTaskState::Success),
-        Err(_) => state.update_jobs.lock().unwrap().insert(job_id, BackgroundTaskState::Fail),
-    }});
+    state
+        .update_jobs
+        .lock()
+        .unwrap()
+        .insert(job_id, BackgroundTaskState::Pending);
+
+    tokio::spawn(async move {
+        match packages::remove_orphaned_packages(sudo_password.to_string()) {
+            Ok(_) => state
+                .update_jobs
+                .lock()
+                .unwrap()
+                .insert(job_id, BackgroundTaskState::Success),
+            Err(_) => state
+                .update_jobs
+                .lock()
+                .unwrap()
+                .insert(job_id, BackgroundTaskState::Fail),
+        }
+    });
 
     return HttpResponse::Ok().body(job_id.to_string());
 }
@@ -1105,21 +1215,17 @@ async fn switch_ufw(
         {
             sudo::SudoExecutionResult::Success(status) => {
                 if status == 0 {
-                    println!("✅ Started UFW");
                     return HttpResponse::Ok().finish();
                 } else {
-                    println!("Failed to start UFW (Status != 0)");
                     return HttpResponse::InternalServerError()
                         .body("Failed to start UFW (Return value unequal 0)");
                 }
             }
             sudo::SudoExecutionResult::ExecutionError(_) => {
-                println!("Failed to start UFW (Err)");
                 return HttpResponse::InternalServerError()
                     .body("Failed to start UFW because to command error");
             }
             _ => {
-                println!("Failed to start UFW");
                 return HttpResponse::InternalServerError()
                     .body("Failed to start UFW because to command error");
             }
@@ -1134,21 +1240,17 @@ async fn switch_ufw(
         {
             sudo::SudoExecutionResult::Success(status) => {
                 if status == 0 {
-                    println!("✅ Stopped UFW");
                     return HttpResponse::Ok().finish();
                 } else {
-                    println!("Failed to stop UFW (Status != 0)");
                     return HttpResponse::InternalServerError()
                         .body("Failed to stop UFW (Return value unequal 0)");
                 }
             }
             sudo::SudoExecutionResult::ExecutionError(_) => {
-                println!("Failed to stop UFW (Err)");
                 return HttpResponse::InternalServerError()
                     .body("Failed to stop UFW because of command error");
             }
             _ => {
-                println!("Failed to start UFW");
                 return HttpResponse::InternalServerError()
                     .body("Failed to start UFW because to command error");
             }
@@ -1194,7 +1296,6 @@ async fn new_firewall_rule(
                 } else if protocol == "udp" {
                     ufw::NetworkProtocol::Udp(destination_parsed)
                 } else {
-                    println!("Assuming TCP due to insufficient data.");
                     ufw::NetworkProtocol::Tcp(destination_parsed)
                 }
             },
@@ -1216,12 +1317,11 @@ async fn new_firewall_rule(
 
         match x {
             Ok(_) => HttpResponse::Ok().body("Added new rule"),
-            Err(e) => {
-                eprintln!("Failed to create firewall rule: {e}");
+            Err(_e) => {
                 HttpResponse::InternalServerError().body("Failed to create new rule")
             }
         }
-    } else if (mode == "r") {
+    } else if mode == "r" {
         let lr: Vec<&str> = destination.split(":").collect();
         let range_left: u64;
         let range_right: u64;
@@ -1232,12 +1332,12 @@ async fn new_firewall_rule(
 
         match lr[0].parse::<u64>() {
             Ok(v) => range_left = v,
-            Err(v) => return HttpResponse::BadRequest().body("Malformed left side port"),
+            Err(_) => return HttpResponse::BadRequest().body("Malformed left side port"),
         }
 
         match lr[1].parse::<u64>() {
             Ok(v) => range_right = v,
-            Err(v) => return HttpResponse::BadRequest().body("Malformed right side port"),
+            Err(_) => return HttpResponse::BadRequest().body("Malformed right side port"),
         }
 
         let x = ufw::new_rule_range(
@@ -1248,7 +1348,6 @@ async fn new_firewall_rule(
                 } else if protocol == "udp" {
                     ufw::PortRange::Udp(range_left, range_right)
                 } else {
-                    println!("Assuming TCP due to insufficient data.");
                     ufw::PortRange::Tcp(range_left, range_right)
                 }
             },
@@ -2293,7 +2392,7 @@ async fn power_off(
     let e =
         sudo::SwitchedUserCommand::new(json.sudoPassword.clone(), "poweroff".to_string()).spawn();
 
-    if let sudo::SudoExecutionResult::Success(v) = e {
+    if let sudo::SudoExecutionResult::Success(_) = e {
         HttpResponse::Ok().body("Shutting down.")
     } else {
         HttpResponse::InternalServerError().body("Failed to execute poweroff as super user.")
@@ -2577,11 +2676,9 @@ async fn media_request(
                     return HttpResponse::RangeNotSatisfiable()
                         .body("The requested range can not be satisfied.");
                 }
-                if byte_range.1.is_some() {
-                    if byte_range.1.unwrap() > filesize {
+                if byte_range.1.is_some() && (byte_range.1.unwrap() > filesize) {
                         return HttpResponse::RangeNotSatisfiable()
                             .body("The requested range can not be satisfied.");
-                    }
                 }
                 let buffer_length = byte_range.1.unwrap_or(filesize) - byte_range.0;
                 let _ = reader.seek(SeekFrom::Start(byte_range.0 as u64));
@@ -2774,10 +2871,6 @@ async fn get_media_list(session: Session, state: Data<AppState>) -> HttpResponse
     .unwrap();
 
     for row in metadata_rows {
-        println!(
-            "Deleting {} from Media asnyc fn get_media_list",
-            row.0.clone()
-        );
         let filepath = PathBuf::from(row.0.clone());
         if !filepath.exists() {
             let x = database::delete_row(
@@ -3326,6 +3419,7 @@ async fn main() -> std::io::Result<()> {
             .service(login) // Login user using username, password and otp token if enabled
             .service(logout) // Remove admin status and redirect to /
             .service(otp_secret_request) // Return OTP secret, if this is the first time viewing
+            .service(update_otp_status)
             // the secret
             .service(use_otp) // Return if OTP is enabled
             // API
@@ -3398,6 +3492,8 @@ async fn main() -> std::io::Result<()> {
             .service(robots_txt)
             .service(afs::Files::new("/", "static/"))
     })
+    .workers(16)
+    .keep_alive(systemstat::Duration::from_secs(60 * 6))
     .bind_rustls_0_23(("0.0.0.0", 8080), tls_config)?
     .run()
     .await
