@@ -24,7 +24,7 @@ export default function InfoButton({ title, info }) {
         {info}
         <DialogFooter>
           <DialogClose asChild>
-            <Button variant="secondary">Close</Button>
+            <Button variant="outline">Close</Button>
           </DialogClose>
         </DialogFooter>
       </DialogContent>
