@@ -5,16 +5,18 @@ import {
   Package2,
   Loader2,
   CircleX,
-  SearchIcon,
   TrashIcon,
   CircleCheck,
   BotIcon,
   CircleAlert,
   DownloadIcon,
   DatabaseIcon,
-  RotateCcw,
-  SparkleIcon,
   SparklesIcon,
+  DoorOpenIcon,
+  CheckCircle,
+  XCircle,
+  XCircleIcon,
+  CheckIcon,
 } from "lucide-react";
 import { useEffect, useState, useRef } from "react";
 import "./table.css";
@@ -35,27 +37,34 @@ import Page from "@/components/ui/PageWrapper";
 import { useToast } from "@/components/ui/use-toast";
 import fetchURLPrefix from "@/lib/fetchPrefix";
 
-function startTask(adress, options = {}, interval = 3000) {
+function startTask(adress, options = {}, interval = 500) {
   return new Promise((resolve, reject) => {
-    fetch(adress, options).then((res) => {
-      if (res.ok) {
-        res.text().then((uuid) => {
-
-          let ivd = setInterval(() => {
-            fetch(fetchURLPrefix + "/api/fetchJobStatus/" + uuid).then(
-              (checkRes) => {
-                if (checkRes.status === 200) {
-                  clearInterval(ivd);
-                  resolve(checkRes);
-                } else if (checkRes.status === 422 || checkRes.status === 500) {
-                  clearInterval(ivd);
-                  reject(checkRes);
-				}}
-            );
-          }, interval);
-        });
-      }
-    });
+    fetch(adress, options)
+      .then((res) => {
+        if (res.ok) {
+          res.text().then((uuid) => {
+            let ivd = setInterval(() => {
+              fetch(fetchURLPrefix + "/api/fetchJobStatus/" + uuid).then(
+                (checkRes) => {
+                  if (checkRes.status === 200) {
+                    clearInterval(ivd);
+                    resolve(checkRes);
+                  } else if (
+                    checkRes.status === 422 ||
+                    checkRes.status === 500
+                  ) {
+                    clearInterval(ivd);
+                    reject(checkRes);
+                  }
+                },
+              );
+            }, interval);
+          });
+        }
+      })
+      .catch((err) => {
+        console.error(err);
+      });
   });
 }
 
@@ -65,8 +74,6 @@ function Packages() {
     visible: false,
     mode: "",
     packageName: "",
-	errorFn: () => {},
-	finishFn: () => {}
   });
   var databaseUpdateSudoPasswordInput = useRef();
   var packageSudoPasswordInput = useRef();
@@ -80,6 +87,7 @@ function Packages() {
   const [packageSearchValue, setPackageSearchValue] = useState("");
   const [databaseUpdateButton, setDatabaseUpdateButton] = useState("default");
   const [activeTasks, setActiveTasks] = useState({});
+  const [lastDatabaseUpdate, setLastDatabaseUpdate] = useState(0);
   useEffect(() => fetchPackageList(), []);
   function closePackagePopUp() {
     setPackagePopUp({
@@ -104,6 +112,7 @@ function Packages() {
           setUpdates(json.updates);
           setPackageManager(json.packageManager);
           setVisibility(true);
+          setLastDatabaseUpdate(json.lastDatabaseUpdate);
         });
       } else {
         toast({
@@ -133,118 +142,159 @@ function Packages() {
     });
   }
 
-function installPackage(packageName) {
+  function installPackage(packageName) {
     let activeTasksCopy = { ...activeTasks, [packageName]: "working" };
     setActiveTasks(activeTasksCopy);
 
     startTask(fetchURLPrefix + "/api/installPackage", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-            packageName: packageName,
-            sudoPassword: packageSudoPasswordInput.current.value,
-        }),
-    }).then(() => {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        packageName: packageName,
+        sudoPassword: packageSudoPasswordInput.current.value,
+      }),
+    })
+      .then(() => {
         closePackagePopUp();
         setInstalledPackages([...installedPackages, packageName]);
         setOtherPackages(otherPackages.filter((e) => e !== packageName));
-        
+        fetchPackageList();
+
         let updatedTasks = { ...activeTasks };
         delete updatedTasks[packageName];
         setActiveTasks(updatedTasks);
 
         toast({
-            title: "Installed package",
-            description: packageName + " has been successfully installed",
-            duration: 60000,
+          title: (
+            <>
+              <CheckIcon className="inline-block mt-[-4px]" /> Installed package
+            </>
+          ),
+          description: packageName + " has been successfully installed",
+          duration: 60000,
         });
-    }).catch(() => {
+      })
+      .catch(() => {
         closePackagePopUp();
         setActiveTasks({ ...activeTasks, [packageName]: "failed" });
 
         toast({
-            title: "Failed to install package",
-            description: "Zentrox failed to install " + packageName,
+          title: (
+            <>
+              <XCircleIcon className="inline-block mt-[-4px]" /> Failed to
+              install package
+            </>
+          ),
+          description: "Zentrox failed to install " + packageName,
         });
-    });
-}
+      });
+  }
 
-function removePackage(packageName) {
+  function removePackage(packageName) {
     let activeTasksCopy = { ...activeTasks, [packageName]: "working" };
     setActiveTasks(activeTasksCopy);
 
     startTask(fetchURLPrefix + "/api/removePackage", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-            packageName: packageName,
-            sudoPassword: packageSudoPasswordInput.current.value,
-        }),
-    }).then(() => {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        packageName: packageName,
+        sudoPassword: packageSudoPasswordInput.current.value,
+      }),
+    })
+      .then(() => {
         closePackagePopUp();
-        setInstalledPackages(installedPackages.filter((entry) => entry !== packageName));
+        setInstalledPackages(
+          installedPackages.filter((entry) => entry !== packageName),
+        );
+        setAutoRemovePackages(
+          autoRemovePackages.filter((entry) => entry !== packageName),
+        );
         setOtherPackages([...otherPackages, packageName]);
-        
+        fetchPackageList();
+
         let updatedTasks = { ...activeTasks };
         delete updatedTasks[packageName];
         setActiveTasks(updatedTasks);
 
         toast({
-            title: "Removed package",
-            description: packageName + " has been successfully removed",
-            duration: 60000,
+          title: (
+            <>
+              <CheckIcon className="inline-block mt-[-4px]" /> Removed package
+            </>
+          ),
+          description: packageName + " has been successfully removed",
+          duration: 60000,
         });
-    }).catch(() => {
+      })
+      .catch(() => {
         closePackagePopUp();
         setActiveTasks({ ...activeTasks, [packageName]: "failed" });
 
         toast({
-            title: "Failed to remove package",
-            description: "Zentrox failed to remove " + packageName,
+          title: (
+            <>
+              <XCircleIcon className="inline-block mt-[-4px]" /> Failed to
+              remove package
+            </>
+          ),
+          description: "Zentrox failed to remove " + packageName,
         });
-    });
-}
+      });
+  }
 
-function updatePackage(packageName) {
+  function updatePackage(packageName) {
     let activeTasksCopy = { ...activeTasks, [packageName]: "working" };
     setActiveTasks(activeTasksCopy);
 
     startTask(fetchURLPrefix + "/api/updatePackage", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-            packageName: packageName,
-            sudoPassword: packageSudoPasswordInput.current.value,
-        }),
-    }).then(() => {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        packageName: packageName,
+        sudoPassword: packageSudoPasswordInput.current.value,
+      }),
+    })
+      .then(() => {
         closePackagePopUp();
         setUpdates(updates.filter((e) => e !== packageName));
-        
+        fetchPackageList();
+
         let updatedTasks = { ...activeTasks };
         delete updatedTasks[packageName];
         setActiveTasks(updatedTasks);
 
         toast({
-            title: "Updated package",
-            description: packageName + " has been successfully updated",
-            duration: 60000,
+          title: (
+            <>
+              <CheckIcon className="inline-block mt-[-4px]" /> Updated package
+            </>
+          ),
+          description: packageName + " has been successfully updated",
+          duration: 60000,
         });
-    }).catch(() => {
+      })
+      .catch(() => {
         closePackagePopUp();
         setActiveTasks({ ...activeTasks, [packageName]: "failed" });
 
         toast({
-            title: "Failed to update package",
-            description: "Zentrox failed to update " + packageName,
+          title: (
+            <>
+              <XCircleIcon className="inline-block mt-[-4px]" /> Failed to
+              update package
+            </>
+          ),
+          description: "Zentrox failed to update " + packageName,
         });
-    });
-}
+      });
+  }
 
   /**
    * @param {string} mode
@@ -255,19 +305,19 @@ function updatePackage(packageName) {
       visible: true,
       mode: mode,
       packageName,
-	});
+    });
   }
 
   function PackageBox({ packageName, task }) {
     const [buttonState, setButtonState] = useState("default");
 
-	useEffect(() => {
-		if (activeTasks[packageName] === "working") {
-			setButtonState("working")
-		} else if (activeTasks[packageName] === "failed") {
-			setButtonState("failed")
-		}
-	}, [activeTasks])
+    useEffect(() => {
+      if (activeTasks[packageName] === "working") {
+        setButtonState("working");
+      } else if (activeTasks[packageName] === "failed") {
+        setButtonState("failed");
+      }
+    }, [activeTasks]);
 
     return (
       <div
@@ -312,8 +362,7 @@ function updatePackage(packageName) {
             } else if (buttonState === "failed") {
               return (
                 <>
-                  <CircleX className="h-4 w-4 inline-block" />{" "}
-                  Failed
+                  <CircleX className="h-4 w-4 inline-block" /> Failed
                 </>
               );
             } else if (buttonState === "done") {
@@ -339,7 +388,8 @@ function updatePackage(packageName) {
         <Dialog>
           <DialogTrigger asChild>
             <Button variant="destructive">
-              <TrashIcon className="h-4 w-4 inline-block mr-2" /> Remove packages
+              <TrashIcon className="h-4 w-4 inline-block mr-2" /> Remove
+              packages
             </Button>
           </DialogTrigger>
           <DialogContent>
@@ -358,7 +408,7 @@ function updatePackage(packageName) {
               type="password"
               placeholder="Sudo password"
               ref={sudoPasswordInput}
-			  className="w-full"
+              className="w-full"
             />
             <DialogFooter>
               <DialogClose asChild>
@@ -377,21 +427,34 @@ function updatePackage(packageName) {
                       body: JSON.stringify({
                         sudoPassword: sudoPasswordInput.current.value,
                       }),
-                    }).then(() => {
+                    })
+                      .then(() => {
                         setAutoRemovePackages([]);
-						setClearAutoRemoveButtonState("default")
-						toast({
-							title: "Removed orphaned packages",
-							description: "Orphaned packages have successfully been removed"
-						})
-                    }).catch(() => {
-						setClearAutoRemoveButtonState("default")
+                        setClearAutoRemoveButtonState("default");
                         toast({
-                          title: "Failed to remove packages",
+                          title: (
+                            <>
+                              <CheckCircle className="inline-block mt-[-4px]" />{" "}
+                              Package removal successful
+                            </>
+                          ),
+                          description:
+                            "Orphaned packages have successfully been removed",
+                        });
+                      })
+                      .catch(() => {
+                        setClearAutoRemoveButtonState("default");
+                        toast({
+                          title: (
+                            <>
+                              <XCircleIcon className="inline-block mt-[-4px]" />{" "}
+                              Package removal failed
+                            </>
+                          ),
                           description:
                             "Zentrox failed to remove orphaned packages from your system.",
                         });
-					});
+                      });
                   }}
                 >
                   Proceed
@@ -434,7 +497,7 @@ function updatePackage(packageName) {
               type="password"
               placeholder="Sudo password"
               ref={sudoPasswordInput}
-			  className="w-full"
+              className="w-full"
             />
             <DialogFooter>
               <DialogClose asChild>
@@ -472,7 +535,12 @@ function updatePackage(packageName) {
                             });
                           } else {
                             toast({
-                              title: "Package Database Error",
+                              title: (
+                                <>
+                                  <XCircleIcon className="inline-block mt-[-4px]" />{" "}
+                                  Package database error
+                                </>
+                              ),
                               message:
                                 "Zentrox failed to retrieve a list of packages",
                             });
@@ -491,7 +559,12 @@ function updatePackage(packageName) {
                             });
                           } else {
                             toast({
-                              title: "Package Database Error",
+                              title: (
+                                <>
+                                  <XCircleIcon className="inline-block mt-[-4px]" />{" "}
+                                  Package database error
+                                </>
+                              ),
                               message:
                                 "Zentrox failed to retrieve a list of packages",
                             });
@@ -501,8 +574,14 @@ function updatePackage(packageName) {
                       })
                       .catch(() => {
                         toast({
-                          title: "Failed to update all packages",
-						  description: "Zentrox was unable to update all installed packages."
+                          title: (
+                            <>
+                              <XCircleIcon className="inline-block mt-[-4px]" />{" "}
+                              Full package update failed
+                            </>
+                          ),
+                          description:
+                            "Zentrox was unable to update all installed packages.",
                         });
                       });
                   }}
@@ -565,10 +644,7 @@ function updatePackage(packageName) {
         </>
       );
     } else {
-      var PackageView = (
-        <>
-        </>
-      );
+      var PackageView = <></>;
     }
     return (
       <Page name="Packages">
@@ -603,12 +679,12 @@ function updatePackage(packageName) {
                 type="password"
                 placeholder="Sudo password"
                 ref={packageSudoPasswordInput}
-				className="w-full"
+                className="w-full"
               />
             </p>
             <DialogFooter>
               <DialogClose asChild>
-                <Button variant="secondary" onClick={closePackagePopUp}>
+                <Button variant="outline" onClick={closePackagePopUp}>
                   Cancel
                 </Button>
               </DialogClose>
@@ -694,11 +770,13 @@ function updatePackage(packageName) {
           />
         </div>
         <br />
-          <div className={packageSearchValue === "" ? "mb-2" : "hidden"}>
-			<details>
-			<summary className="mb-2 cursor-pointer">
-            <strong><RefreshCcw className="w-6 h-6 inline-block" /> Updates</strong>
-			</summary>
+        <div className={packageSearchValue === "" ? "mb-2" : "hidden"}>
+          <details>
+            <summary className="mb-2 cursor-pointer">
+              <strong>
+                <RefreshCcw className="w-6 h-6 inline-block" /> Updates
+              </strong>
+            </summary>
             {updates.length > 0 ? (
               <small className="mb-1 block">
                 {updates.length} package{updates.length !== 1 ? "s" : ""} can be
@@ -708,6 +786,14 @@ function updatePackage(packageName) {
               <></>
             )}
 
+            <span className="block mb-2">
+              Last successful database update:{" "}
+              {(function () {
+				if (lastDatabaseUpdate === 0) return "Never"
+                let d = new Date(lastDatabaseUpdate * 1000);
+                return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()} ${("0" + (d.getHours() % 12)).slice(-2)}:${("0" + d.getMinutes()).slice(-2)} ${d.getHours() >= 12 ? "PM" : "AM"}`;
+              })()}
+            </span>
             <Dialog>
               <DialogTrigger asChild>
                 <Button className="mr-2" variant="secondary">
@@ -748,13 +834,14 @@ function updatePackage(packageName) {
                   <Input
                     type="password"
                     placeholder="Sudo password"
+                    className="w-full"
                     ref={databaseUpdateSudoPasswordInput}
                   />
                 </p>
 
                 <DialogFooter>
                   <DialogClose asChild>
-                    <Button variant="secondary">Cancel</Button>
+                    <Button variant="outline">Cancel</Button>
                   </DialogClose>
 
                   <DialogClose asChild>
@@ -773,37 +860,57 @@ function updatePackage(packageName) {
                                 databaseUpdateSudoPasswordInput.current.value,
                             }),
                           },
-                        ).then(() => {
-						  toast({
-							  title: "Updated database",
-							  description: "The package database has been successfully updated"
-						  })
-                          setDatabaseUpdateButton("default");
-                          fetch(fetchURLPrefix + "/api/packageDatabase/false", {
-                            headers: {
-                              "Content-Type": "application/json",
-                            },
-                          }).then((res) => {
-                            if (res.ok) {
-                              res.json().then((json) => {
-                                setInstalledPackages(
-                                  Array.from(json["packages"]),
-                                );
-                                setOtherPackages(Array.from(json["others"]));
-                                setCanProvideUpdates(json.canProvideUpdates);
-                                setUpdates(json.updates);
-                                setPackageManager(json.packageManager);
-                                setVisibility(true);
-                              });
-                            }
+                        )
+                          .then(() => {
+                            toast({
+                              title: (
+                                <>
+                                  <CheckCircle className="inline-block mt-[-4px]" />{" "}
+                                  Database update successful
+                                </>
+                              ),
+                              description:
+                                "The package database has been successfully updated",
+                            });
+                            setDatabaseUpdateButton("default");
+                            fetch(
+                              fetchURLPrefix + "/api/packageDatabase/false",
+                              {
+                                headers: {
+                                  "Content-Type": "application/json",
+                                },
+                              },
+                            ).then((res) => {
+                              if (res.ok) {
+                                res.json().then((json) => {
+                                  setInstalledPackages(
+                                    Array.from(json["packages"]),
+                                  );
+                                  setOtherPackages(Array.from(json["others"]));
+                                  setCanProvideUpdates(json.canProvideUpdates);
+                                  setUpdates(json.updates);
+                                  setPackageManager(json.packageManager);
+                                  setVisibility(true);
+                                  setLastDatabaseUpdate(
+                                    json.lastDatabaseUpdate,
+                                  );
+                                });
+                              }
+                            });
+                          })
+                          .catch(() => {
+                            setDatabaseUpdateButton("failed");
+                            toast({
+                              title: (
+                                <>
+                                  <XCircleIcon className="inline-block mt-[-4px]" />{" "}
+                                  Database update failed
+                                </>
+                              ),
+                              description:
+                                "Zentrox was unable to update your package managers database",
+                            });
                           });
-                        }).catch(() => {
-							setDatabaseUpdateButton("default")
-							toast({
-								title: "Failed to update package database",
-								description: "Zentrox was unable to update your package managers database"
-							})
-						})
                       }}
                     >
                       Continue
@@ -815,9 +922,14 @@ function updatePackage(packageName) {
 
             {updates.length > 0 ? <UpdateButton /> : <></>}
             <br />
-			{
-				updates.length === 0 ? <div className="text-center align-middle opacity-75"><SparklesIcon className="w-8 h-8 inline-block" /> Everything is up-to-date</div> : <></>
-			}
+            {updates.length === 0 ? (
+              <div className="text-center align-middle opacity-75">
+                <SparklesIcon className="w-8 h-8 inline-block" /> Everything is
+                up-to-date
+              </div>
+            ) : (
+              <></>
+            )}
             {updates.map((pkg, i) => {
               return (
                 <PackageBox
@@ -827,30 +939,35 @@ function updatePackage(packageName) {
                 ></PackageBox>
               );
             })}
-			</details>
-          </div>
-			<details className={autoRemovePackages.length > 0 && packageSearchValue === "" ? "" : "hidden"}>
-			<summary className="mb-2 cursor-pointer">
-            <strong><TrashIcon className="w-6 h-6 inline-block" /> Orphaned packages</strong>
-			</summary>
-            <small className="mb-1 block">
-              {autoRemovePackages.length} package
-              {autoRemovePackages.length !== 1
-                ? "s may not be"
-                : " may not be"}{" "}
-              required by your system anymore.
-            </small>
-            <AutoRemoveButon />
-            <br />
-            {autoRemovePackages.map((pkg, i) => {
-              return (
-                <PackageBox
-                  packageName={pkg}
-                  task="remove"
-                  key={i}
-                ></PackageBox>
-              );
-            })}</details>
+          </details>
+        </div>
+        <details
+          className={
+            autoRemovePackages.length > 0 && packageSearchValue === ""
+              ? ""
+              : "hidden"
+          }
+        >
+          <summary className="mb-2 cursor-pointer">
+            <strong>
+              <TrashIcon className="w-6 h-6 inline-block" /> Orphaned packages
+            </strong>
+          </summary>
+          <small className="mb-1 block">
+            {autoRemovePackages.length} package
+            {autoRemovePackages.length !== 1
+              ? "s may not be"
+              : " may not be"}{" "}
+            required by your system anymore.
+          </small>
+          <AutoRemoveButon />
+          <br />
+          {autoRemovePackages.map((pkg, i) => {
+            return (
+              <PackageBox packageName={pkg} task="remove" key={i}></PackageBox>
+            );
+          })}
+        </details>
         {PackageView}
       </Page>
     );
