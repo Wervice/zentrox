@@ -47,6 +47,7 @@ import Vault from "./Vault";
 import Sharing from "./Sharing";
 import Logs from "./Logs";
 import Media from "./Media";
+import { Checkbox } from "@/components/ui/checkbox";
 
 // const fetchURLPrefix = "";
 const fetchURLPrefix = require("@/lib/fetchPrefix");
@@ -59,7 +60,7 @@ if (fetchURLPrefix.length > 0) {
 
 function TopBar({ children }) {
   return (
-    <nav className="bg-transparent text-neutral-100 p-3 border-neutral-900 border-b font-semibold text-xl">
+    <nav className="bg-transparent text-neutral-100 p-3 border-neutral-900 border-b font-semibold text-xl animate-fadein duration-300">
       {children}
     </nav>
   );
@@ -69,10 +70,10 @@ function TabButton({ onClick, isDefault, isActive, children }) {
   const [isOnloadDefault, setOnloadDefault] = useState(isDefault);
   if (isOnloadDefault || isActive) {
     var style =
-      "mr-2 ml-2 text-lg hover:bg-neutral-900 text-white bg-neutral-900 hover:bg-neutral-800 hover:text-neutral-100 focus:outline outline-2 outline-offset-2";
+      "mr-2 ml-2 text-lg hover:bg-neutral-900 text-white bg-neutral-900 hover:bg-neutral-800 hover:text-neutral-100";
   } else {
     var style =
-      "bg-transparent mr-2 ml-2 text-lg hover:bg-neutral-800 hover:text-neutral-200 text-neutral-400 focus:outline outline-2 outline-offset-2";
+      "bg-transparent mr-2 ml-2 text-lg hover:bg-neutral-800 hover:text-neutral-200 text-neutral-400";
   }
   if (isOnloadDefault) {
     onClick();
@@ -97,6 +98,8 @@ function Account() {
   const [passwordWarningVisible, setPasswordWarningVisible] = useState(false);
   const [powerOffDialogOpen, setPowerOffDialogOpen] = useState(false);
   const [reloadTrigger, setReloadTrigger] = useState(0);
+  const [canUpdateCredentials, setCanUpdateCredentials] = useState(false);
+  const [otpEnabled, setOtpEnabled] = useState(false);
 
   const sudoPasswordInput = useRef(null);
   const accountUsernameInput = useRef(null);
@@ -104,6 +107,19 @@ function Account() {
   const profilePictureUploadInput = useRef(null);
 
   useEffect(() => {
+    if (account.username == "") {
+      fetch(fetchURLPrefix + "/login/useOtp", { method: "POST" }).then((r) => {
+        if (r.ok) {
+          console.log(r.ok);
+          r.json().then((j) => {
+            setOtpEnabled(j.used);
+          });
+        }
+      });
+    }
+  });
+
+  function fetchOtpInformation() {
     if (account.username == "") {
       fetch(fetchURLPrefix + "/api/accountDetails", {
         method: "POST",
@@ -119,6 +135,10 @@ function Account() {
         }
       });
     }
+  }
+
+  useEffect(() => {
+    fetchOtpInformation();
   }, []);
 
   // Callbacks to handle state updates
@@ -136,7 +156,7 @@ function Account() {
     setPowerOffDialogOpen(true);
   }, []);
 
-  const handleApplyClick = () => {
+  const updateCredentials = () => {
     const username = accountUsernameInput.current?.value;
     const password = accountPasswordInput.current?.value;
 
@@ -144,7 +164,7 @@ function Account() {
       username: username,
     });
 
-    fetch("/api/updateAccountDetails", {
+    fetch(fetchURLPrefix + "/api/updateAccountDetails", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password }),
@@ -164,13 +184,13 @@ function Account() {
   };
 
   const handlePowerOffConfirm = useCallback(() => {
-    fetch("/api/powerOff", {
+    fetch(fetchURLPrefix + "/api/powerOff", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ sudoPassword: sudoPasswordInput.current?.value }),
     }).then((res) => {
       if (!res.ok) {
-        toast({ title: "Power Off failed" });
+        toast({ title: "Power off failed" });
       }
     });
   }, []);
@@ -186,80 +206,173 @@ function Account() {
             <DialogTitle>Account</DialogTitle>
             <DialogDescription>Edit your account details.</DialogDescription>
           </DialogHeader>
-          <span className="p-1 text-red-500" hidden={!usernameWarningVisible}>
-            A username may not be shorter than 5 characters.
-          </span>
-          Username
-          <Input
-            placeholder="Username"
-            ref={accountUsernameInput}
-            defaultValue={account.username}
-            disabled={account.username === ""}
-            onKeyPress={() => {
-              setUsernameWarningVisible(
-                accountUsernameInput.current?.value.length < 5,
-              );
-            }}
-          />
-          <span className="p-1 text-red-500" hidden={!passwordWarningVisible}>
-            A password may not be shorter than 10 characters.
-          </span>
-          <Input
-            placeholder="Password"
-            type="password"
-            ref={accountPasswordInput}
-            disabled={account.username === ""}
-            onKeyPress={() => {
-              setPasswordWarningVisible(
-                accountPasswordInput.current?.value.length < 10,
-              );
-            }}
-          />
-          <input
-            type="file"
-            ref={profilePictureUploadInput}
-            onChange={() => {
-              var fileForSubmit = profilePictureUploadInput.current.files[0];
-              if (fileForSubmit.size >= 1024 * 1024) {
-                toast({
-                  title: "File to big",
-                  description: "The file you provided was larger than 1MB",
-                });
-              }
-              var formData = new FormData();
-              formData.append("file", fileForSubmit);
-              fetch(fetchURLPrefix + "/api/uploadProfilePicture", {
-                method: "POST",
-                body: formData,
-              }).then((res) => {
-                profilePictureUploadInput.current.value = "";
-                if (res.ok) {
-                  setReloadTrigger(Date.now());
-                } else {
+          <div>
+            <strong className="block ml-1 mb-1">Credentials</strong>
+            <div
+              className="mb-1 text-sm text-red-500 ml-1"
+              hidden={!usernameWarningVisible}
+            >
+              A username may not be shorter than 5 characters.
+            </div>
+
+            <Input
+              placeholder="Username"
+              className="mb-2"
+              ref={accountUsernameInput}
+              defaultValue={account.username}
+              disabled={account.username === ""}
+              onChange={() => {
+                setUsernameWarningVisible(
+                  accountUsernameInput.current?.value.length < 5,
+                );
+                if (
+                  accountUsernameInput.current?.value != account.username ||
+                  accountPasswordInput.current?.value !== ""
+                ) {
+                  setCanUpdateCredentials(true);
+                }
+              }}
+            />
+            <div
+              className="mb-1 text-sm text-red-500 ml-1"
+              hidden={!passwordWarningVisible}
+            >
+              The password may not be shorter than 15 characters.
+            </div>
+            <Input
+              placeholder="Password"
+              className="mb-2"
+              type="password"
+              ref={accountPasswordInput}
+              disabled={account.username === ""}
+              onChange={() => {
+                setPasswordWarningVisible(
+                  accountPasswordInput.current?.value.length < 15 &&
+                    accountPasswordInput?.current.value.length > 0,
+                );
+                if (
+                  accountUsernameInput.current?.value != account.username ||
+                  accountPasswordInput.current?.value !== ""
+                ) {
+                  setCanUpdateCredentials(true);
+                }
+              }}
+            />
+            <Button
+              variant="outline"
+              className={"block mb-2 " + (canUpdateCredentials ? "" : "hidden")}
+              disabled={passwordWarningVisible || usernameWarningVisible}
+              onClick={updateCredentials}
+            >
+              Update credentials
+            </Button>
+            <strong className="block ml-1 mb-1">2FA</strong>
+            <div className="flex items-center">
+              <Checkbox
+                className="inline-block mr-1 ml-1"
+                defaultChecked={otpEnabled}
+                onCheckedChange={(e) => {
+                  fetch(fetchURLPrefix + "/api/updateOtp/" + e)
+                    .then((r) => {
+                      if (r.ok) {
+                        setOtpEnabled(e);
+                        if (!e) {
+                          toast({
+                            title: "Updated 2FA status",
+                          });
+                        } else {
+                          r.text().then((t) => {
+                            toast({
+                              title: "Updated 2FA status",
+                              description: (
+                                <>
+                                  Your new 2FA token is <code>{t}</code>{" "}
+                                  <Button
+                                    className="mt-2 border !border-black/20"
+                                    onClick={() => {
+                                      window.navigator.clipboard
+                                        .writeText(t)
+                                        .then(() => {
+                                          toast({
+                                            title: "Copied to clipboard",
+                                          });
+                                        });
+                                    }}
+                                  >
+                                    Copy to clipboard
+                                  </Button>
+                                </>
+                              ),
+                              duration: 120000,
+                            });
+                          });
+                        }
+                      } else {
+                        toast({
+                          title: "Failed to update 2FA status",
+                        });
+                      }
+                    })
+                    .catch(() => {
+                      toast({
+                        title: "Failed to update 2FA status",
+                      });
+                    });
+                }}
+              />{" "}
+              <label className="inline-block mr-1">Enable 2FA</label>
+            </div>
+            <small className="block ml-1 text-white/60">
+              Two-factor authentication (2FA) uses a One-Time-Pad to generate a
+              unique code every 30 seconds. To use 2FA, you need to securely
+              store a code in an authenticator application. When you disable
+              2FA, Zentrox will automatically remove your current OTP token and generate
+              a new one when you re-enable OTP. You can not view your token after enabling OTP anymore.
+            </small>
+            <input
+              type="file"
+              ref={profilePictureUploadInput}
+              onChange={() => {
+                var fileForSubmit = profilePictureUploadInput.current.files[0];
+                if (fileForSubmit.size >= 1024 * 1024) {
                   toast({
-                    title: "Failed to upload profile picture",
-                    description:
-                      "Zentrox failed to upload the file you provided",
+                    title: "File to big",
+                    description: "The file you provided was larger than 1MB",
                   });
                 }
-              });
-            }}
-            hidden
-          />
-          <Button
-            className="w-fit"
-            onClick={() => {
-              profilePictureUploadInput.current.click();
-            }}
-          >
-            Upload profile picture
-          </Button>
+                var formData = new FormData();
+                formData.append("file", fileForSubmit);
+                fetch(fetchURLPrefix + "/api/uploadProfilePicture", {
+                  method: "POST",
+                  body: formData,
+                }).then((res) => {
+                  profilePictureUploadInput.current.value = "";
+                  if (res.ok) {
+                    setReloadTrigger(Date.now());
+                  } else {
+                    toast({
+                      title: "Failed to upload profile picture",
+                      description:
+                        "Zentrox failed to upload the file you provided",
+                    });
+                  }
+                });
+              }}
+              hidden
+            />
+            <strong className="block ml-1 mb-1">Profile</strong>
+            <Button
+              className="w-fit ml-1"
+              onClick={() => {
+                profilePictureUploadInput.current.click();
+              }}
+            >
+              Upload profile picture
+            </Button>
+          </div>
           <DialogFooter>
-            <DialogClose>
-              <Button variant="outline">Cancel</Button>
-            </DialogClose>
-            <DialogClose>
-              <Button onClick={handleApplyClick}>Apply</Button>
+            <DialogClose asChild>
+              <Button variant="outline">Close</Button>
             </DialogClose>
           </DialogFooter>
         </DialogContent>
@@ -271,7 +384,7 @@ function Account() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Power Off</AlertDialogTitle>
+            <AlertDialogTitle>Power off</AlertDialogTitle>
             <AlertDialogDescription>
               Do you really want to power off your machine? Zentrox cannot
               reboot it automatically. Please enter your sudo password to do so:
@@ -279,15 +392,16 @@ function Account() {
               <br />
               <Input
                 type="password"
-                placeholder="Sudo Password"
-                ref={sudoPasswordInput}
+                placeholder="Sudo password"
+				className="w-full"
+				ref={sudoPasswordInput}
               />
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handlePowerOffConfirm}>
-              Power Off
+              Power off
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
