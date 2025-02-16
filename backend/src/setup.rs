@@ -1,7 +1,7 @@
 use crate::crypto_utils::argon2_derive_key;
 use crate::database;
 use crate::database::InsertValue as SQLInsertValue;
-use crate::sudo::{SudoExecutionOutput, SudoExecutionResult, SwitchedUserCommand};
+use crate::sudo::{SudoExecutionResult, SwitchedUserCommand};
 use dirs::{self, home_dir};
 use rand::distributions::DistString;
 use rcgen::{generate_simple_self_signed, CertifiedKey};

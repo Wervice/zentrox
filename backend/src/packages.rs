@@ -1,14 +1,13 @@
 /// APT, DNF, PacMan bindings to
 /// install packages, remove package, list installed/available/unnecessary packages
 use crate::sudo::{SudoExecutionResult, SwitchedUserCommand};
-use std::collections::HashMap;
 use std::{fs, process::Command, process::Stdio};
 
 #[derive(Debug)]
 pub enum PackageManagerError {
     SudoError,
     UnknownPackageManager,
-    ExecutionError,
+    ExecutionError
 }
 
 /// Determines which package manager is used by the system.
@@ -93,7 +92,7 @@ pub fn remove_orphaned_packages(password: String) -> Result<(), PackageManagerEr
         .replace("\n", " ");
 
         packages = packages.trim().to_string();
-        command = format!("pacman --noconfirm -R {}", packages);
+        command = format!("pacman --noconfirm -Rc {}", packages);
     } else {
         return Err(PackageManagerError::UnknownPackageManager);
     }
@@ -102,7 +101,7 @@ pub fn remove_orphaned_packages(password: String) -> Result<(), PackageManagerEr
         SudoExecutionResult::Success(_) => Ok(()),
         SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
         SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
-        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError),
+        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError)
     }
 }
 
@@ -128,11 +127,11 @@ pub fn install_package(name: String, password: String) -> Result<(), PackageMana
         return Err(PackageManagerError::UnknownPackageManager);
     }
 
-    match SwitchedUserCommand::new(password, command.to_string()).spawn() {
+     match SwitchedUserCommand::new(password, command.to_string()).spawn() {
         SudoExecutionResult::Success(_) => Ok(()),
         SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
         SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
-        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError),
+        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError)
     }
 }
 
@@ -159,12 +158,14 @@ pub fn remove_package(name: String, password: String) -> Result<(), PackageManag
         return Err(PackageManagerError::UnknownPackageManager);
     }
 
-    match SwitchedUserCommand::new(password, command.to_string()).spawn() {
+    
+     match SwitchedUserCommand::new(password, command.to_string()).spawn() {
         SudoExecutionResult::Success(_) => Ok(()),
         SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
         SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
-        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError),
+        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError)
     }
+
 }
 
 /// Update a package to the next version.
@@ -190,11 +191,12 @@ pub fn update_package(name: String, password: String) -> Result<(), PackageManag
         return Err(PackageManagerError::UnknownPackageManager);
     }
 
-    match SwitchedUserCommand::new(password, command.to_string()).spawn() {
+       
+     match SwitchedUserCommand::new(password, command.to_string()).spawn() {
         SudoExecutionResult::Success(_) => Ok(()),
         SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
         SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
-        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError),
+        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError)
     }
 }
 
@@ -212,53 +214,51 @@ pub fn update_all_packages(password: String) -> Result<(), PackageManagerError> 
         return Err(PackageManagerError::UnknownPackageManager);
     }
 
-    match SwitchedUserCommand::new(password, command.to_string()).spawn() {
+    
+       
+     match SwitchedUserCommand::new(password, command.to_string()).spawn() {
         SudoExecutionResult::Success(_) => Ok(()),
         SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
         SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
-        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError),
+        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError)
     }
+
 }
 
 pub fn update_database(password: String) -> Result<(), PackageManagerError> {
     let package_manager = get_package_manager().unwrap();
 
     if package_manager == "apt" {
-        match SwitchedUserCommand::new(password, "apt")
-            .arg("update")
-            .arg("-y")
-            .spawn()
-        {
+        match SwitchedUserCommand::new(password, "apt").arg("update").arg("-y").spawn() {
             SudoExecutionResult::Success(_) => Ok(()),
-            SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
-            SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
-            SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError),
+        SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
+        SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
+        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError)
+
         }
+
     } else if package_manager == "dnf" {
-        match SwitchedUserCommand::new(password, "dnf")
-            .arg("makecache")
-            .arg("-y")
-            .spawn()
-        {
+        match SwitchedUserCommand::new(password, "dnf").arg("makecache").arg("-y").spawn() {
+            
             SudoExecutionResult::Success(_) => Ok(()),
-            SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
-            SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
-            SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError),
+        SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
+        SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
+        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError)
+
         }
+
     } else if package_manager == "pacman" {
-        match SwitchedUserCommand::new(password, "pacman")
-            .arg("-Syy")
-            .arg("--noconfirm")
-            .spawn()
-        {
+        match SwitchedUserCommand::new(password, "pacman").arg("-Syy").arg("--noconfirm").spawn() {
+            
             SudoExecutionResult::Success(_) => Ok(()),
-            SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
-            SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
-            SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError),
+        SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
+        SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
+        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError)
         }
     } else {
         return Err(PackageManagerError::UnknownPackageManager);
     }
+
 }
 
 /// List every package, the package manager says is installed
@@ -339,7 +339,8 @@ pub fn list_installed_packages() -> Result<Vec<String>, PackageManagerError> {
         let vector = &output
             .lines()
             .filter_map(|e| {
-                let split = e.split("/");
+                let entry = e.to_string();
+                let split = entry.split("/");
                 let collection = split.collect::<Vec<&str>>();
                 if collection.len() != 1 {
                     None
@@ -427,6 +428,7 @@ pub fn list_updates() -> Result<Vec<String>, PackageManagerError> {
             .collect::<Vec<String>>();
 
         Ok(vector.to_vec())
+
     } else {
         return Err(PackageManagerError::UnknownPackageManager);
     }
@@ -541,9 +543,10 @@ pub fn list_available_packages() -> Result<Vec<String>, PackageManagerError> {
         let vector = &output
             .lines()
             .filter_map(|e| {
-                if e.contains("[installed") {
-                let split = e.split(" ");
+                let entry = e.to_string();
+                let split = entry.split(" ");
                 let collection = split.collect::<Vec<&str>>();
+                if !entry.contains("[installed") {
                     Some(collection[1].to_string())
                 } else {
                     None
@@ -579,7 +582,8 @@ pub fn list_orphaned_packages() -> Result<Vec<String>, PackageManagerError> {
         let vector = &output
             .lines()
             .map(|e| {
-                let split = e.split(" - ");
+                let entry = e.to_string();
+                let split = entry.split(" - ");
                 let collection = split.collect::<Vec<&str>>();
                 if collection.len() != 2 {
                     String::from("")
@@ -604,10 +608,15 @@ pub fn list_orphaned_packages() -> Result<Vec<String>, PackageManagerError> {
         let vector = &output
             .lines()
             .filter_map(|e| {
-                let split = e.split(".");
+                let entry = e.to_string();
+                let split = entry.split(".");
                 let collection = split.collect::<Vec<&str>>();
                 if collection.len() != 2 {
-                    None
+                    if entry.contains(&String::from("Autoremove Packages")) {
+                        None
+                    } else {
+                        None
+                    }
                 } else {
                     Some(collection[0].to_string())
                 }
@@ -633,66 +642,5 @@ pub fn list_orphaned_packages() -> Result<Vec<String>, PackageManagerError> {
         Ok(vector.to_vec())
     } else {
         return Err(PackageManagerError::UnknownPackageManager);
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct DesktopApplication {
-    pub name: String,
-    pub exec_name: String,
-}
-
-/// Lists every application that has a desktop file in `/usr/share/applications/`.
-///
-/// Those desktop files are then parsed into DesktopApplication structs.
-/// A DesktopApplication struct contains the pretty name of the application (i.e. Firefox or
-/// Nautilus) and the exec_name like /bin/firefox or /usr/bin/nano
-/// If an error occurs during this process, an error is returned in a Result.
-pub fn list_desktop_applications() -> Result<Vec<DesktopApplication>, String> {
-    if let Ok(value) = fs::read_dir("/usr/share/applications/") {
-        let applications_folder_entires = value;
-
-        let mut applications = Vec::new();
-
-        for entry in applications_folder_entires {
-            let entry_u = entry.unwrap();
-            let entry_path = entry_u.path();
-            let entry_extension = entry_u
-                .file_name()
-                .to_string_lossy()
-                .split(".")
-                .last()
-                .unwrap()
-                .to_string();
-
-            if entry_extension == "desktop" {
-                let entry_contents = fs::read_to_string(entry_path).unwrap();
-                let entry_contents_lines_collected =
-                    entry_contents.lines().skip(1).collect::<Vec<&str>>();
-                let mut entry_contents_hashmap = HashMap::new();
-                for l in entry_contents_lines_collected {
-                    if let Some((k, v)) = l.split_once("=") {
-                        entry_contents_hashmap.insert(k, v);
-                    }
-                }
-
-                applications.push(DesktopApplication {
-                    name: entry_contents_hashmap
-                        .get("Name")
-                        .unwrap_or(&"")
-                        .to_string(),
-                    exec_name: entry_contents_hashmap
-                        .get("Exec")
-                        .unwrap_or(&"")
-                        .split(" ")
-                        .collect::<Vec<&str>>()[0]
-                        .to_string(),
-                });
-            }
-        }
-
-        Ok(applications)
-    } else {
-        Err("Failed to read dir".to_string())
     }
 }

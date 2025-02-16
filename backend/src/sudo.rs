@@ -104,7 +104,7 @@ impl SwitchedUserCommand {
             let mut stderr = command_handle.stderr.take().unwrap();
             let sent_prompt = &mut [0; 16];
             let sent_prompt_read = stderr.read(sent_prompt);
-            if let Err(e) = sent_prompt_read {
+            if let Err(_e) = sent_prompt_read {
                 return SudoExecutionResult::ExecutionError(
                     "Failed to read prompt from sudo".to_string(),
                 );
@@ -185,7 +185,7 @@ impl SwitchedUserCommand {
                 .expect("Failed to capture stderr");
             let sent_prompt = &mut [0; 16];
             let sent_prompt_read = stderr.read(sent_prompt);
-            if let Err(e) = sent_prompt_read {
+            if let Err(_e) = sent_prompt_read {
                 return SudoExecutionOutput::ExecutionError(
                     "Failed to read prompt from sudo".to_string(),
                 );
