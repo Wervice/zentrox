@@ -76,22 +76,29 @@ function Storage() {
   }
 
   function showDriveDetails(driveName) {
-    setDriveInformationDialogOpen(true);
-    setCurrentDrive(driveName);
     fetch(
       fetchURLPrefix + "/api/driveInformation/" + encodeURIComponent(driveName),
-    ).then((res) => {
-      if (res.ok) {
-        res.json().then((json) => {
-          setDriveInformation(json);
-        });
-      } else {
+    )
+      .then((res) => {
+        if (res.ok) {
+          res.json().then((json) => {
+            setDriveInformation(json);
+            setDriveInformationDialogOpen(true);
+            setCurrentDrive(driveName);
+          });
+        } else {
+          toast({
+            title: "Failed to fetch drive information",
+            description: "Zentrox failed to fetch drive details",
+          });
+        }
+      })
+      .catch(() => {
         toast({
-          title: "Failed to fetch drive informaiton",
+          title: "Failed to fetch drive information",
           description: "Zentrox failed to fetch drive details",
         });
-      }
-    });
+      });
   }
 
   function DriveEntry({ entry, inset = 0 }) {
