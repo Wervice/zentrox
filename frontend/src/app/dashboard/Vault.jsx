@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button.jsx";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, act } from "react";
 import "./table.css";
 import "./scroll.css";
 import { Input } from "@/components/ui/input";
@@ -44,6 +44,7 @@ import {
 import "./scroll.css";
 import { useToast } from "@/components/ui/use-toast";
 import Page from "@/components/ui/PageWrapper";
+import PathViewer from "@/components/ui/pathViewer";
 
 // const fetchURLPrefix = "";
 const fetchURLPrefix = require("@/lib/fetchPrefix");
@@ -273,32 +274,27 @@ function Vault() {
       </Dialog>
       <div>
         <Button
-          onClick={
-            vaultState !== "unlocked"
-              ? () => {
-                  location.reload();
-                }
-              : () => {
+			className={
+				vaultState !== "unlocked" ? "hidden mr-1" : "mr-1"
+			}
+			onClick={
+              () => {
                   setCurrentVaultContents([]);
                   setCurrentVaultPath("");
                   setVaultSessionKey("");
                   setVaultState("locked");
                 }
           }
-          variant="destructive"
-          className={
-            vaultState !== "unlocked" ? "bg-blue-500 hover:bg-blue-600" : "mr-1"
-          }
+          variant="secondary"
         >
-          <LockIcon className="w-4 h-4 inline-block mr-1" />{" "}
-          {vaultState !== "unlocked" ? "Reload" : "Exit"}
+		Lock vault
         </Button>
         <Dialog>
           <DialogTrigger asChild>
             <Button
               className={vaultState !== "unlocked" ? "invisible mr-1" : "mr-1"}
             >
-              <FolderIcon className="w-4 h-4 inline-block mr-1" /> New Directory
+				New directory
             </Button>
           </DialogTrigger>
           <DialogContent>
@@ -360,7 +356,7 @@ function Vault() {
                     });
                   }}
                 >
-                  <FolderIcon className="w-4 h-4 inline-block mr-1" /> Create
+					Create
                 </Button>
               </DialogClose>
             </DialogFooter>
@@ -424,8 +420,8 @@ function Vault() {
             <AlertDialogTitle>Delete File</AlertDialogTitle>
             <AlertDialogDescription>
               Do you really want to delete{" "}
-              {currentVaultFileDelete.length > 64
-                ? currentVaultFileDelete.substring(0, 61) + "..."
+              {currentVaultFileDelete.length > 32
+                ? currentVaultFileDelete.substring(0, 32) + "..."
                 : currentVaultFileDelete}
               ?<br />
               This action can not be undone.
@@ -434,6 +430,9 @@ function Vault() {
               <AlertDialogCancel>Cancel</AlertDialogCancel>
               <AlertDialogAction
                 onClick={() => {
+				  setCurrentVaultContents(currentVaultContents.filter((e) => {
+					  return currentVaultPath + currentVaultFileDelete !== e
+				  }))
                   fetch(fetchURLPrefix + "/api/deleteVaultFile", {
                     method: "POST",
                     headers: {
@@ -465,11 +464,10 @@ function Vault() {
           }}
         >
           {uploadButton === "default" ? (
-            <UploadIcon className="w-4 h-4 inline-block mr-1" />
+            <>Upload file</>
           ) : (
-            <LoaderIcon className="animate-spin h-4 w-4 inline mr-1" />
-          )}{" "}
-          Upload File
+            <>Uploading file</>
+          )}
         </Button>
         <input
           type="file"
@@ -496,8 +494,10 @@ function Vault() {
                 if (res.ok) {
                   vaultTree(vaultSessionKey);
                   setUploadButton("default");
+				  
                 } else {
                   setUploadButton("default");
+				  
                   res.text().then((errorMessage) => {
                     toast({
                       title: "Failed to upload file",
@@ -510,15 +510,10 @@ function Vault() {
           }}
           hidden
         />
-        <Button
-          className={vaultState !== "unlocked" ? "invisible mr-1" : "mr-1"}
-          onClick={() => {
-            setCurrentVaultPath(parentDir(currentVaultPath));
-          }}
-        >
-          <ArrowUp className="w-4 h-4 inline-block mr-1" /> Up
-        </Button>
       </div>
+<PathViewer hidden={vaultState !== "unlocked"} onValueChange={(e) => {
+		  setCurrentVaultPath(e.replace("/", ""))
+	  }} value={"/" + currentVaultPath} home={""} />
       <div
         className={`no-scroll h-fit rounded-xl mt-2 overflow-hidden overflow-y-scroll no-scroll`}
         style={{
@@ -530,10 +525,8 @@ function Vault() {
           <span className="h-fit">
             <div className="text-center text-2xl opacity-50">
               <LockIcon className="m-auto h-52 w-52" />
-              Vault Is Locked
+              Vault is locked
             </div>
-            <ContextMenu modal={false}>
-              <ContextMenuTrigger>
                 <Button
                   className="m-auto block mt-4"
                   onClick={() => {
@@ -542,13 +535,6 @@ function Vault() {
                 >
                   Unlock vault
                 </Button>
-              </ContextMenuTrigger>
-              <ContextMenuContent>
-                <ContextMenuItem onClick={() => console.log("hello")}>
-                  ABC
-                </ContextMenuItem>
-              </ContextMenuContent>
-            </ContextMenu>
           </span>
         ) : vaultState == "unconfigured" ? (
           <span className="h-fit">
@@ -566,8 +552,11 @@ function Vault() {
             </Button>
           </span>
         ) : (
-          "/" + currentVaultPath
+          <></>
         )}
+	  {
+		  vaultState === "unlocked" && currentVaultContents.filter((e) => {return e !== ".vault"}).length === 0 ? <span className="text-l text-center w-full block">Create directory or upload files</span> : <></>
+	  }
         {
           /*
            * @param {string} entry*/
