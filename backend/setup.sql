@@ -46,4 +46,9 @@ CREATE TABLE Admin (
 CREATE TABLE VaultNames (
 	uuid varchar(127),
 	name varchar(16383)
+);
+CREATE TABLE PackageActions (
+	key integer,
+	last_database_update integer,
+	PRIMARY KEY (key)
 )
