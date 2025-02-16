@@ -14,17 +14,17 @@ import localFont from "next/font/local";
 import { toast } from "@/components/ui/use-toast";
 import { VT323 } from "next/font/google";
 const vt323 = VT323({
-	weight: "400",
-	subsets: ["latin"]
-})
+  weight: "400",
+  subsets: ["latin"],
+});
 const segment7 = localFont({ src: "../../../public/7segment.ttf" });
 
 function Card({ title, children, skeleton, variant = "square" }) {
   return (
     <span
       className={
-        "p-4 m-2 rounded-xl overflow-hidden overflow-ellipsis whitespace-pre bg-zinc-950 border-zinc-900 border inline-block hover:border-zinc-800 duration-500" +
-        (skeleton ? " animate-pulse duration-[5000ms]" : "") +
+        "p-4 m-2 rounded-xl overflow-hidden overflow-ellipsis whitespace-pre bg-zinc-950 border-zinc-900 border inline-block hover:border-zinc-800 transition-all duration-500" +
+        (skeleton ? " opacity-30 scale-90" : "") +
         (variant == "square" ? " h-44 aspect-square" : " h-44 aspect-video")
       }
     >
@@ -40,8 +40,6 @@ function Card({ title, children, skeleton, variant = "square" }) {
 
 function FancyCounter({ children }) {
   return (
-    // Google Fonts' "Workbench" for smaller texts
-    // https://torinak.com/font/7-segment for larger numbers
     <span className="bg-black/5 p-2 rounded-lg w-full block text-white transition-all duration-200 hover:bg-black/25 text-center cursor-default select-none">
       {children}
     </span>
@@ -73,8 +71,7 @@ function FancyCounterCaption({ children }) {
   return (
     <span
       className={
-		  vt323.className + 
-        " mr-1 text-xl text-white/80 relative bottom-[-2px]"
+        vt323.className + " mr-1 text-xl text-white/80 relative bottom-[-2px]"
       }
     >
       {children}
@@ -96,7 +93,9 @@ export default function Overview() {
     });
 
     devInfoFetch.json().then((json) => {
-      setDeviceInformation(json);
+      let jk = json;
+      jk["unloaded"] = false;
+      setDeviceInformation(jk);
     });
 
     setFetchDuration(Date.now() - t_a);
@@ -147,8 +146,6 @@ export default function Overview() {
   }, [readyForFetch]);
 
   useEffect(() => {
-    tryOverviewFetch();
-    // Only fetches the number of packages
     fetch(fetchURLPrefix + "/api/packageDatabase/true", {
       headers: {
         "Content-Type": "application/json",
@@ -165,32 +162,35 @@ export default function Overview() {
         });
       });
     });
+    tryOverviewFetch();
   }, []);
 
   function millisecondsToArray(ms) {
-   const units = [
-        { label: "y", value: 1000 * 60 * 60 * 24 * 365 }, // years
-        { label: "mo", value: 1000 * 60 * 60 * 24 * 30 }, // months
-        { label: "w", value: 1000 * 60 * 60 * 24 * 7 }, // weeks
-        { label: "d", value: 1000 * 60 * 60 * 24 }, // days
-        { label: "h", value: 1000 * 60 * 60 }, // hours
-        { label: "m", value: 1000 * 60 }, // minutes
-        { label: "s", value: 1000 } // seconds
+    const units = [
+      { label: "y", value: 1000 * 60 * 60 * 24 * 365 }, // years
+      { label: "mo", value: 1000 * 60 * 60 * 24 * 30 }, // months
+      { label: "w", value: 1000 * 60 * 60 * 24 * 7 }, // weeks
+      { label: "d", value: 1000 * 60 * 60 * 24 }, // days
+      { label: "h", value: 1000 * 60 * 60 }, // hours
+      { label: "m", value: 1000 * 60 }, // minutes
+      { label: "s", value: 1000 }, // seconds
     ];
-    
+
     let result = [];
     let remaining = ms;
-    
+
     for (let unit of units) {
-        if (remaining >= unit.value) {
-            let amount = Math.floor(remaining / unit.value);
-            remaining %= unit.value;
-            result.push([amount, unit.label]);
-            
-            // Ensure the total digits do not exceed 6
-            let digitCount = result.reduce((acc, [num]) => acc + num.toString().length, 0);
-            if (digitCount >= 2) break;
-        }
+      if (remaining >= unit.value) {
+        let amount = Math.floor(remaining / unit.value);
+        remaining %= unit.value;
+        result.push([amount, unit.label]);
+
+        let digitCount = result.reduce(
+          (acc, [num]) => acc + num.toString().length,
+          0,
+        );
+        if (digitCount >= 2) break;
+      }
     }
 
     return result;
@@ -209,10 +209,7 @@ export default function Overview() {
 
   return (
     <Page name="Overview" className="align-top">
-      <Card
-        title={"Memory usage"}
-        skeleton={deviceInformation.unloaded === true}
-      >
+      <Card title={"Memory usage"} skeleton={deviceInformation.unloaded}>
         <span
           className={
             "text-5xl mb-2 font-semibold inline-block" +
@@ -278,7 +275,7 @@ export default function Overview() {
       <Card
         title={"Networking"}
         variant="wide"
-        skeleton={deviceInformation.unloaded === true}
+        skeleton={deviceInformation.unloaded}
       >
         <span className="inline-block mr-2 mb-2">
           <strong className="block">Hostname</strong>
@@ -344,15 +341,18 @@ export default function Overview() {
       <Card
         title={"Uptime"}
         variant="square"
-        skeleton={deviceInformation.unloaded === true}
+        skeleton={deviceInformation.unloaded}
       >
         <FancyCounter>
           {millisecondsToArray(deviceInformation.uptime).map((e, k) => {
             return (
               <span key={k}>
-                {e[0].toString().split("").map((d, dk) => {
-                  return <FancyCounterDigit key={dk}>{d}</FancyCounterDigit>;
-                })}
+                {e[0]
+                  .toString()
+                  .split("")
+                  .map((d, dk) => {
+                    return <FancyCounterDigit key={dk}>{d}</FancyCounterDigit>;
+                  })}
 
                 <FancyCounterCaption>{e[1]}</FancyCounterCaption>
               </span>
