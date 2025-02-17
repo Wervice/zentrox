@@ -906,7 +906,7 @@ async fn update_package_database(
         .unwrap()
         .insert(job_id, BackgroundTaskState::Pending);
 
-    tokio::spawn(async move {
+   let _ = actix_web::web::block(move || {
         match packages::update_database(json.into_inner().sudoPassword) {
             Ok(_) => {
                 let x = database::write("PackageActions", &["last_database_update", "key"], &[
@@ -957,7 +957,7 @@ async fn install_package(
 
     let job_id = Uuid::new_v4();
 
-    tokio::spawn(async move {
+   let _ = actix_web::web::block(move || {
         match packages::install_package(json.packageName.to_string(), json.sudoPassword.to_string())
         {
             Ok(_) => state
@@ -992,7 +992,7 @@ async fn remove_package(
 
     let job_id = Uuid::new_v4();
 
-    tokio::spawn(async move {
+   let _ = actix_web::web::block(move || {
         match packages::remove_package(json.packageName.to_string(), json.sudoPassword.to_string())
         {
             Ok(_) => state
@@ -1027,7 +1027,7 @@ async fn update_package(
 
     let job_id = Uuid::new_v4();
 
-    tokio::spawn(async move {
+   let _ = actix_web::web::block(move || {
         match packages::update_package(json.packageName.to_string(), json.sudoPassword.to_string())
         {
             Ok(_) => state
@@ -1069,7 +1069,7 @@ async fn update_all_packages(
         .unwrap()
         .insert(job_id, BackgroundTaskState::Pending);
 
-    tokio::spawn(async move {
+   let _ = actix_web::web::block(move || {
         match packages::update_all_packages(sudo_password.to_string()) {
             Ok(_) => state
                 .update_jobs
@@ -1135,7 +1135,7 @@ async fn remove_orphaned_packages(
         .unwrap()
         .insert(job_id, BackgroundTaskState::Pending);
 
-    tokio::spawn(async move {
+   let _ = actix_web::web::block(move || {
         match packages::remove_orphaned_packages(sudo_password.to_string()) {
             Ok(_) => state
                 .update_jobs
