@@ -18,7 +18,13 @@ use crate::{crypto_utils, AppState};
 /// If the function is left enabled a warning will be printend in the terminal. Otherwise
 /// nothing is shown.
 pub fn is_admin_state(session: &Session, state: web::Data<AppState>) -> bool {
-    let disable_auth_for_development = false; // 🚨 NOTE: DO NOT LEAVE THIS ON DURING RELEASE / PROD
+    let mut vars = std::env::vars();
+    let disable_auth_for_development: bool = vars
+        .find(|x| {
+            x == &("ZENTROX_MODE".to_string(), "NO_AUTH".to_string())
+                || x == &("ZENTROX_MODE".to_string(), "DEV".to_string())
+        })
+        .is_some();
     if disable_auth_for_development {
         println!(include_str!("../notes/auth_note.txt"));
         return true;
