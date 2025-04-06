@@ -8,17 +8,19 @@ use std::thread;
 
 pub struct SwitchedUserCommand {
     password: String,
-    command: String,
+    program: String,
     args: Vec<String>,
 }
 
 /// SudoOutput used with .output()
 #[allow(dead_code)]
+#[derive(Debug)]
 pub struct SudoOuput {
     pub stdout: String,
     pub stderr: String,
 }
 
+#[derive(Debug)]
 pub enum SudoExecutionResult {
     Success(i32),
     WrongPassword,
@@ -26,6 +28,7 @@ pub enum SudoExecutionResult {
     ExecutionError(String),
 }
 
+#[derive(Debug)]
 pub enum SudoExecutionOutput {
     Success(SudoOuput),
     WrongPassword,
@@ -37,10 +40,10 @@ impl SwitchedUserCommand {
     /// Create new SwitchedUserCommand.
     /// * `password` - The password used for `sudo`
     /// * `command` - The command without arguments that will be launched
-    pub fn new<A: Display, B: Display>(password: A, command: B) -> SwitchedUserCommand {
+    pub fn new<A: Display, B: Display>(password: A, program: B) -> SwitchedUserCommand {
         SwitchedUserCommand {
             password: password.to_string(),
-            command: command.to_string(),
+            program: program.to_string(),
             args: vec![],
         }
     }
@@ -57,9 +60,9 @@ impl SwitchedUserCommand {
         self
     }
 
-    pub fn args(&mut self, arguments: Vec<&str>) -> &mut Self {
+    pub fn args<T: Display>(&mut self, arguments: Vec<T>) -> &mut Self {
         for arg in arguments {
-            self.arg(arg.to_string());
+            self.arg(arg);
         }
 
         self
@@ -79,7 +82,7 @@ impl SwitchedUserCommand {
         // Prepare vaiables
         let args = self.args.clone();
         let password = self.password.clone();
-        let command = self.command.clone();
+        let program = self.program.clone();
         let random_prompt = Alphanumeric
             .sample_string(&mut rand::thread_rng(), 16)
             .to_ascii_lowercase();
@@ -91,7 +94,7 @@ impl SwitchedUserCommand {
                 .arg("-k")
                 .arg("--prompt")
                 .arg(&random_prompt)
-                .args(command.clone().split(" "))
+                .args(program.clone().split(" "))
                 .args(args)
                 .stdin(Stdio::piped())
                 .stderr(Stdio::piped())
@@ -152,7 +155,7 @@ impl SwitchedUserCommand {
         // Prepare variables
         let args = self.args.clone();
         let password = self.password.clone();
-        let command = self.command.clone();
+        let program = self.program.clone();
         let random_prompt = Alphanumeric
             .sample_string(&mut rand::thread_rng(), 16)
             .to_ascii_lowercase();
@@ -164,7 +167,7 @@ impl SwitchedUserCommand {
                 .arg("-k") // Force sudo to prompt for the password
                 .arg("--prompt")
                 .arg(&random_prompt)
-                .args(command.clone().split(" "))
+                .args(program.clone().split(" "))
                 .args(args)
                 .stdin(Stdio::piped())
                 .stderr(Stdio::piped())
@@ -237,5 +240,40 @@ impl SwitchedUserCommand {
         thread_handle.join().unwrap_or_else(|_| {
             SudoExecutionOutput::ExecutionError("Failed to join thread".to_string())
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn authenticate_with_result() {
+        let password =
+            std::env::var("TEST_PASSWORD").expect("Requires TEST_PASSWORD environment variable");
+        let x = SwitchedUserCommand::new(password, "echo")
+            .args(vec!["tested"])
+            .spawn();
+        match x {
+            SudoExecutionResult::ExecutionError(e) => panic!("ExecutionError: {}, ", e),
+            SudoExecutionResult::WrongPassword => panic!("WrongPassword"),
+            SudoExecutionResult::Unauthorized => panic!("Unauthorized"),
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn authenticate_with_output() {
+        let password =
+            std::env::var("TEST_PASSWORD").expect("Requires TEST_PASSWORD environment variable");
+        let x = SwitchedUserCommand::new(password, "echo")
+            .args(vec!["tested"])
+            .output();
+        match x {
+            SudoExecutionOutput::ExecutionError(e) => panic!("ExecutionError: {}, ", e),
+            SudoExecutionOutput::WrongPassword => panic!("WrongPassword"),
+            SudoExecutionOutput::Unauthorized => panic!("Unauthorized"),
+            _ => {}
+        }
     }
 }
