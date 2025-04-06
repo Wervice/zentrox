@@ -1,9 +1,9 @@
+use crate::crypto_utils;
 use aes_gcm::{
     aead::{Aead, AeadCore, KeyInit, OsRng},
     Aes256Gcm,
 };
 use sha2::{Digest, Sha256};
-use crate::crypto_utils;
 use std::fs;
 
 /// Decrypts a file with a specefied key and writes the cleartext back to the file.
