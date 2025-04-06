@@ -1,6 +1,7 @@
 use actix_cors::Cors;
 use actix_files as afs;
 use actix_multipart::form::{tempfile::TempFile, text::Text, MultipartForm};
+use actix_session::config::CookieContentSecurity;
 use actix_session::{storage::CookieSessionStore, Session, SessionMiddleware};
 use actix_web::cookie::Key;
 use actix_web::web::Path;
@@ -10,7 +11,10 @@ use actix_web::{
     HttpServer,
 };
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256, Sha512};
+use sha2::{Digest, Sha256};
+use std::net::IpAddr;
+use std::str::FromStr;
+use std::time::Duration;
 use std::{
     collections::HashMap,
     env,
@@ -20,10 +24,10 @@ use std::{
     sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
-use sysinfo::System as SysInfoSystem;
 use systemstat::{Platform, System};
 use uuid::Uuid;
 extern crate inflector;
+use actix_governor::{self, Governor, GovernorConfig, GovernorConfigBuilder};
 use database::InsertValue;
 use inflector::Inflector;
 
@@ -48,6 +52,8 @@ use is_admin::is_admin_state;
 use net_data::private_ip;
 use visit_dirs::visit_dirs;
 
+use self::net_data::{DeletionRoute, Destination, IpAddrWithSubnet, OperationalState, Route};
+
 #[derive(Debug, Clone)]
 #[allow(unused)]
 enum BackgroundTaskState {
@@ -58,30 +64,36 @@ enum BackgroundTaskState {
     Pending,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[allow(unused)]
+struct MeasuredInterface {
+    pub ifindex: i64,
+    pub ifname: String,
+    pub flags: Vec<String>,
+    pub mtu: i64,
+    pub qdisc: String,
+    pub operstate: OperationalState,
+    pub linkmode: String,
+    pub group: String,
+    pub txqlen: Option<i64>,
+    pub link_type: String,
+    pub address: String,
+    pub broadcast: String,
+    pub up: f64,
+    pub down: f64,
+    pub altnames: Option<Vec<String>>,
+}
+
 #[allow(non_snake_case)]
 #[derive(Clone)]
 /// Current state of the application used to keep track of the logged in users, DoS/Brute force
 /// attack requests and sharing a instance of the System struct.
 struct AppState {
-    login_requests: Arc<
-        Mutex<
-            HashMap<
-                String, /* IP Adress of caller */
-                (
-                    u128, /* Unix Timestamp of last request */
-                    u64,  /* Number of requests since last reset */
-                ),
-            >,
-        >,
-    >,
     login_token: Arc<Mutex<String>>,
     system: Arc<Mutex<System>>,
     username: Arc<Mutex<String>>,
-    net_down: Arc<Mutex<f64>>,
-    net_up: Arc<Mutex<f64>>,
-    net_interface: Arc<Mutex<String>>,
     cpu_usage: Arc<Mutex<f32>>,
-    net_connected_interfaces: Arc<Mutex<i32>>,
+    network_interfaces: Arc<Mutex<Vec<MeasuredInterface>>>,
     update_jobs: Arc<Mutex<HashMap<Uuid, BackgroundTaskState>>>,
 }
 
@@ -90,80 +102,56 @@ impl AppState {
     fn new() -> Self {
         let random_string: Arc<[u8]> = (0..128).map(|_| rand::random::<u8>()).collect();
         AppState {
-            login_requests: Arc::new(Mutex::new(HashMap::new())),
             login_token: Arc::new(Mutex::new(
                 String::from_utf8_lossy(&random_string).to_string(),
             )),
             system: Arc::new(Mutex::new(System::new())),
             username: Arc::new(Mutex::new(String::new())),
-            net_up: Arc::new(Mutex::new(0_f64)),
-            net_down: Arc::new(Mutex::new(0_f64)),
-            net_interface: Arc::new(Mutex::new(String::new())),
-            net_connected_interfaces: Arc::new(Mutex::new(0_i32)),
+            network_interfaces: Arc::new(Mutex::new(Vec::new())),
             cpu_usage: Arc::new(Mutex::new(0_f32)),
             update_jobs: Arc::new(Mutex::new(HashMap::new())),
         }
-    }
-
-    /// Remove old IP adresses from the AppState login_requests.
-    /// The is required to be lighther on memory and be GDPR compliant.
-    fn cleanup_old_ips(&self) {
-        let mut login_requests = self.login_requests.lock().unwrap();
-        let current_time = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards")
-            .as_millis();
-
-        // Retain only entries where the timestamp is within the last 15 minutes (900 seconds)
-        login_requests.retain(|_ip, (timestamp, _)| {
-            let ip_age_seconds = current_time - *timestamp;
-            ip_age_seconds <= 900_000 // 900 seconds = 15 minutes
-        });
     }
 
     fn update_network_statistics(&self) {
         if (*self.username.lock().unwrap()).to_string().is_empty() {
             return;
         }
-        let devices_a = net_data::interface_information();
-        std::thread::sleep(std::time::Duration::from_millis(5000));
-        let devices_b = net_data::interface_information();
-        let mut found_a = false;
-        let mut found_b = false;
-        let mut up_a = 0_f64;
-        let mut up_b = 0_f64;
-        let mut down_a = 0_f64;
-        let mut down_b = 0_f64;
-        let mut interface_a: String = "".into();
-        let mut interface_b: String = "".into();
-        devices_a.unwrap().into_iter().for_each(|d| {
-            if d.link_type == "loopback" || found_a {
-                return;
+        let devices_a = net_data::get_network_interfaces().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(1000));
+        let devices_b = net_data::get_network_interfaces().unwrap();
+        let devices_b_hashmap: HashMap<String, &net_data::Interface> =
+            devices_b.iter().map(|d| (d.ifname.clone(), d)).collect();
+        let mut result: Vec<MeasuredInterface> = Vec::new();
+        for device in devices_a {
+            match devices_b_hashmap.get(&device.ifname) {
+                Some(v) => {
+                    let a_up = device.stats64.get("tx").unwrap().bytes;
+                    let a_down = device.stats64.get("rx").unwrap().bytes;
+                    let b_up = v.stats64.get("tx").unwrap().bytes;
+                    let b_down = v.stats64.get("rx").unwrap().bytes;
+                    result.push(MeasuredInterface {
+                        ifname: device.ifname,
+                        ifindex: device.ifindex,
+                        flags: device.flags,
+                        mtu: device.mtu,
+                        qdisc: device.qdisc,
+                        operstate: device.operstate,
+                        linkmode: device.linkmode,
+                        address: device.address,
+                        altnames: device.altnames,
+                        broadcast: device.broadcast,
+                        down: (b_down - a_down) / 5_f64,
+                        up: (b_up - a_up) / 5_f64,
+                        group: device.group,
+                        link_type: device.link_type,
+                        txqlen: device.txqlen,
+                    });
+                }
+                None => {}
             }
-            found_a = true;
-            down_a = d.stats64.get("rx").unwrap().bytes;
-            up_a = d.stats64.get("tx").unwrap().bytes;
-            interface_a = d.ifname;
-        });
-        let mut devices_b_counter = 0_i32;
-        devices_b.unwrap().into_iter().for_each(|d| {
-            if d.link_type == "loopback" || found_b {
-                return;
-            }
-            found_b = true;
-            down_b = d.stats64.get("rx").unwrap().bytes;
-            up_b = d.stats64.get("tx").unwrap().bytes;
-            interface_b = d.ifname;
-            devices_b_counter += 1
-        });
-        if interface_a != interface_b {
-            return;
         }
-
-        *self.net_up.lock().unwrap() = (up_b - up_a) / 5_f64;
-        *self.net_down.lock().unwrap() = (down_b - down_a) / 5_f64;
-        *self.net_interface.lock().unwrap() = interface_a;
-        *self.net_connected_interfaces.lock().unwrap() = devices_b_counter
+        *self.network_interfaces.lock().unwrap() = result;
     }
 
     /// Update CPU statistics
@@ -187,15 +175,9 @@ impl AppState {
         };
     }
 
-    /// Initiate a loop that periodically cleans up the login_requests of the current AppState.
     fn start_interval_tasks(self) {
-        let cleanup_clone = self.clone();
         let network_clone = self.clone();
         let cpu_clone = self.clone();
-        std::thread::spawn(move || loop {
-            std::thread::sleep(std::time::Duration::from_millis(2 * 60 * 1000));
-            cleanup_clone.cleanup_old_ips();
-        });
         std::thread::spawn(move || loop {
             std::thread::sleep(std::time::Duration::from_millis(5 * 1000));
             network_clone.update_network_statistics();
@@ -318,69 +300,14 @@ struct Login {
 /// The function keeps track on how often a user attempted to login. If they tried to login more
 /// than 5 times in 10 seconds, they are automatically being rejected for the next 10 seconds, even
 /// if the credentials are correct.
-#[post("/login")]
 async fn login(
     session: Session,
     json: web::Json<Login>,
-    req: actix_web::HttpRequest,
     state: Data<AppState>,
 ) -> HttpResponse {
     let username = &json.username;
     let password = &json.password;
     let otp_code = &json.userOtp;
-
-    let ip: String;
-    if let Some(peer_addr) = req.peer_addr() {
-        let mut hasher = Sha256::new();
-        hasher.update(peer_addr.ip().to_string());
-        ip = hex::encode(hasher.finalize()).to_string();
-    } else {
-        eprintln!("Failed to retrieve IP address during login. Early return.");
-        return HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body("");
-    }
-
-    let mut requests = match state.login_requests.lock() {
-        Ok(guard) => guard,
-        Err(v) => v.into_inner(), // Recover the lock even if it's poisoned
-    };
-
-    let current_request_entry = &mut requests.get(&ip.to_string()).unwrap_or(&(0, 0));
-    let current_request_last_request_time = current_request_entry.0;
-    let current_request_counter = current_request_entry.1;
-    let current_unix_timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_millis();
-
-    if current_request_counter > 10
-        && (current_unix_timestamp - current_request_last_request_time) < 10000
-    {
-        let _ = &mut requests.insert(
-            ip.to_string(),
-            (current_unix_timestamp, current_request_counter + 1),
-        );
-        return HttpResponse::TooManyRequests().body("You were rate-limited.");
-    } else if current_request_counter > 5 {
-        // Implementing exponential back off
-        let penalty_time = 2_u64.pow(current_request_counter.saturating_sub(5) as u32) * 1000; // Exponential back off in milliseconds
-
-        if (current_unix_timestamp - current_request_last_request_time) < penalty_time.into() {
-            let _ = &mut requests.insert(
-                ip.to_string(),
-                (current_unix_timestamp, current_request_counter + 1),
-            );
-            return HttpResponse::TooManyRequests().body("You were rate-limited.");
-        } else {
-            // Reset the counter after the penalty period has passed
-            let _ = &mut requests.insert(ip.to_string(), (current_unix_timestamp, 1));
-        }
-    } else {
-        // Increment the request counter and update the last request timestamp
-        let _ = &mut requests.insert(
-            ip.to_string(),
-            (current_unix_timestamp, current_request_counter + 1),
-        );
-    }
 
     if &database::read_cols::<&str, (String,)>("Admin", &["username"]).unwrap()[0].0 == username {
         let stored_password = database::read_kv("Secrets", "admin_password").unwrap();
@@ -410,13 +337,12 @@ async fn login(
 
                 *state.login_token.lock().unwrap() = hex::encode(&login_token).to_string();
                 *state.username.lock().unwrap() = username.to_string();
-                
-                    let state_copy = state.clone();
-                    std::thread::spawn(move || {
-                        state_copy.update_network_statistics();
-                        state_copy.update_cpu_statistics();
-                    });
 
+                let state_copy = state.clone();
+                std::thread::spawn(move || {
+                    state_copy.update_network_statistics();
+                    state_copy.update_cpu_statistics();
+                });
 
                 return HttpResponse::build(StatusCode::OK).json(web::Json(EmptyJson {}));
             }
@@ -455,7 +381,7 @@ async fn logout(session: Session, state: Data<AppState>) -> HttpResponse {
 ///
 /// This function will only return the users OTP secret when the web page is viewed for the first
 /// time. To keep track of this status, a key knows_otp_secret is used.
-#[post("/login/otpSecret")]
+#[get("/api/otpSecret")]
 async fn otp_secret_request(state: Data<AppState>, session: Session) -> HttpResponse {
     #[derive(Serialize)]
     struct SecretJsonResponse {
@@ -463,7 +389,8 @@ async fn otp_secret_request(state: Data<AppState>, session: Session) -> HttpResp
     }
 
     if (!database::read_cols::<&str, (bool,)>("Admin", &["knows_otp"]).unwrap()[0].0
-        && database::read_cols::<&str, (bool,)>("Admin", &["use_otp"]).unwrap()[0].0) || is_admin_state(&session, state.clone())
+        && database::read_cols::<&str, (bool,)>("Admin", &["use_otp"]).unwrap()[0].0)
+        || is_admin_state(&session, state.clone())
     {
         let _u = database::update_where(
             "Admin",
@@ -482,29 +409,57 @@ async fn otp_secret_request(state: Data<AppState>, session: Session) -> HttpResp
 }
 
 #[get("/api/updateOtp/{status}")]
-async fn update_otp_status(state: Data<AppState>, session: Session, path: Path<bool>) -> HttpResponse {
+async fn update_otp_status(
+    state: Data<AppState>,
+    session: Session,
+    path: Path<bool>,
+) -> HttpResponse {
     if !is_admin_state(&session, state.clone()) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     };
 
     if path.into_inner() {
-        let _a = database::write("Admin", &["use_otp"], &[InsertValue::Bool(true)], "key", "0");
+        let _a = database::write(
+            "Admin",
+            &["use_otp"],
+            &[InsertValue::Bool(true)],
+            "key",
+            "0",
+        );
         let secret = otp::generate_otp_secret();
         let _b = database::write_kv("Secrets", "otp_secret", InsertValue::Text(secret.clone()));
-        let _ = database::write("Admin", &["knows_otp"], &[InsertValue::Bool(true)], "key", "0");
-        return HttpResponse::Ok().body(secret)
+        let _ = database::write(
+            "Admin",
+            &["knows_otp"],
+            &[InsertValue::Bool(true)],
+            "key",
+            "0",
+        );
+        return HttpResponse::Ok().body(secret);
     } else {
-        let _a = database::write("Admin", &["use_otp"], &[InsertValue::Bool(false)], "key", "0");
+        let _a = database::write(
+            "Admin",
+            &["use_otp"],
+            &[InsertValue::Bool(false)],
+            "key",
+            "0",
+        );
         let _b = database::delete_row("Secrets", "name", "otp_secret");
-        let _ = database::write("Admin", &["knows_otp"], &[InsertValue::Bool(false)], "key", "0");
-        return HttpResponse::Ok().finish()
+        let _ = database::write(
+            "Admin",
+            &["knows_otp"],
+            &[InsertValue::Bool(false)],
+            "key",
+            "0",
+        );
+        return HttpResponse::Ok().finish();
     }
 }
 
 /// Check if the users uses OTP.
 ///
 /// This function returns a boolean depending on the user using OTP or not.
-#[post("/login/useOtp")]
+#[post("/api/useOtp")]
 async fn use_otp(_state: Data<AppState>) -> HttpResponse {
     #[derive(Serialize)]
     struct JsonResponse {
@@ -539,7 +494,6 @@ async fn device_information(session: Session, state: Data<AppState>) -> HttpResp
         uptime: u128,
         temperature: f32,
         zentrox_pid: u16,
-        process_number: u32,
         net_up: f64,
         net_down: f64,
         net_interface: String,
@@ -547,34 +501,22 @@ async fn device_information(session: Session, state: Data<AppState>) -> HttpResp
         memory_total: u64,
         memory_free: u64,
         cpu_usage: f32,
-        ssh_active: bool,
     }
 
     // Current machines hostname. i.e.: debian_pc or 192.168.1.3
     let hostname = fs::read_to_string("/etc/hostname")
         .unwrap_or("Unknown hostname".to_string())
-        .replace("\n", "").to_string();
+        .replace("\n", "")
+        .to_string();
 
     let uptime = state.system.lock().unwrap().uptime().unwrap().as_millis();
 
     let temperature = match state.system.lock().unwrap().cpu_temp() {
         Ok(t) => t,
-        Err(e) => {
-            dbg!(e);
-            -300.0
-        }
+        Err(_) => -300.0,
     };
 
     let cpu_usage = *state.cpu_usage.lock().unwrap();
-
-    let mut process_number_system = SysInfoSystem::new_all();
-    process_number_system.refresh_processes(sysinfo::ProcessesToUpdate::All);
-    let processes = process_number_system.processes();
-    let has_sshd = processes
-        .values()
-        .any(|e| e.name().to_str() == Some("sshd"));
-
-    let process_count = processes.len() as u32;
 
     let mut memory_total: u64 = 0;
     let mut memory_free: u64 = 0;
@@ -587,17 +529,40 @@ async fn device_information(session: Session, state: Data<AppState>) -> HttpResp
         Err(_err) => {}
     };
 
-    HttpResponse::Ok()
-        .json(JsonResponse {
+    let mut net_down = 0.0;
+    let mut net_up = 0.0;
+    let mut net_interface = None;
+    let mut net_interface_name = "MISSING_INTERFACE".to_string();
+    let mut interfaces_i = 0;
+    let interfaces = state.network_interfaces.lock().unwrap();
+    let interfaces_count = interfaces.iter().len();
+    while interfaces_i != interfaces_count {
+        if interfaces[interfaces_i].up != 0.0 && interfaces[interfaces_i].down != 0.0 {
+            net_interface = Some(interfaces[interfaces_i].clone());
+        }
+        interfaces_i += 1;
+    }
+    if net_interface.is_some() {
+        let u = net_interface.unwrap();
+        net_interface_name = u.ifname;
+        net_down = u.down;
+        net_up = u.up;
+    } else if interfaces.len() > 0 {
+        let u = interfaces.iter().nth(0).unwrap().clone();
+        net_interface_name = u.ifname;
+        net_down = u.down;
+        net_up = u.up;
+    }
+
+    HttpResponse::Ok().json(JsonResponse {
         zentrox_pid: std::process::id() as u16,
         hostname,
         uptime,
         temperature,
-        process_number: process_count,
-        net_down: *state.net_down.lock().unwrap(),
-        net_up: *state.net_up.lock().unwrap(),
-        net_interface: state.net_interface.lock().unwrap().to_string(),
-        net_connected_interfaces: *state.net_connected_interfaces.lock().unwrap(),
+        net_down,
+        net_up,
+        net_interface: net_interface_name,
+        net_connected_interfaces: interfaces_count as i32,
         ip: match private_ip() {
             Ok(v) => v.to_string(),
             Err(_) => "No route".to_string(),
@@ -605,159 +570,7 @@ async fn device_information(session: Session, state: Data<AppState>) -> HttpResp
         memory_free,
         memory_total,
         cpu_usage,
-        ssh_active: has_sshd,
     })
-}
-
-// FTP API
-
-/// Return the current FTP config.
-///
-/// This includes the ftp username, password and status (is the server on or off)
-#[get("/api/fetchFTPconfig")]
-async fn fetch_ftp_config(session: Session, state: Data<AppState>) -> HttpResponse {
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    };
-
-    #[derive(Serialize)]
-    #[allow(non_snake_case)]
-    struct JsonResponse {
-        ftpUserUsername: String,
-        ftpLocalRoot: String,
-        enabled: bool,
-    }
-
-    let ftp_username = database::read_cols::<&str, (String,)>("Ftp", &["username"]).unwrap()[0]
-        .0
-        .to_string();
-    let ftp_local_root = database::read_cols::<&str, (String,)>("Ftp", &["local_root"]).unwrap()[0]
-        .0
-        .to_string();
-    let ftp_running: bool = database::read_cols::<&str, (bool,)>("Ftp", &["running"]).unwrap()[0].0;
-
-    HttpResponse::Ok().json(JsonResponse {
-        ftpUserUsername: ftp_username,
-        ftpLocalRoot: ftp_local_root,
-        enabled: ftp_running,
-    })
-}
-
-#[allow(non_snake_case)]
-#[derive(Deserialize)]
-struct JsonRequest {
-    enableDisable: Option<bool>,
-    enableFTP: Option<bool>,
-    ftpUserUsername: Option<String>,
-    ftpUserPassword: Option<String>,
-    ftpLocalRoot: Option<String>,
-    sudoPassword: Option<String>,
-}
-
-/// Update the FTP config.
-///
-/// This function updates the FTP config. For this to work, Zentrox needs the sudo password to
-/// enable or disable the FTP server, depending on the users choice. The request can also only
-/// contain the desired status instead of username, password or other information. In this case,
-/// the value enableDisable has to be true.
-#[post("/api/updateFTPConfig")]
-async fn update_ftp_config(
-    session: Session,
-    json: web::Json<JsonRequest>,
-    state: Data<AppState>,
-) -> HttpResponse {
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    };
-
-    let server_is_running = database::read_cols::<&str, (bool,)>("Ftp", &["running"]).unwrap()[0].0;
-
-    if !json.enableFTP.expect("Failed to get enableFTP") {
-        if server_is_running {
-            // Kill FTP server
-            let sudo_password = json
-                .sudoPassword
-                .clone()
-                .expect("Failed to get sudoPassword")
-                .to_string();
-            let ftp_server_pid = database::read_cols::<&str, (u64,)>("Ftp", &["pid"]).unwrap()[0]
-                .0
-                .to_string();
-            if !ftp_server_pid.is_empty() {
-                std::thread::spawn(move || {
-                    let _ = sudo::SwitchedUserCommand::new(sudo_password, String::from("kill"))
-                        .arg(ftp_server_pid.to_string())
-                        .spawn();
-                });
-                let _ = database::update_where(
-                    "Ftp",
-                    &["running"],
-                    &[database::InsertValue::Bool(false)],
-                    "key",
-                    "0",
-                );
-                let _ = database::update_where(
-                    "Ftp",
-                    &["pid"],
-                    &[database::InsertValue::Null()],
-                    "key",
-                    "0",
-                );
-            }
-        }
-    } else if !server_is_running && json.enableFTP.expect("Failed to get enableFTP") {
-        let sudo_password = json.sudoPassword.clone().unwrap().to_string();
-
-        std::thread::spawn(move || {
-            let _ = sudo::SwitchedUserCommand::new(sudo_password, String::from("python3"))
-                .arg("ftp.py".to_string())
-                .arg(whoami::username_os().into_string().unwrap())
-                .spawn();
-        });
-    }
-
-    if !json.enableDisable.unwrap_or(false) && !server_is_running {
-        // Enable disable is used to differentiate between a
-        // single toggle or the Sharing page's form.
-        let username = json.ftpUserUsername.clone().unwrap_or(String::from(""));
-        let password = json.ftpUserPassword.clone().unwrap_or(String::from(""));
-        let local_root = json.ftpLocalRoot.clone().unwrap_or(String::from(""));
-
-        if !password.is_empty() {
-            let hasher = &mut Sha512::new();
-            hasher.update(&password);
-            let hashed_password = hex::encode(hasher.clone().finalize());
-            let _ = database::update_where(
-                "Secrets",
-                &["value"],
-                &[database::InsertValue::Text(hashed_password)],
-                "name",
-                "ftp_password",
-            );
-        }
-
-        if !username.is_empty() {
-            let _ = database::update_where(
-                "Ftp",
-                &["username"],
-                &[database::InsertValue::Text(username)],
-                "key",
-                "0",
-            );
-        }
-
-        if !local_root.is_empty() {
-            let _ = database::update_where(
-                "Ftp",
-                &["local_root"],
-                &[database::InsertValue::Text(local_root)],
-                "key",
-                "0",
-            );
-        }
-    }
-
-    HttpResponse::Ok().json(EmptyJson {})
 }
 
 // Package API
@@ -771,7 +584,7 @@ struct PackageResponseJson {
     packageManager: String,
     canProvideUpdates: bool,
     updates: Vec<String>,
-    lastDatabaseUpdate: u64
+    lastDatabaseUpdate: u64,
 }
 
 #[derive(Serialize)]
@@ -783,7 +596,7 @@ struct PackageResponseJsonCounts {
     packageManager: String,
     canProvideUpdates: bool,
     updates: usize,
-    lastDatabaseUpdate: u64
+    lastDatabaseUpdate: u64,
 }
 
 /// Return the current package database.
@@ -800,7 +613,8 @@ async fn package_database(
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    let query = database::read_cols::<&str, (u64,)>("PackageActions", &["last_database_update"]).unwrap();
+    let query =
+        database::read_cols::<&str, (u64,)>("PackageActions", &["last_database_update"]).unwrap();
     let last_database_update;
     if query.len() != 1 {
         last_database_update = 0
@@ -834,7 +648,7 @@ async fn package_database(
             packageManager: packages::get_package_manager().unwrap_or("".to_string()),
             canProvideUpdates: can_provide_updates,
             updates,
-            lastDatabaseUpdate: last_database_update
+            lastDatabaseUpdate: last_database_update,
         })
     } else {
         let installed = match packages::list_installed_packages() {
@@ -856,15 +670,14 @@ async fn package_database(
             }
         };
 
-        HttpResponse::Ok()
-            .json(PackageResponseJson {
+        HttpResponse::Ok().json(PackageResponseJson {
             packages: installed,
             others: available,
             packageManager: packages::get_package_manager().unwrap_or("".to_string()),
             canProvideUpdates: can_provide_updates,
             updates,
-            lastDatabaseUpdate: last_database_update
-            })
+            lastDatabaseUpdate: last_database_update,
+        })
     }
 }
 
@@ -906,23 +719,39 @@ async fn update_package_database(
         .unwrap()
         .insert(job_id, BackgroundTaskState::Pending);
 
-   let _ = actix_web::web::block(move || {
+    let _ = actix_web::web::block(move || {
         match packages::update_database(json.into_inner().sudoPassword) {
             Ok(_) => {
-                let x = database::write("PackageActions", &["last_database_update", "key"], &[
-                    InsertValue::UnsignedInt64(std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()),
-                    InsertValue::UnsignedInt64(0_u64)
-                ], "key", "0");
+                let x = database::write(
+                    "PackageActions",
+                    &["last_database_update", "key"],
+                    &[
+                        InsertValue::UnsignedInt64(
+                            std::time::SystemTime::now()
+                                .duration_since(UNIX_EPOCH)
+                                .unwrap()
+                                .as_secs(),
+                        ),
+                        InsertValue::UnsignedInt64(0_u64),
+                    ],
+                    "key",
+                    "0",
+                );
                 if x.is_ok() {
                     state
-                    .update_jobs
-                    .lock()
-                    .unwrap()
-                    .insert(job_id, BackgroundTaskState::Success)
+                        .update_jobs
+                        .lock()
+                        .unwrap()
+                        .insert(job_id, BackgroundTaskState::Success)
                 } else {
-                    state.update_jobs.lock().unwrap().insert(job_id, BackgroundTaskState::FailOutput("Zentrox was unable to update package actions database".to_string()))
+                    state.update_jobs.lock().unwrap().insert(
+                        job_id,
+                        BackgroundTaskState::FailOutput(
+                            "Zentrox was unable to update package actions database".to_string(),
+                        ),
+                    )
                 }
-            },
+            }
             Err(_) => state
                 .update_jobs
                 .lock()
@@ -957,7 +786,7 @@ async fn install_package(
 
     let job_id = Uuid::new_v4();
 
-   let _ = actix_web::web::block(move || {
+    let _ = actix_web::web::block(move || {
         match packages::install_package(json.packageName.to_string(), json.sudoPassword.to_string())
         {
             Ok(_) => state
@@ -992,7 +821,7 @@ async fn remove_package(
 
     let job_id = Uuid::new_v4();
 
-   let _ = actix_web::web::block(move || {
+    let _ = actix_web::web::block(move || {
         match packages::remove_package(json.packageName.to_string(), json.sudoPassword.to_string())
         {
             Ok(_) => state
@@ -1027,7 +856,7 @@ async fn update_package(
 
     let job_id = Uuid::new_v4();
 
-   let _ = actix_web::web::block(move || {
+    let _ = actix_web::web::block(move || {
         match packages::update_package(json.packageName.to_string(), json.sudoPassword.to_string())
         {
             Ok(_) => state
@@ -1069,7 +898,7 @@ async fn update_all_packages(
         .unwrap()
         .insert(job_id, BackgroundTaskState::Pending);
 
-   let _ = actix_web::web::block(move || {
+    let _ = actix_web::web::block(move || {
         match packages::update_all_packages(sudo_password.to_string()) {
             Ok(_) => state
                 .update_jobs
@@ -1111,7 +940,7 @@ async fn fetch_job_status(
             }
             BackgroundTaskState::Pending => HttpResponse::Accepted().finish(),
         },
-        None => HttpResponse::InternalServerError().body("Failed to fetch background task state"),
+        None => HttpResponse::Accepted().finish(),
     }
 }
 
@@ -1135,7 +964,7 @@ async fn remove_orphaned_packages(
         .unwrap()
         .insert(job_id, BackgroundTaskState::Pending);
 
-   let _ = actix_web::web::block(move || {
+    let _ = actix_web::web::block(move || {
         match packages::remove_orphaned_packages(sudo_password.to_string()) {
             Ok(_) => state
                 .update_jobs
@@ -1317,9 +1146,7 @@ async fn new_firewall_rule(
 
         match x {
             Ok(_) => HttpResponse::Ok().body("Added new rule"),
-            Err(_e) => {
-                HttpResponse::InternalServerError().body("Failed to create new rule")
-            }
+            Err(_e) => HttpResponse::InternalServerError().body("Failed to create new rule"),
         }
     } else if mode == "r" {
         let lr: Vec<&str> = destination.split(":").collect();
@@ -1580,6 +1407,51 @@ async fn burn_file(
     } else {
         HttpResponse::BadRequest().body("This path does not exist")
     }
+}
+
+#[derive(Debug, MultipartForm)]
+struct UploadFileForm {
+    #[multipart(limit = "8GB")]
+    file: TempFile,
+    path: Text<String>,
+}
+
+#[post("/upload/file")]
+async fn upload_file(
+    session: Session,
+    state: Data<AppState>,
+    MultipartForm(form): MultipartForm<UploadFileForm>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    let intended_path = PathBuf::from(form.path.to_string());
+    let filename: String;
+    match form.file.file_name {
+        Some(v) => filename = v,
+        None => {
+            return HttpResponse::BadRequest().body("No filename specified");
+        }
+    };
+    let intended_path = intended_path.join(filename);
+    let temp_path = form.file.file.path();
+    let cpy = fs::copy(temp_path, &intended_path);
+    let unk = fs::remove_file(temp_path);
+
+    dbg!(temp_path);
+    dbg!(intended_path);
+
+    if !cpy.is_ok() {
+        HttpResponse::InternalServerError()
+            .body("Unable to copy temporary file to intended destination");
+    }
+
+    if !unk.is_ok() {
+        HttpResponse::InternalServerError().body("Unable to delete temporary file");
+    }
+
+    HttpResponse::Ok().finish()
 }
 
 // Block Device API
@@ -2570,7 +2442,8 @@ async fn logs_request(
     }
 }
 
-/// Parse a GET RANGE Header Parameter into a Rust byte range
+// Media center endpoints
+
 fn parse_range(range: actix_web::http::header::HeaderValue) -> (usize, Option<usize>) {
     let range_str = range.to_str().ok().unwrap(); // Safely convert to str, return None if failed
     let range_separated_clear = range_str.replace("bytes=", "");
@@ -2677,8 +2550,8 @@ async fn media_request(
                         .body("The requested range can not be satisfied.");
                 }
                 if byte_range.1.is_some() && (byte_range.1.unwrap() > filesize) {
-                        return HttpResponse::RangeNotSatisfiable()
-                            .body("The requested range can not be satisfied.");
+                    return HttpResponse::RangeNotSatisfiable()
+                        .body("The requested range can not be satisfied.");
                 }
                 let buffer_length = byte_range.1.unwrap_or(filesize) - byte_range.0;
                 let _ = reader.seek(SeekFrom::Start(byte_range.0 as u64));
@@ -2795,11 +2668,6 @@ async fn get_video_source_list(session: Session, state: Data<AppState>) -> HttpR
     HttpResponse::Ok().json(VideoSourcesListResponseJson { locations: s })
 }
 
-// 1. Video & Media list and metadata
-// 2. G̶e̶n̶r̶e̶ ̶l̶i̶s̶t̶
-// 3. M̶a̶k̶e̶ ̶g̶e̶n̶r̶e̶
-// 4. Change metadata
-
 #[derive(Serialize)]
 struct MediaListResponseJson {
     media: HashMap<PathBuf, (String, String, String, String)>,
@@ -2820,13 +2688,15 @@ async fn get_media_list(session: Session, state: Data<AppState>) -> HttpResponse
     }
 
     let sources: Vec<PathBuf> =
-        database::read_cols::<&str, (String,)>("MediaSources", &["folderpath"])
+        database::read_cols::<&str, (String, bool)>("MediaSources", &["folderpath", "enabled"])
             .unwrap()
             .into_iter()
+            .filter(|e| e.1)
             .map(|e| PathBuf::from(e.0.clone()))
             .collect();
 
     let media_files_vector: Vec<Vec<PathBuf>> = sources
+        .clone()
         .into_iter()
         .filter(|p| p.exists())
         .map(|p| {
@@ -2886,6 +2756,20 @@ async fn get_media_list(session: Session, state: Data<AppState>) -> HttpResponse
                     .body("Failed to delete row of removed video file.");
             }
         } else {
+            let mut a = false;
+            for path in &sources {
+                if a {
+                    continue;
+                }
+                if filepath.starts_with(path) {
+                    a = true;
+                }
+            }
+
+            if !a {
+                continue;
+            }
+
             media_info_hashmap.insert(
                 filepath,
                 (row.2.clone(), row.4.clone(), row.1.clone(), row.3.clone()),
@@ -3257,7 +3141,114 @@ async fn update_metadata(
     }
 }
 
-// TODO: Switching from toml based storage to persistent SQL based storage.
+// Networking
+
+#[derive(Serialize)]
+struct NetworkInterfacesResponseJson {
+    interfaces: Vec<MeasuredInterface>,
+}
+
+#[derive(Serialize)]
+struct NetworkRoutesResponseJson {
+    routes: Vec<Route>,
+}
+
+#[get("/api/networkInterfaces")]
+async fn network_interfaces(session: Session, state: Data<AppState>) -> HttpResponse {
+    if !is_admin_state(&session, state.clone()) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    let interfaces = state.network_interfaces.lock().unwrap().clone();
+
+    return HttpResponse::Ok().json(NetworkInterfacesResponseJson { interfaces });
+}
+
+#[get("/api/networkRoutes")]
+async fn network_routes(session: Session, state: Data<AppState>) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    let routes = net_data::get_routes();
+
+    return HttpResponse::Ok().json(NetworkRoutesResponseJson {
+        routes: routes.unwrap(),
+    });
+}
+
+#[derive(Deserialize, Debug)]
+struct DeleteNetworkRoutesJson {
+    device: String,
+    destination: (bool, Option<String>, Option<i32>),
+    gateway: (bool, Option<String>, Option<i32>),
+    sudo_password: String,
+}
+
+#[post("/api/deleteNetworkRoute")]
+async fn delete_network_route(
+    session: Session,
+    state: Data<AppState>,
+    json: web::Json<DeleteNetworkRoutesJson>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    let del_route = DeletionRoute {
+        device: json.device.clone(),
+        nexthop: None,
+        gateway: {
+            if json.gateway.0 {
+                None
+            } else {
+                Some(IpAddrWithSubnet {
+                    address: IpAddr::from_str(&json.gateway.1.clone().unwrap()).unwrap(),
+                    subnet: json.gateway.2,
+                })
+            }
+        },
+        destination: {
+            if json.destination.0 {
+                Destination::Default
+            } else {
+                Destination::Prefix(IpAddrWithSubnet {
+                    address: IpAddr::from_str(&json.destination.1.clone().unwrap()).unwrap(),
+                    subnet: json.destination.2,
+                })
+            }
+        },
+    };
+
+    net_data::delete_route(del_route, json.sudo_password.clone());
+
+    HttpResponse::Ok().finish()
+}
+
+#[derive(Deserialize)]
+struct NetworkingInterfaceActivityJson {
+    activity: bool,
+    interface: String,
+    sudoPassword: String,
+}
+
+#[post("/api/networkingInterfaceActive")]
+async fn networking_interface_active(
+    session: Session,
+    state: Data<AppState>,
+    json: web::Json<NetworkingInterfaceActivityJson>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    if json.activity {
+        net_data::enable_interface(json.sudoPassword.clone(), json.interface.clone());
+    } else {
+        net_data::disable_interface(json.sudoPassword.clone(), json.interface.clone());
+    }
+    return HttpResponse::Ok().finish();
+}
 
 // ======================================================================
 // Blocks (Used to prevent users from accessing certain static resources)
@@ -3291,26 +3282,6 @@ async fn main() -> std::io::Result<()> {
         let _ = setup::run_setup();
     }
 
-    // Resetting variables to default state
-    if let Err(e) = database::update_where(
-        "Ftp",
-        &["pid"],
-        &[database::InsertValue::Null()],
-        "key",
-        "0",
-    ) {
-        eprintln!("Failed to reset ftp_pid: {}", e.to_string());
-    }
-    if let Err(e) = database::update_where(
-        "Ftp",
-        &["running"],
-        &[database::InsertValue::Bool(false)],
-        "key",
-        "0",
-    ) {
-        eprintln!("Failed to reset ftp_running: {}", e.to_string());
-    }
-
     let secret_session_key = Key::try_generate().expect("Failed to generate session key");
     let app_state = AppState::new();
     app_state.clone().start_interval_tasks();
@@ -3339,6 +3310,7 @@ async fn main() -> std::io::Result<()> {
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .unwrap();
+
     let data_path = dirs::home_dir()
         .unwrap()
         .join(".local")
@@ -3368,6 +3340,7 @@ async fn main() -> std::io::Result<()> {
     let tls_certs = rustls_pemfile::certs(&mut certs_file)
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
+
     let tls_key = rustls_pemfile::pkcs8_private_keys(&mut key_file)
         .next()
         .unwrap()
@@ -3379,23 +3352,42 @@ async fn main() -> std::io::Result<()> {
         .with_single_cert(tls_certs, rustls::pki_types::PrivateKeyDer::Pkcs8(tls_key))
         .unwrap();
 
+    let governor_conf = GovernorConfigBuilder::default()
+        .burst_size(100)
+        .period(Duration::from_millis(250))
+        .finish()
+        .unwrap();
+
+    let harsh_governor_conf = GovernorConfigBuilder::default()
+        .requests_per_minute(5)
+        .finish()
+        .unwrap();
+
+    env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
+
     println!("🚀 Serving Zentrox on Port 8080");
 
     HttpServer::new(move || {
-        let cors_permissive: bool = true; // Enable or disable strict cors for developement. Leaving this
-                                          // enabled poses a grave security vulnerability and shows a
-                                          // disclaimer.
+        let mut vars = std::env::vars();
+        let cors_permissive: bool = vars
+            .find(|x| {
+                x == &("ZENTROX_MODE".to_string(), "NO_CORS".to_string())
+                    || x == &("ZENTROX_MODE".to_string(), "DEV".to_string())
+            })
+            .is_some();
         if cors_permissive {
             print!(include_str!("../notes/cors_note.txt"))
         }
 
         App::new()
             .app_data(Data::new(app_state.clone()))
+            .wrap(middleware::Logger::new("%a %U %s"))
             .wrap(
                 SessionMiddleware::builder(
                     CookieSessionStore::default(),
                     secret_session_key.clone(),
                 )
+                .cookie_content_security(CookieContentSecurity::Private)
                 .session_lifecycle(
                     actix_session::config::PersistentSession::default()
                         .session_ttl(actix_web::cookie::time::Duration::seconds(24 * 60 * 60)),
@@ -3410,24 +3402,24 @@ async fn main() -> std::io::Result<()> {
                 Cors::default()
             })
             .wrap(middleware::Compress::default())
+            .wrap(Governor::new(&governor_conf))
             // Landing
             .service(dashboard)
             .service(index)
             .service(alerts)
             .service(alerts_manifest)
             // Login, OTP and Logout
-            .service(login) // Login user using username, password and otp token if enabled
+            .service(
+                web::scope("/login")
+                    .wrap(Governor::new(&harsh_governor_conf))
+                    .route("/verify", web::post().to(login))
+            )
+            .service(use_otp)
+            .service(otp_secret_request)
             .service(logout) // Remove admin status and redirect to /
-            .service(otp_secret_request) // Return OTP secret, if this is the first time viewing
             .service(update_otp_status)
-            // the secret
-            .service(use_otp) // Return if OTP is enabled
-            // API
             // API Device Stats
             .service(device_information) // General device information
-            // API FTP
-            .service(fetch_ftp_config)
-            .service(update_ftp_config)
             // API Packages
             .service(package_database)
             .service(orphaned_packages)
@@ -3449,6 +3441,7 @@ async fn main() -> std::io::Result<()> {
             .service(delete_file)
             .service(rename_file)
             .service(burn_file)
+            .service(upload_file)
             // Block Device API
             .service(list_drives)
             .service(drive_information)
@@ -3487,6 +3480,11 @@ async fn main() -> std::io::Result<()> {
             .service(get_recomended_music)
             .service(get_recomended_videos)
             .service(update_metadata)
+            // Networking
+            .service(network_interfaces)
+            .service(network_routes)
+            .service(delete_network_route)
+            .service(networking_interface_active)
             // General services and blocks
             .service(dashboard_asset_block)
             .service(robots_txt)
@@ -3498,5 +3496,3 @@ async fn main() -> std::io::Result<()> {
     .run()
     .await
 }
-
-// Thank you for reading through all of this 😄main.rs
