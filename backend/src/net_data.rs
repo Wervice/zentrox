@@ -1,9 +1,16 @@
 // Rust shorthands for linux commands to get information about network configuration on the system
-use serde::{Deserialize, Serialize};
+// This library requires CAP_NET_ADMIN using `setcap` or admin permissions.
+use core::{fmt, str};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
+use std::fmt::Display;
 use std::net::IpAddr;
 use std::process::Command;
+use std::str::FromStr;
 
+use crate::sudo::{SudoExecutionOutput, SudoExecutionResult, SwitchedUserCommand};
+
+/// Determines the current private IP address of the current active network interface.
 pub fn private_ip() -> Result<IpAddr, ()> {
     #[derive(Debug, Serialize, Deserialize)]
     struct Route {
@@ -52,14 +59,76 @@ pub struct TransmissionStatistics {
     pub collisions: Option<i64>,
 }
 
+#[derive(Serialize, Debug, Clone)]
+pub enum OperationalState {
+    Up,
+    Down,
+    Dormant,
+    NotPresent,
+    LowerLayerDown,
+    Unknown,
+}
+
+impl ToString for OperationalState {
+    fn to_string(&self) -> String {
+        match *self {
+            Self::Up => "UP",
+            Self::Down => "DOWN",
+            Self::Dormant => "DORMANT",
+            Self::NotPresent => "NOTPRESENT",
+            Self::LowerLayerDown => "LOWERLAYERDOWN",
+            Self::Unknown => "UNKNOWN",
+        }
+        .to_string()
+    }
+}
+
+impl<'de> Deserialize<'de> for OperationalState {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Ok(match s.as_str() {
+            "UP" => Self::Up,
+            "DOWN" => Self::Down,
+            "DORMANT" => Self::Dormant,
+            "NOTPRESENT" => Self::NotPresent,
+            "LOWERLAYERDOWN" => Self::LowerLayerDown,
+            "UNKNOWN" => Self::Unknown,
+            _ => Self::Unknown,
+        })
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
+/// Interface is a public struct to collect information about network interfaces.
+/// - `ifindex` {i64} - The index of the interface on the host system
+/// - `ifname` {String} - The name of the interface on the host system
+/// - `flags` {Vec<String>} - A vector of all flags the interface was given by the host system.
+///    These include:
+///    - `LOOPBACK` - The interface is active, but never connects to anything external
+///    - `NO_CARRIER` - The interface is active and external, but no data is transmitted
+///    - `BROADCAST` - The interface is active and external
+///    - `LOWER_UP` - `PHY` abstraction layer is enabled
+/// - `mtu` {i64} - The maximum amount of data that can be transmitted in bytes per package
+/// - `qdisc` {i64} - The quening discipline
+/// - `operstate {OperationalState} - The operational state/
+/// - `linkmode` {String} - How the device is connected with others
+/// - `group` {String} - The group of devices the interface belongs to
+/// - `txqlen` {Option<i64>} - The transmit queue length
+/// - `link_type` {String} - The type of link, for example `ether`, `loopback` or `none`
+/// - `address` {String} - The MAC address of the interface
+/// - `broadcast` {String} - MAC Address used to broadcast information to all devices
+/// - `stats64` {HashMap<String, TransmissionStatistics>} - The tx and rx values to calculate network statistics
+/// - `altnames` {Option<Vec<String>>>} - Alternative names for an interface
 pub struct Interface {
     pub ifindex: i64,
     pub ifname: String,
     pub flags: Vec<String>,
     pub mtu: i64,
     pub qdisc: String,
-    pub operstate: String,
+    pub operstate: OperationalState,
     pub linkmode: String,
     pub group: String,
     pub txqlen: Option<i64>,
@@ -70,7 +139,12 @@ pub struct Interface {
     pub altnames: Option<Vec<String>>,
 }
 
-pub fn interface_information() -> Result<Vec<Interface>, ()> {
+/// Get a vector of all network interfaces currently connected to the system, active or not.
+/// The function does not take in any arguments.
+/// It spawns the command `ip -j -s link show` to get network information.
+/// Check the documentation for Interface to learn more about the return data and how to interpret
+/// it.
+pub fn get_network_interfaces() -> Result<Vec<Interface>, std::io::ErrorKind> {
     let mut ip_c_program = Command::new("ip");
     let ip_c = ip_c_program.arg("-j").arg("-s").arg("link").arg("show");
     let ip_c_x = ip_c.output();
@@ -84,6 +158,447 @@ pub fn interface_information() -> Result<Vec<Interface>, ()> {
             let interfaces: Vec<Interface> = serde_json::from_str(&r).unwrap();
             Ok(interfaces)
         }
-        Err(_) => Err(()),
+        Err(_) => Err(std::io::ErrorKind::NotFound), // Return NotFound, it the execution failed
     }
+}
+
+/// Enables an interface by its name
+pub fn enable_interface(sudo_password: String, interface: String) -> SudoExecutionResult {
+    let mut c = SwitchedUserCommand::new(sudo_password, "ip");
+    c.args(vec!["link", "set", interface.as_str(), "up"]);
+    let x = c.spawn();
+    x
+}
+
+/// Disables an interface by its name
+pub fn disable_interface(sudo_password: String, interface: String) -> SudoExecutionResult {
+    let mut c = SwitchedUserCommand::new(sudo_password, "ip");
+    c.args(vec!["link", "set", interface.as_str(), "down"]);
+    let x = c.spawn();
+    x
+}
+
+#[derive(Debug)]
+#[allow(unused)]
+pub enum RouteError {
+    ExecutionError,
+    BadExitStatus(std::process::ExitStatus),
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[allow(unused)]
+pub struct IpAddrWithSubnet {
+    pub address: IpAddr,
+    pub subnet: Option<i32>,
+}
+
+impl Display for IpAddrWithSubnet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.subnet.is_some() {
+            write!(f, "{}/{}", self.address.to_string(), self.subnet.unwrap())
+        } else {
+            write!(f, "{}", self.address.to_string())
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[allow(unused)]
+pub enum Destination {
+    Default,
+    Prefix(IpAddrWithSubnet),
+}
+
+impl Display for Destination {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Destination::Default => write!(f, "default"),
+            Destination::Prefix(v) => {
+                write!(f, "{}", v.to_string())
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub enum Scope {
+    Global,
+    Host,
+    Local,
+    Site,
+}
+
+impl Display for Scope {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Global => write!(f, "global"),
+            Self::Host => write!(f, "host"),
+            Self::Local => write!(f, "local"),
+            Self::Site => write!(f, "site"),
+        }
+    }
+}
+
+impl From<String> for Scope {
+    fn from(value: String) -> Self {
+        match value.as_str() {
+            "global" => Self::Global,
+            "host" => Self::Host,
+            "local" => Self::Local,
+            "site" => Self::Site,
+            _ => Self::Global,
+        }
+    }
+}
+
+#[derive(Debug)]
+#[allow(unused)]
+pub enum Protocol {
+    Static,
+    Kernel,
+    Boot,
+    Dhcp,
+    Ra,
+    Redirect,
+    Bird,
+    Babel,
+    Bgp,
+    Isp,
+    Ospf,
+    Rip,
+}
+
+#[allow(unused)]
+impl Protocol {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Protocol::Static => "static",
+            Protocol::Kernel => "kernel",
+            Protocol::Boot => "boot",
+            Protocol::Dhcp => "dhcp",
+            Protocol::Ra => "ra",
+            Protocol::Redirect => "redirect",
+            Protocol::Bird => "bird",
+            Protocol::Babel => "babel",
+            Protocol::Bgp => "bgp",
+            Protocol::Isp => "isp",
+            Protocol::Ospf => "ospf",
+            Protocol::Rip => "rip",
+        }
+    }
+}
+
+#[allow(unused)]
+fn is_clean<T: Display>(string: T) -> bool {
+    let bad_chars = [' ', '\\', '\n'];
+    let a = string.to_string();
+    let s = a.chars();
+    for c in s {
+        if bad_chars.contains(&c) {
+            return false;
+        }
+    }
+    return true;
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[allow(unused)]
+pub struct Route {
+    pub destination: Destination,
+    pub gateway: Option<IpAddrWithSubnet>,
+    pub nexthop: Option<Vec<IpAddrWithSubnet>>,
+    pub device: Option<String>,
+    pub protocol: Option<String>,
+    pub preferred_source: Option<IpAddr>,
+    pub scope: Scope,
+    pub table: Option<String>,
+}
+
+#[allow(unused)]
+impl Route {
+    fn as_deletion_route(self) -> DeletionRoute {
+        match self.gateway {
+            Some(v) => DeletionRoute {
+                destination: self.destination,
+                gateway: Some(v),
+                nexthop: None,
+                device: self.device.unwrap(),
+            },
+            None => match self.nexthop {
+                Some(v) => DeletionRoute {
+                    destination: self.destination,
+                    gateway: None,
+                    nexthop: Some(v),
+                    device: self.device.unwrap(),
+                },
+                None => panic!("Neither nexthop nor unwrap were specified"),
+            },
+        }
+    }
+}
+
+/// A CreationRoute is used to create a new route.
+/// This struct has the following fields:
+/// - `destination` - `Destination`: The destination IP prefix
+/// - `gateway` - - `Option<IpAddrWithSubnet>` - The gateway for the route with IPv4 address and subnet
+/// - `device` - `String` - The network interface / device
+/// - `protocol` - `Protocol` - The route protocol
+/// - `scope` - `Scope` - The scope of the route
+/// - `table` - `String` - The table the route belongs to
+#[derive(Debug)]
+#[allow(unused)]
+pub struct CreationRoute {
+    pub destination: Destination,
+    pub gateway: Option<IpAddrWithSubnet>,
+    pub device: String,
+    pub protocol: Protocol,
+    pub scope: Scope,
+    pub table: String,
+}
+
+/// Errors while convering a route into Arguments
+#[derive(Debug)]
+#[allow(unused)]
+pub enum ArgumentsError {
+    Unsanizized,
+}
+
+impl AsArguments for CreationRoute {
+    fn as_arguments(self) -> Result<Vec<String>, ArgumentsError> {
+        if !is_clean(&self.device) || !is_clean(&self.scope.to_string()) || !is_clean(&self.table) {
+            return Err(ArgumentsError::Unsanizized);
+        }
+        let mut result: Vec<String> = Vec::new();
+        result.push(self.destination.to_string());
+
+        match self.gateway {
+            Some(v) => {
+                result.push("via".to_string());
+                result.push(v.to_string());
+            }
+            None => {}
+        }
+
+        result.push("dev".to_string());
+        result.push(self.device);
+        result.push("protocol".to_string());
+        result.push(self.protocol.as_str().to_string());
+        result.push("scope".to_string());
+        result.push(self.scope.to_string());
+        result.push("table".to_string());
+        result.push(self.table);
+        Ok(result)
+    }
+}
+
+/// A route that is used to delete a route from the table
+/// One network interface can always only have one route for one destination with a certain gateway
+/// This struct has the following fields, which all are mandatory:
+/// - `destination` - `Destination`: The destination of the route
+/// - `gateway` - `IpAddrWithSubnet`: The gateway of the route
+/// - `device` - `String`: The network interface / device of the route
+#[derive(Debug)]
+#[allow(unused)]
+pub struct DeletionRoute {
+    pub destination: Destination,
+    pub gateway: Option<IpAddrWithSubnet>,
+    pub nexthop: Option<Vec<IpAddrWithSubnet>>,
+    pub device: String,
+}
+
+impl AsArguments for DeletionRoute {
+    fn as_arguments(self) -> Result<Vec<String>, ArgumentsError> {
+        if !is_clean(&self.device) {
+            return Err(ArgumentsError::Unsanizized);
+        }
+        if self.gateway.is_some() {
+            Ok(vec![
+                self.destination.to_string(),
+                "via".to_string(),
+                self.gateway.unwrap().to_string(),
+                "dev".to_string(),
+                self.device,
+            ])
+        } else if self.nexthop.is_some() {
+            let mut v = Vec::new();
+            v.push(self.destination.to_string());
+            for hop in self.nexthop.unwrap() {
+                v.push("via".to_string());
+                v.push(hop.to_string());
+            }
+            v.push("dev".to_string());
+            return Ok(v);
+        } else {
+            Ok(vec![
+                self.destination.to_string(),
+                "dev".to_string(),
+                self.device,
+            ])
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[allow(unused)]
+struct RawRoute {
+    #[serde(rename = "dst")]
+    destination: String,
+    #[serde(rename = "gateway")]
+    gateway: Option<String>,
+    #[serde(rename = "dev")]
+    device: Option<String>,
+    #[serde(rename = "protocol")]
+    protocol: Option<String>,
+    #[serde(rename = "prefsrc")]
+    preferred_source: Option<String>,
+    #[serde(rename = "scope")]
+    scope: Option<String>,
+    #[serde(rename = "type")]
+    table: Option<String>,
+    #[serde(rename = "nexthop")]
+    nexthop: Option<Vec<String>>,
+}
+
+#[allow(unused)]
+trait AsArguments {
+    fn as_arguments(self) -> Result<Vec<String>, ArgumentsError>;
+}
+
+/// Gets all routes from all routing tables.
+/// A route is defined by the following metrics, which do **not** exhaust all paramters of a UNIX route:
+/// - Destination prefix
+/// - Interface
+/// - All gateways
+/// - Protocol
+/// - Flags
+/// - Metric value
+/// - Table name
+#[allow(unused)]
+pub fn get_routes() -> Result<Vec<Route>, RouteError> {
+    let mut c = Command::new("ip");
+    c.args(&["-j", "route", "show", "table", "all"]);
+    let x = c.output();
+    match x {
+        Ok(v) => {
+            if v.status.success() {
+                let ip_x_o = str::from_utf8(&v.stdout).expect("Failed to parse output");
+                let raw_routes: Vec<RawRoute> = serde_json::from_str(ip_x_o).unwrap();
+                let structured_routes = raw_routes
+                    .iter()
+                    .map(|e| {
+                        let dest_split: Vec<&str> = e.destination.split("/").collect();
+                        let destination;
+                        if dest_split.len() == 2 {
+                            if dest_split[0] == "default" {
+                                destination = Destination::Default;
+                            } else {
+                                destination = Destination::Prefix(IpAddrWithSubnet {
+                                    address: IpAddr::from_str(dest_split[0])
+                                        .expect("Failed to parse IP address"),
+                                    subnet: Some(i32::from_str(dest_split[1]).unwrap_or(0_i32)),
+                                })
+                            }
+                        } else {
+                            if dest_split[0] == "default" {
+                                destination = Destination::Default;
+                            } else {
+                                destination = Destination::Prefix(IpAddrWithSubnet {
+                                    address: IpAddr::from_str(dest_split[0])
+                                        .expect("Failed to parse IP address"),
+                                    subnet: None,
+                                })
+                            }
+                        }
+
+                        let gateway;
+                        if e.gateway.is_some() {
+                            let gateway_unwrap = e.gateway.clone().unwrap();
+                            let gateway_split: Vec<&str> = gateway_unwrap.split("/").collect();
+                            if gateway_split.len() == 2 {
+                                gateway = Some(IpAddrWithSubnet {
+                                    address: IpAddr::from_str(gateway_split[0])
+                                        .expect("Failed to parse IP address"),
+                                    subnet: Some(i32::from_str(gateway_split[1]).unwrap_or(0_i32)),
+                                })
+                            } else {
+                                gateway = Some(IpAddrWithSubnet {
+                                    address: IpAddr::from_str(gateway_split[0])
+                                        .expect("Failed to parse IP address"),
+                                    subnet: None,
+                                })
+                            }
+                        } else {
+                            gateway = None
+                        }
+                        let nexthop_res: Option<Vec<IpAddrWithSubnet>>;
+                        let mut nexthop: Vec<IpAddrWithSubnet> = Vec::new();
+                        if e.nexthop.is_some() {
+                            let hops_unwrap = e.nexthop.clone().unwrap();
+                            for hop in hops_unwrap {
+                                let hop_split: Vec<&str> = hop.split("/").collect();
+                                if hop_split.len() == 2 {
+                                    let n = IpAddrWithSubnet {
+                                        address: IpAddr::from_str(hop_split[0])
+                                            .expect("Failed to parse IP address"),
+                                        subnet: Some(i32::from_str(hop_split[1]).unwrap_or(0_i32)),
+                                    };
+                                    nexthop.push(n)
+                                } else {
+                                    let n = IpAddrWithSubnet {
+                                        address: IpAddr::from_str(hop_split[0])
+                                            .expect("Failed to parse IP address"),
+                                        subnet: None,
+                                    };
+                                    nexthop.push(n);
+                                }
+                            }
+                            nexthop_res = Some(nexthop);
+                        } else {
+                            nexthop_res = None;
+                        }
+
+                        Route {
+                            destination,
+                            gateway,
+                            nexthop: nexthop_res,
+                            device: e.device.clone(),
+                            protocol: e.protocol.clone(),
+                            preferred_source: match &e.preferred_source {
+                                None => None,
+                                Some(v) => {
+                                    Some(IpAddr::from_str(&v).expect("Failed to parse IP address"))
+                                }
+                            },
+                            scope: Scope::from(e.scope.clone().unwrap_or("global".to_string())),
+                            table: e.table.clone(),
+                        }
+                    })
+                    .collect();
+                Ok(structured_routes)
+            } else {
+                Err(RouteError::BadExitStatus(v.status))
+            }
+        }
+        Err(_) => Err(RouteError::ExecutionError),
+    }
+}
+
+/// Creates a new route using a CreationRoute
+#[allow(unused)]
+pub fn create_route(route: CreationRoute, sudo_password: String) -> SudoExecutionOutput {
+    let mut c = SwitchedUserCommand::new(sudo_password, "ip");
+    c.args(vec!["route", "add"]);
+    let args = route.as_arguments();
+    c.args(args.expect("Failed to translate route to arguments"));
+    c.output()
+}
+
+/// Deletes a route using a `DeletionRoute`
+#[allow(unused)]
+pub fn delete_route(route: DeletionRoute, sudo_password: String) -> SudoExecutionOutput {
+    let mut c = SwitchedUserCommand::new(sudo_password, "ip");
+    c.args(vec!["route", "delete"]);
+    let args = route.as_arguments();
+    c.args(args.expect("Failed to translate route to arguments"));
+    c.output()
 }
