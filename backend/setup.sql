@@ -23,14 +23,6 @@ CREATE TABLE RecommendedMedia (
 	category varchar(20) NOT NULL,
 	PRIMARY KEY	(filepath)
 );
-CREATE TABLE Ftp (
-	key int,
-	running boolean NOT NULL,
-	pid int,
-	username varchar(2047),
-	local_root varchar(2047),
-	PRIMARY KEY	(key)
-);
 CREATE TABLE Settings (
 	name varchar(255),
 	value varchar(2047),
