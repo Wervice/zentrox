@@ -7,7 +7,7 @@ use std::{fs, process::Command, process::Stdio};
 pub enum PackageManagerError {
     SudoError,
     UnknownPackageManager,
-    ExecutionError
+    ExecutionError,
 }
 
 /// Determines which package manager is used by the system.
@@ -101,7 +101,7 @@ pub fn remove_orphaned_packages(password: String) -> Result<(), PackageManagerEr
         SudoExecutionResult::Success(_) => Ok(()),
         SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
         SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
-        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError)
+        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError),
     }
 }
 
@@ -127,11 +127,11 @@ pub fn install_package(name: String, password: String) -> Result<(), PackageMana
         return Err(PackageManagerError::UnknownPackageManager);
     }
 
-     match SwitchedUserCommand::new(password, command.to_string()).spawn() {
+    match SwitchedUserCommand::new(password, command.to_string()).spawn() {
         SudoExecutionResult::Success(_) => Ok(()),
         SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
         SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
-        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError)
+        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError),
     }
 }
 
@@ -158,14 +158,12 @@ pub fn remove_package(name: String, password: String) -> Result<(), PackageManag
         return Err(PackageManagerError::UnknownPackageManager);
     }
 
-    
-     match SwitchedUserCommand::new(password, command.to_string()).spawn() {
+    match SwitchedUserCommand::new(password, command.to_string()).spawn() {
         SudoExecutionResult::Success(_) => Ok(()),
         SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
         SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
-        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError)
+        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError),
     }
-
 }
 
 /// Update a package to the next version.
@@ -191,12 +189,11 @@ pub fn update_package(name: String, password: String) -> Result<(), PackageManag
         return Err(PackageManagerError::UnknownPackageManager);
     }
 
-       
-     match SwitchedUserCommand::new(password, command.to_string()).spawn() {
+    match SwitchedUserCommand::new(password, command.to_string()).spawn() {
         SudoExecutionResult::Success(_) => Ok(()),
         SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
         SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
-        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError)
+        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError),
     }
 }
 
@@ -214,51 +211,53 @@ pub fn update_all_packages(password: String) -> Result<(), PackageManagerError> 
         return Err(PackageManagerError::UnknownPackageManager);
     }
 
-    
-       
-     match SwitchedUserCommand::new(password, command.to_string()).spawn() {
+    match SwitchedUserCommand::new(password, command.to_string()).spawn() {
         SudoExecutionResult::Success(_) => Ok(()),
         SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
         SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
-        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError)
+        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError),
     }
-
 }
 
 pub fn update_database(password: String) -> Result<(), PackageManagerError> {
     let package_manager = get_package_manager().unwrap();
 
     if package_manager == "apt" {
-        match SwitchedUserCommand::new(password, "apt").arg("update").arg("-y").spawn() {
+        match SwitchedUserCommand::new(password, "apt")
+            .arg("update")
+            .arg("-y")
+            .spawn()
+        {
             SudoExecutionResult::Success(_) => Ok(()),
-        SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
-        SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
-        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError)
-
+            SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
+            SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
+            SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError),
         }
-
     } else if package_manager == "dnf" {
-        match SwitchedUserCommand::new(password, "dnf").arg("makecache").arg("-y").spawn() {
-            
+        match SwitchedUserCommand::new(password, "dnf")
+            .arg("makecache")
+            .arg("-y")
+            .spawn()
+        {
             SudoExecutionResult::Success(_) => Ok(()),
-        SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
-        SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
-        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError)
-
+            SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
+            SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
+            SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError),
         }
-
     } else if package_manager == "pacman" {
-        match SwitchedUserCommand::new(password, "pacman").arg("-Syy").arg("--noconfirm").spawn() {
-            
+        match SwitchedUserCommand::new(password, "pacman")
+            .arg("-Syy")
+            .arg("--noconfirm")
+            .spawn()
+        {
             SudoExecutionResult::Success(_) => Ok(()),
-        SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
-        SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
-        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError)
+            SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
+            SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
+            SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError),
         }
     } else {
         return Err(PackageManagerError::UnknownPackageManager);
     }
-
 }
 
 /// List every package, the package manager says is installed
@@ -428,7 +427,6 @@ pub fn list_updates() -> Result<Vec<String>, PackageManagerError> {
             .collect::<Vec<String>>();
 
         Ok(vector.to_vec())
-
     } else {
         return Err(PackageManagerError::UnknownPackageManager);
     }
@@ -642,5 +640,49 @@ pub fn list_orphaned_packages() -> Result<Vec<String>, PackageManagerError> {
         Ok(vector.to_vec())
     } else {
         return Err(PackageManagerError::UnknownPackageManager);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{list_installed_packages, *};
+
+    #[test]
+    fn install_xterm() {
+        let password =
+            std::env::var("TEST_PASSWORD").expect("Requires TEST_PASSWORD environment variable");
+        install_package("xterm".to_string(), password).expect("Failed to install xterm package");
+    }
+
+    #[test]
+    fn remove_xterm() {
+        let password =
+            std::env::var("TEST_PASSWORD").expect("Requires TEST_PASSWORD environment variable");
+        remove_package("xterm".to_string(), password).expect("Failed to install xterm package");
+    }
+
+    #[test]
+    fn list_all_installed_packages() {
+        list_installed_packages().expect("Failed to list installed packages.");
+    }
+
+    #[test]
+    fn list_all_available_packages() {
+        list_available_packages().expect("Failed to list available packages.");
+    }
+
+    #[test]
+    fn list_all_orphaned_packages() {
+        list_orphaned_packages().expect("Failed to list orphaned packages.");
+    }
+
+    #[test]
+    fn list_all_outdated_packages() {
+        list_updates().expect("Failed to list outdated packages.");
+    }
+
+    #[test]
+    fn determine_package_manager() {
+        get_package_manager().expect("Failed to list available packages.");
     }
 }
