@@ -2,7 +2,7 @@
     <picture>
       <img
         alt="Zentrox logo"
-        src="./zentrox_dark.svg"
+        src="./frontend/public/zentrox_dark_256.png"
         width="200"
         height="200"
         style="max-width: 100%;"
