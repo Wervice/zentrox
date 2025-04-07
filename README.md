@@ -37,7 +37,7 @@ Its features include:
 
 ## Installation
 
-Please refer to the [User documentation](user.md) for installation instructions and make sure your targeted device satisfies the requirements.
+Please refer to the [User documentation](./docs/user.md) for installation instructions and make sure your targeted device satisfies the requirements.
 ### Requirements
 - Linux
 - APT, DNF or PacMan (package management)
