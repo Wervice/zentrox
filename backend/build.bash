@@ -1,18 +1,16 @@
-echo "Building tarball"
+bash ./update_frontend.bash
 
-rm -rf ./dist/ &> /dev/null
-mkdir -p dist
+echo "Target: "
+read TARGET
 
-cp ./ftp.py dist/ftp.py
-cp ./robots.txt dist/robots.txt
-cp ./install.bash dist/install.bash # Prepare the Zentrox setup
-cp ./manifest.json dist/manifest.json
-cp ./empty_cover.svg dist/empty_cover.svg
-
-cp -r ../frontend/out dist/static
-cp -r ./src dist/src
-cp -r ./notes/ dist/notes
-cp -r Cargo.toml dist/Cargo.toml
-
-cd dist
-tar -czvf zentrox.tar.gz *
+mkdir ./dist_$TARGET
+mkdir ./dist_$TARGET/assets
+cross build --target $TARGET --release
+cp ./target/release/zentrox ./dist_$TARGET/assets/zentrox
+cp ./manifest.json ./dist_$TARGET/assets/manifest.json
+cp ./music_default.svg ./dist_$TARGET/assets/music_default.svg
+cp ./unknown_default.svg ./dist_$TARGET/assets/unknown_default.svg
+cp ./video_default.svg ./dist_$TARGET/assets/video_default.svg
+cp ./robots.txt ./dist_$TARGET/assets/robots.txt
+cp -r ./static/ ./dist_$TARGET/assets/static/
+cp ./install.bash ./dist_$TARGET/install.bash
