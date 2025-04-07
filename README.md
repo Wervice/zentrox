@@ -1,78 +1,49 @@
-<div align="center">
-<img src="preview.png" alt="Preview of Zentrox" width="500">
-</div>
+<p align="center">
+    <picture>
+      <img
+        alt="Zentrox logo"
+        src="./zentrox_dark.svg"
+        width="200"
+        height="200"
+        style="max-width: 100%;"
+      >
+    </picture>
+</p>
 
-<h3 align="center">Home server administration with batteries included</h3>
+<p align="center">A powerful server administration tool</p>
 
-![GitHub Repo stars](https://img.shields.io/github/stars/Wervice/zentrox?style=for-the-badge)
-![Rust](https://img.shields.io/badge/rust-black.svg?style=for-the-badge&logo=rust&logoColor=white&color=f74c00)
+---
 
-## 💡 Which problems does Zentrox solve?
+<p align="center">
+<img alt="GitHub top language" src="https://img.shields.io/github/languages/top/Wervice/zentrox">
+<img alt="GitHub last commit" src="https://img.shields.io/github/last-commit/Wervice/zentrox">
+<img alt="GitHub forks" src="https://img.shields.io/github/forks/Wervice/zentrox">
+</p>
 
-Zentrox helps you with the administration of your home server and lab devices.
-It provides you with important and helpful tools for managing your device.
+## Features and use-case
+Zentrox helps with controlling and surveilling Linux home servers and computers. It is equipped with tools designed for basic and advanced OS administration, file managing or device-specific network management.
 
-## 🎯 Features
+Its features include:
+- Package installation, removal and updating using `apt`, `dnf` and `pacman`
+- Network interface and route control
+- System log viewing using `journalctl`
+- Firewall web interface for [`ufw`](https://wiki.ubuntu.com/UncomplicatedFirewall)
+- File management
+- Storage device viewing
+- General device statistics
+- Integrated media viewer (disabled by default)
+- Secure connection over HTTP
+- 2FA using OTP
 
-- System statistics
-- Package managing
-- Firewall overview ([UFW](https://de.wikipedia.org/wiki/Uncomplicated_Firewall) at the time)
-- Encrypted file store
-- File sharing (FTPS at the time)
-- Block device overview
+## Installation
 
-_Zentrox is still being developed and features listed above are still being developed_
+Please refer to the [User documentation](user.md) for installation instructions and make sure your targeted device satisfies the requirements.
+### Requirements
+- Linux
+- APT, DNF or PacMan (package management)
+- Journalctl (only for logging)
+- Sudo (permissions management)
+- UFW (only for firewall)
+> [!WARNING]
+> If a requirement is not met, Zentrox may still work largely as expected but may run into issues when trying to accomplish certain tasks.
 
-## 🛠️ Installation
-
-**Zentrox is not yet intended for active use, but for testing.**
-Zentrox has the following requirements
-
-- OpenSSL
-- Uncomplicated Firewall
-- Python 3.11+
-- pacman/apt/dnf
-- Cargo
-
-Zentrox can be installed in one of the following two ways:
-
-### Building Zentrox
-
-At the time, Zentrox can only be installed by building it your self.
-
-I am currently working on adding support for pre-built binaries or an easier way to install the project.
-
-1. Download the latest tarball from the [Release](https://github.com/Wervice/zentrox/releases) page.
-2. Unpack the tarball (`tar -xvf zentrox.tar.gz`)
-3. Run the installer `bash install.bash`
-4. Start Zentrox `cd ~/zentrox; ./zentrox`
-5. Follow the Zentrox setup
-6. Add Zentrox to your path: `export PATH=$PATH:$HOME/zentrox`
-
-### Post installation
-
-While installing Zentrox, `install.bash` has done the following changes to your computer:
-
-1. Adding a UFW rule to allow Zentrox to be accessed from outside your computer. The rule allows Port 8080 for IPv4 and IPv6 traffic.
-2. Creating two directories in your home directory: `~/zentrox/` and `~/zentrox_data/`.
-   > [!WARNING]  
-   > The ~/zentrox_data/ directory also contains vault files and other sensitive information.
-   > This directory and its contents should not be modified or deleted, as doing so may break Zentrox.
-
-#### Removing Zentrox
-
-Zentrox can be removed by reverting the changes mentioned above and by deleting the `~/zentrox_data/` and `~/zentrox/` directory.
-Doing so, will also remove your Zentrox vault files.
-
-## ✏️ Contributing
-
-You can contribute to this project in several different ways.  
-I am glad about pull requests, issues and feedback.
-You can try Zentrox at any time, but I recommend using a pre-build release as Zentrox is actively being developed on and the latest code on GitHub may not be tested yet.
-
-## 📖 Credits & Legal
-
-Zentrox is released under [Apache 2.0](https://github.com/Wervice/Codelink?tab=Apache-2.0-1-ov-file#readme).
-The Zentrox frontend uses NextJS by Vercel, Shadcn and Lucide Icons.
-The Zentrox backend and installer use OpenSSL as command line tools and/or linked libraries.
-You can find more under [`legal/`](legal/) and THIRD_PARTY_LICENSES.md.
