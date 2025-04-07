@@ -1953,7 +1953,6 @@ async fn vault_new_folder(
 
 #[derive(Debug, MultipartForm)]
 struct VaultUploadForm {
-    #[multipart(limit = "10GB")]
     file: TempFile,
     key: Text<String>,
     path: Text<String>,
