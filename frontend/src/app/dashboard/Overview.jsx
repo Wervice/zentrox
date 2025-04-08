@@ -13,6 +13,8 @@ import InfoButton from "@/components/ui/InfoButton";
 import localFont from "next/font/local";
 import { toast } from "@/components/ui/use-toast";
 import { VT323 } from "next/font/google";
+import useNotification from "@/lib/notificationState";
+import DateWrapper from "@/components/ui/Date";
 const vt323 = VT323({
   weight: "400",
   subsets: ["latin"],
@@ -80,6 +82,7 @@ function FancyCounterCaption({ children }) {
 }
 
 export default function Overview() {
+  const { deleteNotification, notifications, notify } = useNotification();
   async function overviewFetch() {
     var t_a = Date.now();
     setReadyForFetch(false);
@@ -140,7 +143,7 @@ export default function Overview() {
   useEffect(() => {
     const interval = setInterval(() => {
       tryOverviewFetch();
-    }, 5000);
+    }, 500);
 
     return () => clearInterval(interval);
   }, [readyForFetch]);
@@ -150,18 +153,22 @@ export default function Overview() {
       headers: {
         "Content-Type": "application/json",
       },
-    }).then((res) => {
-      res.json().then((json) => {
-        setPackageStatistics({
-          installed: json.packages,
-          available: json.others,
-          packageManager: json.packageManager,
-          canProvideUpdates: json.canProvideUpdates,
-          updates: json.updates,
-          unloaded: false,
+    })
+      .then((res) => {
+        res.json().then((json) => {
+          setPackageStatistics({
+            installed: json.packages,
+            available: json.others,
+            packageManager: json.packageManager,
+            canProvideUpdates: json.canProvideUpdates,
+            updates: json.updates,
+            unloaded: false,
+          });
         });
+      })
+      .catch((_e) => {
+        notify("Reading package database failed");
       });
-    });
     tryOverviewFetch();
   }, []);
 
@@ -244,7 +251,12 @@ export default function Overview() {
         {Math.round(
           (deviceInformation.memory_total - deviceInformation.memory_free) /
             Math.pow(1000, 3),
-        )}
+        ) === 0
+          ? "< 1"
+          : Math.round(
+              (deviceInformation.memory_total - deviceInformation.memory_free) /
+                Math.pow(1000, 3),
+            )}
         GB / {Math.round(deviceInformation.memory_total / Math.pow(1000, 3))}GB
       </Card>
 
@@ -275,7 +287,10 @@ export default function Overview() {
       <Card
         title={"Networking"}
         variant="wide"
-        skeleton={deviceInformation.unloaded}
+        skeleton={
+          deviceInformation.unloaded ||
+          deviceInformation.net_interface == "MISSING_INTERFACE"
+        }
       >
         <span className="inline-block mr-2 mb-2">
           <strong className="block">Hostname</strong>
@@ -324,7 +339,7 @@ export default function Overview() {
                 <p>
                   Network statistics rely on the IP command on your system to
                   measure transmitted and received bytes. Zentrox measures the
-                  change in bytes in an interval of 5 seconds and calculates the
+                  change in bytes in an interval of 1000ms and calculates the
                   average resulting in B/s.
                 </p>
               </>
@@ -359,17 +374,12 @@ export default function Overview() {
             );
           })}
         </FancyCounter>
-        <strong>Active since:</strong>
-        <br />
-        {new Date(Date.now() - deviceInformation.uptime).toLocaleDateString(
-          "en-US",
-          {
-            day: "2-digit",
-            weekday: "narrow",
-            year: "numeric",
-            month: "2-digit",
-          },
-        )}
+        <strong className="block text-sm">Active since:</strong>
+        <DateWrapper
+          updating={false}
+          seconds={(Date.now() - deviceInformation.uptime) / 1000}
+          className="text-sm"
+        />
       </Card>
       <Card
         title={
@@ -405,7 +415,10 @@ export default function Overview() {
       <Card
         title={"Connectivity"}
         variant="square"
-        skeleton={deviceInformation.unloaded}
+        skeleton={
+          deviceInformation.unloaded ||
+          deviceInformation.net_interface == "MISSING_INTERFACE"
+        }
       >
         <span
           title={
@@ -419,22 +432,7 @@ export default function Overview() {
           {deviceInformation.net_connected_interfaces !== 1 ? "s" : ""}
         </span>
         <br />
-        <span
-          title={
-            deviceInformation.net_connected_interfaces + " connected interfaces"
-          }
-        >
-          <KeyIcon className="h-4 w-4 mr-1 inline-block" />
-          SSHd {deviceInformation.ssh_active ? "active" : "inactive"}{" "}
-          <InfoButton
-            title={"SSH activitiy detection"}
-            info={
-              "Zentrox checks if the sshd command is running. It can not detect any other SSH servers."
-            }
-          />
-        </span>
-        <br />
-        <span title={"latency between Zentrox server and backend"}>
+        <span title={"latency between Zentrox frontend and backend"}>
           <HourglassIcon className="h-4 w-4 mr-1 inline-block" />
           {Math.round(fetchDuration / 1000) < 1
             ? "< 1"
@@ -443,7 +441,7 @@ export default function Overview() {
           <InfoButton
             title={"Latency measurement"}
             info={
-              "Zentrox measures the time it takes to complete a request for the current server status. Such a request is only sent every five seconds."
+              "Zentrox measures the time it takes to complete a request for the current server status. Such a request is only sent every 500ms."
             }
           />
         </span>
