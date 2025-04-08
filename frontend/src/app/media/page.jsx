@@ -24,10 +24,7 @@ import {
   MinimizeIcon,
   XIcon,
   BoxesIcon,
-  HelpCircleIcon,
-  LinkIcon,
   DownloadIcon,
-  EditIcon,
   PenIcon,
 } from "lucide-react";
 import {
@@ -40,7 +37,6 @@ import {
   Dialog,
   DialogClose,
   DialogContent,
-  DialogDescription,
   DialogTitle,
   DialogFooter,
   DialogHeader,
@@ -77,14 +73,10 @@ scan({
   clearLog: false, // clears the console per group of renders (default: false)
 });
 
-function Title({ children, openHelp = () => {} }) {
+function Title({ children }) {
   return (
     <span className="p-2 text-xl font-bold border-b border-zinc-900 w-full block">
       {children}
-      <HelpCircleIcon
-        className="inline-block fixed top-3 right-3 h-4 w-4"
-        onClick={() => openHelp()}
-      />
     </span>
   );
 }
@@ -114,7 +106,6 @@ function MediaCard({
 
   return (
     <>
-      {console.log(cover)}
       <Dialog open={metadataDialogOpen} onOpenChange={setMetadataDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -131,12 +122,14 @@ function MediaCard({
             <Input
               defaultValue={artist === "UNKNOWN_ARTIST" ? "" : artist}
               ref={metadataArtistInput}
+              placeholder="e.g. Singer, Band, Composer,..."
             />
 
             <span className="ml-1 mt-1 font-medium block">Genre</span>
             <Input
               defaultValue={genre === "UNKNOWN_GENRE" ? "" : genre}
               ref={metadataGenreInput}
+              placeholder="e.g. Rock, Pop, Techno,..."
             />
 
             <span className="mb-2 ml-1 mt-1 font-medium">Cover</span>
@@ -203,7 +196,7 @@ function MediaCard({
               e.stopPropagation();
               setMetadataDialogOpen(true);
             }}
-            className="relative left-2 top-2 align-super pb-1 pr-1 pl-1 aspect-square rounded bg-black/20 hover:bg-black/30 transition-all ease-in-out duration-100"
+            className="relative left-[85%] top-2 align-super pb-1 pr-1 pl-1 aspect-square rounded bg-transparent hover:bg-transparent opacity-55 hover:opacity-100 transition-all ease-in-out duration-100"
           >
             <PenIcon className="w-3 h-3 inline-block opacity-70 mt-[-7px]" />
           </button>{" "}
@@ -223,7 +216,6 @@ function VideoPlayer({ src, name, closePlayer }) {
   const [overlayVisible, setOverlayVisible] = useState(true);
   const [notYetStarted, setNotYetStarted] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [isVideoLoaded, setVideoLoaded] = useState(false);
   const [playerVisible, setPlayerVisible] = useState(true);
   const [playerFadingOut, setPlayerFadingOut] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -329,7 +321,9 @@ function VideoPlayer({ src, name, closePlayer }) {
 
   function exitPlayer() {
     if (isFullscreen) {
-      document.exitFullscreen();
+      try {
+        document.exitFullscreen();
+      } catch {}
     }
     setPlayerFadingOut(true);
     setTimeout(() => closePlayer(), 100);
@@ -372,10 +366,12 @@ function VideoPlayer({ src, name, closePlayer }) {
         hidden={!playerVisible}
         autoPlay={false}
         preload="metadata"
-        onLoadedMetadata={() => setVideoLoaded(true)}
         onError={() => {
           setPlayerVisible(false);
           setErrorMessage("Failed to load video.");
+        }}
+        onEnded={() => {
+          setPlaying(false);
         }}
       />
       <div
@@ -395,13 +391,6 @@ function VideoPlayer({ src, name, closePlayer }) {
           >
             {name}
           </h1>
-          <span className={overlayVisible ? "" : "hidden"}>
-            {isVideoLoaded
-              ? typeof v.current != "undefined"
-                ? `${Math.round(v.current.duration / 60) || "Unknown"} minutes (${notYetStarted ? Math.round(v.current.duration / 60) : Math.round((v.current.duration - v.current.currentTime) / 60)} minutes remaining)`
-                : "Some length"
-              : ""}
-          </span>
           <Button
             className={
               "mt-5 bg-white/5 hover:bg-white/10" +
@@ -474,16 +463,26 @@ function VideoPlayer({ src, name, closePlayer }) {
             className="w-20 inline-flex mr-2"
             min={0}
             max={100}
-            defaultValue={100}
+            onValueChange={setVolume}
+            step={1}
           />
 
           {formatSecondsToTime(currentTime)}
           <Slider
-            value={[currentTime]}
+            value={
+              v.current
+                ? [Math.floor((currentTime / v.current.duration) * 100)]
+                : [0]
+            }
             style={{ width: "calc(100% - 290px)" }}
             className="mr-2 ml-2"
+            onValueChange={(e) => {
+              setCurrentTime((v.current.duration * e[0]) / 100);
+              v.current.currentTime = (v.current.duration * e[0]) / 100;
+            }}
+            step={1}
             min={0}
-            max={v.current ? v.current.duration : 1}
+            max={100}
           />
 
           {v.current ? formatSecondsToTime(v.current.duration) : "00:00"}
@@ -571,9 +570,7 @@ function MusicPlayer({ src, cover, name, closePlayer = () => {} }) {
   }, [playing, setPlaying]);
 
   function failPlayer(src) {
-    console.log(src);
     let srcSegments = src.split(".");
-    console.log(srcSegments);
     let extension = srcSegments[srcSegments.length - 1].toLowerCase();
     let badExtensions = ["opus", "ogg", "oga"]; // Some devices running iOS may have problems with these file types
     let ua = navigator.userAgent;
@@ -740,9 +737,7 @@ function Desktop() {
   const [videoPlayerSrc, setVideoPlayerSrc] = useState(""); // What source does the video-player get the video from?
   const [videoPlayerName, setVideoPlayerName] = useState(""); // What name does the video-player show the user?
   const [videoPlayerHidden, setVideoPlayerHidden] = useState(true); // Is the video-player hidden?
-  const [helpHidden, setHelpHidden] = useState(true); // Is the help modal hidden?
   const [selectedGenre, setSelectedGenre] = useState(""); // What is the selected genre?
-  const [helpFadingOut, setHelpFadingOut] = useState(false); // Is the help modal fading out?
   const [lastMediaFetch, setLastMediaFetch] = useState(false); // Should the frontend fetch media data again?
 
   const [videos, setVideos] = useState([]); // Array of objects that represent videos
@@ -767,7 +762,6 @@ function Desktop() {
         res.json().then((json) => {
           setRecommendedMusic(
             json.rec.filter((e) => {
-              console.log(e[1], "TSM");
               return Date.now() - e[1] < 2 * 24 * 60 * 60 * 1000;
             }),
           );
@@ -962,55 +956,13 @@ function Desktop() {
         return;
       if (e.key === "s" || e.key === "/") {
         queryInput.current.focus();
-      } else if ((e.key === "Escape" || e.key === "q") && !helpHidden) {
-        setHelpFadingOut(true);
-        setTimeout(() => {
-          setHelpHidden(true);
-          setHelpFadingOut(false);
-        }, 190);
       }
     });
-  }, [helpHidden]);
+  }, []);
 
   return (
     <>
       <Toaster />
-      <span
-        className={
-          "fixed bg-black/20 backdrop-grayscale w-screen h-screen top-0 left-0 z-20 duration-200 ease-in-out " +
-          (helpFadingOut ? "animate-movedown" : "animate-moveup")
-        }
-        hidden={helpHidden}
-      >
-        <span className="m-8 p-2 rounded w-[calc(100vw-4em)] h-[calc(100vh-4em)] block bg-zinc-950 border border-1 border-neutral-600 shadow-black/20 shadow-lg">
-          <h1 className="text-2xl font-bold">Help & FAQ</h1>
-          <h2 className="text-lg font-semibold mt-2">
-            How to add media files?
-          </h2>
-          <p className="text-lg">
-            In order to add video files to (Zentrox) Media Center, go to the{" "}
-            <a href="/" className="underline text-blue-500 text-lg">
-              {" "}
-              <LinkIcon className="inline-block h-4 w-4 align-middle" /> Zentrox
-              Dashboard
-            </a>{" "}
-            and select the Media tab.
-            <br />
-            From there, you can add resources by specifying a directory path
-            that exists on your server and a directory alias. <br />
-            Click apply so changes will take effect.
-            <br />
-            Depending on your servers performance, you will see the files
-            included in the selected diretory appeare soon in Media Center.
-          </p>
-
-          <h2 className="text-lg font-semibold mt-2">Keybindings</h2>
-          <p className="text-lg">
-            Media Center has a few built in keybinds to make using the interface
-            easier. <br />
-          </p>
-        </span>
-      </span>
       {!videoPlayerHidden ? (
         <VideoPlayer
           src={videoPlayerSrc}
@@ -1040,13 +992,7 @@ function Desktop() {
       )}
 
       <span className="w-full">
-        <Title
-          openHelp={() => {
-            setHelpHidden(false);
-          }}
-        >
-          Zentrox Media Center
-        </Title>
+        <Title>Zentrox Media Center</Title>
         <Select
           value={selectedGenre}
           onValueChange={(e) => setSelectedGenre(e)}
@@ -1107,14 +1053,18 @@ function Desktop() {
         )}
         {recommendedVideos.map((v, i) => {
           if (videos.length === 0 || queryInputValue !== "") {
-            return <></>;
+            return null;
           }
 
-          const lName = videos.find((e) => e.source === v[0]).name;
-          const lCover = videos.find((e) => e.source === v[0]).cover;
+          let f = videos.find((e) => e.source === v[0]);
+          if (typeof f == "undefined") {
+            return null;
+          }
+          const lName = f.name;
+          const lCover = f.cover;
 
           if (!lName) {
-            return <></>;
+            return null;
           }
 
           return (
@@ -1156,12 +1106,15 @@ function Desktop() {
           })
           .map((e, i) => {
             return (
-              <VideoCard
-                src={e.cover}
+              <MediaCard
+                filename={e.source}
+                cover={e.cover.length > 0 ? e.cover : "/api/cover/music"}
                 name={e.name}
+                artist={e.artist}
+                genre={e.genre}
                 key={i}
+                reload={fetchMediaList}
                 onClick={() => {
-                  rememberVideo(e.source); // Add this video to the list of recommended videos
                   playVideo(e.source, e.name);
                 }}
               />
@@ -1185,17 +1138,20 @@ function Desktop() {
         )}
         {recommendedMusic.map((v, i) => {
           if (music.length === 0 || queryInputValue !== "") {
-            return <></>;
+            return null;
           }
 
-          const lName = music.find((e) => e.source === v[0]).name;
-          const lCover = music.find((e) => e.source === v[0]).cover;
-          const lArtist = music.find((e) => e.source === v[0]).artist;
-          const lGenre = music.find((e) => e.source === v[0]).genre;
+          let f = music.find((e) => e.source === v[0]);
+          if (typeof f == "undefined") {
+            return null;
+          }
+          const lName = f.name;
+          const lCover = f.cover;
+          const lArtist = f.artist;
+          const lGenre = f.genre;
 
           if (!lName) {
-            console.log("discared song, no name");
-            return <></>;
+            return null;
           }
 
           return (
