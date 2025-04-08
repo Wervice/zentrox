@@ -6,6 +6,7 @@
 *.tsx linguist-vendored
 *.ts linguist-vendored
 *.json linguist-vendored
+*.md linguist-vendored
 
 # Zentrox is a Rust project, not a frontend template, library, framework,...
 # Yes, the frontend is something that is relevant to the project, but in the end it is treated and used like static files.
