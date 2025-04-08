@@ -8,9 +8,9 @@ import {
   ArrowUpFromDot,
   ArrowDownToDot,
   Shield,
+  TrashIcon,
 } from "lucide-react";
 import { useState, useRef } from "react";
-import "./table.css";
 import "./scroll.css";
 import { Input } from "@/components/ui/input";
 import { Toaster } from "@/components/ui/toaster";
@@ -47,6 +47,9 @@ import {
 import "./scroll.css";
 import Page from "@/components/ui/PageWrapper";
 import fetchURLPrefix from "@/lib/fetchPrefix";
+import useNotification from "@/lib/notificationState";
+import { Td, Tr, Th, Table, ActionTh, ActionTd } from "@/components/ui/table";
+import { Details } from "@/components/ui/Details";
 
 function Firewall() {
   const [rules, setRules] = useState([]); // Firewall rules that are displayed on the frontend and fetched from UFW
@@ -64,6 +67,7 @@ function Firewall() {
   var newRuleToRangeRight = useRef();
   var newRuleFrom = useRef();
   var sudoPasswordInput = useRef();
+  const { deleteNotification, notify, notifications } = useNotification();
 
   const { toast } = useToast();
 
@@ -83,6 +87,7 @@ function Firewall() {
           setFireWallEnabled(json["enabled"]);
         });
       } else {
+        notify("Wrong sudo password used to view firewall configuration");
         toast({
           title: "Wrong sudo password",
           description: "Zentrox failed to validate your sudo password",
@@ -95,26 +100,26 @@ function Firewall() {
     if (fireWallEnabled) {
       return (
         <div className="max-h-full min-h-fit overflow-y-scroll overflow-x-hidden w-fit no-scroll">
-          <table className="pt-2 firewall block">
+          <Table>
             <tbody>
-              <tr className="w-fit">
-                <td>
+              <Tr>
+                <Th>
                   <ArrowUpFromDot className="w-4 h-4 pb-0.5 inline" /> To
-                </td>
-                <td>
+                </Th>
+                <Th>
                   <ArrowDownToDot className="w-4 h-4 pb-0.5 inline" /> From
-                </td>
-                <td>
+                </Th>
+                <Th>
                   <Shield className="w-4 h-4 pb-0.5 inline" /> Action
-                </td>
-                <td></td>
-              </tr>
+                </Th>
+                <ActionTh />
+              </Tr>
               {rules.map((rule, i) => {
                 return (
-                  <tr key={i} className="w-fit">
-                    <td>{rule.to.replaceAll("(v6)", "IPv6")}</td>
-                    <td>{rule.from.replaceAll("(v6)", "IPv6")}</td>
-                    <td className="align-middle">
+                  <Tr key={i} className="w-fit">
+                    <Td>{rule.to.replaceAll("(v6)", "IPv6")}</Td>
+                    <Td>{rule.from.replaceAll("(v6)", "IPv6")}</Td>
+                    <Td className="align-middle">
                       {rule.action === "DENY" ? (
                         <>
                           <Ban className="h-6 w-6 mt-[-2px] inline-block text-red-500 pr-1" />
@@ -126,13 +131,11 @@ function Firewall() {
                           Allow
                         </>
                       )}
-                    </td>
-                    <td>
+                    </Td>
+                    <ActionTd>
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
-                          <Button className="bg-transparent text-red-500 hover:bg-transparent">
-                            Remove rule
-                          </Button>
+                          <TrashIcon className="w-4 h-4 opacity-75 text-red-500 hover:opacity-100 transition-all duration-200 inline-block cursor-pointer" />
                         </AlertDialogTrigger>
                         <AlertDialogContent>
                           <AlertDialogHeader>
@@ -161,6 +164,10 @@ function Firewall() {
                                   },
                                 ).then((res) => {
                                   if (!res.ok) {
+                                    notify(
+                                      "Failed to delete firewall rule " +
+                                        rule.index,
+                                    );
                                     toast({
                                       title: "Failed to delete firewall rule",
                                       description: `Zentrox failed to delete rule ${rule.index}.`,
@@ -176,12 +183,12 @@ function Firewall() {
                           </AlertDialogFooter>
                         </AlertDialogContent>
                       </AlertDialog>
-                    </td>
-                  </tr>
+                    </ActionTd>
+                  </Tr>
                 );
               })}
             </tbody>
-          </table>
+          </Table>
         </div>
       );
     } else {
@@ -234,10 +241,7 @@ function Firewall() {
       </Dialog>
       <Toaster />
       <Page name="Firewall">
-        <details className="mb-2">
-          <summary>
-            <strong>Technical details</strong>
-          </summary>
+        <Details title={"Technical details"} className="mb-2">
           <p>
             Zentrox uses UFW to retrieve and change firewall configurations.{" "}
             <br />
@@ -245,7 +249,7 @@ function Firewall() {
             provided. <br />
             Additionally, UFW has to be installed on your system. <br />
           </p>
-        </details>
+        </Details>
         <div className="w-64">
           {sudoPassword.length === 0 ? (
             <Button
@@ -333,7 +337,7 @@ function Firewall() {
                       <ArrowDownToDot className="w-4 h-4 inline" /> From
                     </label>
                     <small className="text-neutral-600 m-1 mb-2">
-                      The ip adress or hostname the request was sent from
+                      The ip address or hostname the request was sent from
                     </small>
                     <Button
                       variant={anyIp ? "" : "outline"}
@@ -345,7 +349,7 @@ function Firewall() {
                     <Input
                       id="ruleFrom"
                       disabled={anyIp}
-                      placeholder="ip adress"
+                      placeholder="ip address"
                       ref={newRuleFrom}
                       className="inline-flex mr-1 w-[210px]"
                     />
@@ -382,7 +386,7 @@ function Firewall() {
                     <DialogClose asChild>
                       <Button
                         onClick={() => {
-                          // /["p", "r"]/[port, a":"b]/["tcp", "udp"]/["any", "specific"]/["", ip adress]/["allow", "deny"]
+                          // /["p", "r"]/[port, a":"b]/["tcp", "udp"]/["any", "specific"]/["", ip address]/["allow", "deny"]
                           // /Port Or	Port / Range  Network		 Any Adress or		 IP or nothing	 Action to take
                           // /Range					  Protocol		 specific host
 
@@ -436,23 +440,18 @@ function Firewall() {
                             },
                           ).then((res) => {
                             if (res.ok) {
+                              notify(
+                                "Zentrox created a new firewall rule using UFW",
+                              );
                               fetchFireWallInformation();
                             } else {
-                              res.json().then((json) => {
-                                if (json["msg"] !== undefined) {
-                                  toast({
-                                    title: "Failed to create new rule",
-                                    description:
-                                      "Zentrox failed to create new firewall rule: " +
-                                      json["msg"],
-                                  });
-                                } else {
-                                  toast({
-                                    title: "Failed to create new rule",
-                                    description:
-                                      "Zentrox failed to create a new firewall rule",
-                                  });
-                                }
+                              notify(
+                                "Zentrox failed to create a new firewall rule using UFW",
+                              );
+                              toast({
+                                title: "Failed to create firewall rule",
+                                description:
+                                  "Zentrox failed to create a new firewall rule using UFW",
                               });
                             }
                           });
@@ -484,7 +483,20 @@ function Firewall() {
                 }).then((res) => {
                   if (res.ok) {
                     setFireWallEnabled(!fireWallEnabled);
+                    notify(
+                      "Zentrox " +
+                        (!fireWallEnabled
+                          ? "enabled the firewall using UFW"
+                          : "disabled the firewall using UFW"),
+                    );
                   } else {
+                    notify(
+                      "Zentrox failed to " +
+                        (!fireWallEnabled
+                          ? "enable firewall"
+                          : "disable firewall") +
+                        " using UFW",
+                    );
                     toast({
                       title: "Failed to apply firewall configuration",
                       description:
@@ -497,7 +509,7 @@ function Firewall() {
               }}
               value={fireWallEnabled ? "on" : "off"}
               checked={fireWallEnabled}
-			  hidden={fireWallEnabled === null}
+              hidden={fireWallEnabled === null}
               title="Enable Firewall"
               className="ml-1"
             />
