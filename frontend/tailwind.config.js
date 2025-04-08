@@ -94,12 +94,12 @@ module.exports = {
             opacity: 0,
           },
         },
-		  "fade-up": {
+        "fade-up": {
           from: {
-			  opacity: 0,
-			  marginTop: "50px",
-		  },
-			  to: {
+            opacity: 0,
+            marginTop: "50px",
+          },
+          to: {
             opacity: 1,
           },
         },
