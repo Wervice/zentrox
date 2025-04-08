@@ -45,6 +45,7 @@ import "./scroll.css";
 import { useToast } from "@/components/ui/use-toast";
 import Page from "@/components/ui/PageWrapper";
 import PathViewer from "@/components/ui/pathViewer";
+import useNotification from "@/lib/notificationState";
 
 // const fetchURLPrefix = "";
 const fetchURLPrefix = require("@/lib/fetchPrefix");
@@ -56,6 +57,7 @@ function Vault() {
   var newDirectoryInput = useRef();
   var renamingModalInput = useRef();
 
+  const { deleteNotification, notify, notifications } = useNotification();
   const { toast } = useToast();
   const [decryptKeyModalVisible, setDecryptKeyModalVisibility] =
     useState(false);
@@ -76,7 +78,6 @@ function Vault() {
       fetch(fetchURLPrefix + "/api/isVaultConfigured").then((r) => {
         if (r.ok) {
           r.text().then((t) => {
-            console.log(t);
             if (t === "0") {
               setVaultState("unconfigured");
             }
@@ -87,16 +88,6 @@ function Vault() {
       });
     }
   }, [setVaultState]);
-
-  function parentDir(path) {
-    if (!path.endsWith("/")) path += "/";
-    var parsedPath = path.split("/");
-    parsedPath.pop();
-    parsedPath.pop();
-    var parentPath = parsedPath.join("/") + "/";
-    if (parentPath === "/") parentPath = "";
-    return parentPath;
-  }
 
   function vaultTree(key = "") {
     var vaultKey;
@@ -119,9 +110,9 @@ function Vault() {
         });
       } else {
         if (res.status === 403) {
+          notify("Failed to validate vault key");
           toast({
-            title: "Failed to authenticate",
-            description: "Zentrox was unable to validate your key",
+            title: "Wrong key",
           });
         }
       }
@@ -152,6 +143,43 @@ function Vault() {
 
     // Check if the remaining path contains any `/`
     return !remainingPath.includes("/");
+  }
+
+  function downloadFile(entry, e) {
+    e.target.classList.add("animate-pulse");
+    e.target.classList.add("duration-300");
+
+    e.target.classList.remove("duration-200");
+    fetch(fetchURLPrefix + "/api/vaultFileDownload", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        key: vaultSessionKey,
+        path: entry,
+      }),
+    }).then((res) => {
+      e.target.classList.remove("animate-pulse");
+      e.target.classList.remove("duration-300");
+
+      e.target.classList.add("duration-200");
+      if (res.ok) {
+        res.blob().then((blob) => {
+          var url = window.URL.createObjectURL(blob);
+          var a = document.createElement("a");
+          a.href = url;
+          a.download = entry;
+          document.body.appendChild(a); // we need to append the element to the dom -> otherwise it will not work in firefox
+          a.click();
+          a.remove();
+        });
+      } else {
+        toast({
+          title: "File download error",
+        });
+      }
+    });
   }
 
   return (
@@ -199,13 +227,15 @@ function Vault() {
               need this password to view and upload files to vault.
             </DialogDescription>
           </DialogHeader>
+    <p>
           <Input
             type="password"
             id="vaultEncryptionKey"
             ref={vaultEncryptionKey}
             placeholder="Key"
-            className="inline"
+            className="block w-full"
           />
+    </p>
 
           <DialogFooter>
             <DialogClose asChild>
@@ -213,7 +243,6 @@ function Vault() {
             </DialogClose>
             <DialogClose asChild>
               <Button
-                variant="destructive"
                 className="inline-block mb-1"
                 onClick={() => {
                   /** @type {string}*/
@@ -274,27 +303,24 @@ function Vault() {
       </Dialog>
       <div>
         <Button
-			className={
-				vaultState !== "unlocked" ? "hidden mr-1" : "mr-1"
-			}
-			onClick={
-              () => {
-                  setCurrentVaultContents([]);
-                  setCurrentVaultPath("");
-                  setVaultSessionKey("");
-                  setVaultState("locked");
-                }
-          }
+          className={vaultState !== "unlocked" ? "hidden mr-1" : "mr-1"}
+          onClick={() => {
+            setCurrentVaultContents([]);
+            setCurrentVaultPath("");
+            setVaultSessionKey("");
+            setVaultState("locked");
+            location.reload();
+          }}
           variant="secondary"
         >
-		Lock vault
+          Exit
         </Button>
         <Dialog>
           <DialogTrigger asChild>
             <Button
               className={vaultState !== "unlocked" ? "invisible mr-1" : "mr-1"}
             >
-				New directory
+              New directory
             </Button>
           </DialogTrigger>
           <DialogContent>
@@ -346,6 +372,7 @@ function Vault() {
                       }),
                     }).then((res) => {
                       if (res.ok) {
+                        if (vaultState !== "unlocked") return;
                         vaultTree(vaultSessionKey);
                       } else {
                         toast({
@@ -356,7 +383,7 @@ function Vault() {
                     });
                   }}
                 >
-					Create
+                  Create
                 </Button>
               </DialogClose>
             </DialogFooter>
@@ -397,6 +424,7 @@ function Vault() {
                           renamingModalInput.current.value,
                       }),
                     }).then((res) => {
+                      if (vaultState !== "unlocked") return;
                       if (res.ok) vaultTree(vaultSessionKey);
                       else
                         toast({
@@ -430,9 +458,11 @@ function Vault() {
               <AlertDialogCancel>Cancel</AlertDialogCancel>
               <AlertDialogAction
                 onClick={() => {
-				  setCurrentVaultContents(currentVaultContents.filter((e) => {
-					  return currentVaultPath + currentVaultFileDelete !== e
-				  }))
+                  setCurrentVaultContents(
+                    currentVaultContents.filter((e) => {
+                      return currentVaultPath + currentVaultFileDelete !== e;
+                    }),
+                  );
                   fetch(fetchURLPrefix + "/api/deleteVaultFile", {
                     method: "POST",
                     headers: {
@@ -443,6 +473,7 @@ function Vault() {
                       deletePath: currentVaultFileDelete,
                     }),
                   }).then((res) => {
+                    if (vaultState !== "unlocked") return;
                     if (res.ok) vaultTree(vaultSessionKey);
                     else
                       toast({
@@ -463,11 +494,7 @@ function Vault() {
             uploadInput.current.click();
           }}
         >
-          {uploadButton === "default" ? (
-            <>Upload file</>
-          ) : (
-            <>Uploading file</>
-          )}
+          {uploadButton === "default" ? <>Upload file</> : <>Uploading file</>}
         </Button>
         <input
           type="file"
@@ -477,6 +504,9 @@ function Vault() {
               setUploadButton("loading");
               var fileForSubmit = uploadInput.current.files[0];
               if (fileForSubmit.size >= 1024 * 1024 * 1024 * 10) {
+                notify(
+                  `File ${fileForSubmit.name} can not be uploaded because it is larger than 10GB.`,
+                );
                 toast({
                   title: "File to big",
                   description: "The file you provided was larger than 10GB",
@@ -486,18 +516,20 @@ function Vault() {
               formData.append("file", fileForSubmit);
               formData.append("path", currentVaultPath);
               formData.append("key", vaultSessionKey);
+              notify(`Started upload of ${fileForSubmit.name}`);
               fetch(fetchURLPrefix + "/upload/vault", {
                 method: "POST",
                 body: formData,
               }).then((res) => {
                 uploadInput.current.value = "";
                 if (res.ok) {
+                  if (vaultState !== "unlocked") return;
                   vaultTree(vaultSessionKey);
+                  notify(`Finished upload of ${fileForSubmit.name}`);
                   setUploadButton("default");
-				  
                 } else {
                   setUploadButton("default");
-				  
+                  notify(`Failed upload of ${fileForSubmit.name}`);
                   res.text().then((errorMessage) => {
                     toast({
                       title: "Failed to upload file",
@@ -511,11 +543,16 @@ function Vault() {
           hidden
         />
       </div>
-<PathViewer hidden={vaultState !== "unlocked"} onValueChange={(e) => {
-		  setCurrentVaultPath(e.replace("/", ""))
-	  }} value={"/" + currentVaultPath} home={""} />
+      <PathViewer
+        hidden={vaultState !== "unlocked"}
+        onValueChange={(e) => {
+          setCurrentVaultPath(e.replace("/", ""));
+        }}
+        value={"/" + currentVaultPath}
+        home={""}
+      />
       <div
-        className={`no-scroll h-fit rounded-xl mt-2 overflow-hidden overflow-y-scroll no-scroll`}
+        className={`no-scroll h-fit rounded-xl mt-2 overflow-hidden overflow-y-scroll no-scroll ${vaultState === "unlocked" ? "" : "absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2"}`}
         style={{
           minHeight: "fit-content",
           maxHeight: "calc(100vh - 220px)",
@@ -527,14 +564,14 @@ function Vault() {
               <LockIcon className="m-auto h-52 w-52" />
               Vault is locked
             </div>
-                <Button
-                  className="m-auto block mt-4"
-                  onClick={() => {
-                    setDecryptKeyModalVisibility(true);
-                  }}
-                >
-                  Unlock vault
-                </Button>
+            <Button
+              className="m-auto block mt-4"
+              onClick={() => {
+                setDecryptKeyModalVisibility(true);
+              }}
+            >
+              Unlock vault
+            </Button>
           </span>
         ) : vaultState == "unconfigured" ? (
           <span className="h-fit">
@@ -554,9 +591,16 @@ function Vault() {
         ) : (
           <></>
         )}
-	  {
-		  vaultState === "unlocked" && currentVaultContents.filter((e) => {return e !== ".vault"}).length === 0 ? <span className="text-l text-center w-full block">Create directory or upload files</span> : <></>
-	  }
+        {vaultState === "unlocked" &&
+        currentVaultContents.filter((e) => {
+          return e !== ".vault";
+        }).length === 0 ? (
+          <span className="text-l text-center w-full block">
+            Create directory or upload files
+          </span>
+        ) : (
+          <></>
+        )}
         {
           /*
            * @param {string} entry*/
@@ -599,45 +643,8 @@ function Vault() {
                       className="w-full p-4 bg-transparent block cursor-default select-none hover:bg-neutral-900 hover:transition-bg hover:duration-300 focus:outline-blue-500 focus:duration-50"
                       onClick={
                         type === "folder"
-                          ? () => {
-                              setCurrentVaultPath(entry);
-                            }
-                          : (e) => {
-                              e.target.classList.add("animate-pulse");
-                              e.target.classList.add("duration-300");
-
-                              e.target.classList.remove("duration-200");
-                              fetch(fetchURLPrefix + "/api/vaultFileDownload", {
-                                method: "POST",
-                                headers: {
-                                  "Content-Type": "application/json",
-                                },
-                                body: JSON.stringify({
-                                  key: vaultSessionKey,
-                                  path: entry,
-                                }),
-                              }).then((res) => {
-                                e.target.classList.remove("animate-pulse");
-                                e.target.classList.remove("duration-300");
-
-                                e.target.classList.add("duration-200");
-                                if (res.ok) {
-                                  res.blob().then((blob) => {
-                                    var url = window.URL.createObjectURL(blob);
-                                    var a = document.createElement("a");
-                                    a.href = url;
-                                    a.download = entry;
-                                    document.body.appendChild(a); // we need to append the element to the dom -> otherwise it will not work in firefox
-                                    a.click();
-                                    a.remove();
-                                  });
-                                } else {
-                                  toast({
-                                    title: "File download error",
-                                  });
-                                }
-                              });
-                            }
+                          ? () => setCurrentVaultPath(entry)
+                          : (event) => downloadFile(entry, event)
                       }
                     >
                       {type === "folder" ? (
