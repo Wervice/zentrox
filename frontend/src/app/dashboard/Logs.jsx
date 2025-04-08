@@ -1,7 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button.jsx";
-import InfoButton from "@/components/ui/InfoButton";
 import CalendarButton from "@/components/ui/calendar";
 import Page from "@/components/ui/PageWrapper";
 QRCodeSVG;
@@ -11,12 +10,13 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
   DialogFooter,
   DialogClose,
 } from "@/components/ui/dialog";
 import { QRCodeSVG } from "qrcode.react";
+import secondsToFormat from "@/lib/dates";
 const fetchURLPrefix = require("@/lib/fetchPrefix");
+import { Td, Tr, Th, Table } from "@/components/ui/table";
 
 function Logs() {
   const [selectedLog, setSelectedLog] = useState("");
@@ -46,21 +46,6 @@ function Logs() {
     const [logEntries, setLogEntries] = useState([["", "", "", ""]]);
     const [logInfo, setLogInfo] = useState("");
     const [logMessageColor, setLogMessageColor] = useState("white");
-
-    const Td = ({ children, orientation = "center", className }) => {
-      return (
-        <td
-          className={
-            "p-2 hover:bg-neutral-900 rounded cursor-default text-" +
-            orientation +
-            " " +
-            className
-          }
-        >
-          {children}
-        </td>
-      );
-    };
 
     const fetchLog = (log, sudo, since, until) => {
       setLogInfo(`Fetching for logs`);
@@ -106,41 +91,20 @@ function Logs() {
       }
     }, []);
 
-    function formatTimestamp(timestamp) {
-      if (parseInt(timestamp) < 1000 || timestamp == "") {
-        return "";
-      }
-
-      // Convert the timestamp string to an integer
-      const date = new Date(parseInt(Math.floor(timestamp / 1000))); // Multiply by 1000 to convert seconds to milliseconds
-
-      // Format the date to a human-readable format
-      const formattedDate = date.toLocaleString("en-GB", {
-        year: "2-digit",
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        hour12: true,
-      });
-
-      return formattedDate;
-    }
     return (
       <>
-        <span className={`m-2 mt-1 mb-1 block text-${logMessageColor}-500`}>
-          {logInfo}
-        </span>
         <div className="overflow-scroll no-scroll">
-          <table className="mt-2">
-            <tr>
-              <Td className="font-bold">Time</Td>
-              <Td className="font-bold">Application</Td>
-              <Td className="font-bold">Message</Td>
-            </tr>
+          <Table>
+            <thead>
+              <Tr>
+                <Th expand={true}>Time</Th>
+                <Th expand={true}>Application</Th>
+                <Th expand={true}>Message</Th>
+              </Tr>
+            </thead>
             {logEntries
               .filter((e) => {
+                if (e[0] === "") return;
                 if (tableFilter.length != 0) {
                   if (tableFilter.startsWith("application: ")) {
                     return (
@@ -176,11 +140,16 @@ function Logs() {
               .reverse()
               .map((logEntry) => {
                 return (
-                  <tr>
-                    <Td orientation="left">{formatTimestamp(logEntry[0])}</Td>
-                    <Td orientation="left">{logEntry[2]}</Td>
+                  <Tr>
+                    <Td expand={true}>
+                      {secondsToFormat(
+                        logEntry[0] / 1000000,
+                        localStorage.getItem("dateFormat") || "8601",
+                      )}
+                    </Td>
+                    <Td expand={true}>{logEntry[2]}</Td>
                     <Td
-                      orientation="left"
+                      expand={true}
                       className={(function () {
                         var level = logEntry[4];
                         if (level == "7") {
@@ -204,82 +173,12 @@ function Logs() {
                     >
                       {logEntry[3]}
                     </Td>
-                  </tr>
+                  </Tr>
                 );
               })}
-          </table>
+          </Table>
         </div>
       </>
-    );
-  };
-
-  const CurrentTimer = () => {
-    const [timeFormat, setTimeFormat] = useState("unix");
-    const [time, setTime] = useState(currentTime());
-
-    const formats = ["unix", "human.dot", "human.slash", "human.dash"];
-
-    useEffect(() => {
-      if (localStorage.getItem("logsTimeFormat") != undefined) {
-        setTimeFormat(localStorage.getItem("logsTimeFormat"));
-      }
-    }, []);
-
-    function currentTime() {
-      const z = (v) => {
-        if (v < 10) {
-          return "0" + v;
-        } else {
-          return v;
-        }
-      };
-
-      if (timeFormat == "unix") {
-        return new Date().getTime();
-      } else if (timeFormat.startsWith("human.")) {
-        let date = new Date();
-        let day = z(date.getDate());
-        let month = z(date.getMonth() + 1);
-        let year = date.getFullYear();
-        let minute = z(date.getMinutes());
-        let hour = z(date.getHours());
-        let second = z(date.getSeconds());
-
-        if (timeFormat == "human.dot") {
-          return `${day}.${month}.${year} ${hour}:${minute}:${second}`; // Used in post soviet countries
-        } else if (timeFormat == "human.slash") {
-          return `${month}/${day}/${year} ${hour}:${minute}:${second}`;
-        } else if (timeFormat == "human.dash") {
-          return `${month}-${day}-${year} ${hour}:${minute}:${second}`;
-        }
-      }
-    }
-
-    useEffect(() => {
-      const interval = setInterval(() => {
-        setTime(currentTime());
-      }, 250);
-
-      return () => clearInterval(interval);
-    }, []);
-
-    return (
-      <span
-        onClick={() => {
-          let currentFormatIndex = formats.indexOf(timeFormat);
-          if (currentFormatIndex > formats.length - 2) {
-            currentFormatIndex = 0;
-          } else {
-            currentFormatIndex++;
-          }
-          localStorage.setItem("logsTimeFormat", formats[currentFormatIndex]);
-          setTimeFormat(formats[currentFormatIndex]);
-          console.log(timeFormat);
-        }}
-        className="cursor-pointer inline-flex"
-      >
-        {currentTime()}
-      </span>
     );
   };
 
@@ -319,75 +218,59 @@ function Logs() {
       </Dialog>
 
       <span className="m-1 block"></span>
-      <Button
-        onClick={() => {
-          setLogRefreshKeyValue(new Date().getTime());
-        }}
-        className="mr-1"
-        variant="secondary"
-      >
-        Refresh
-      </Button>
-      <Input
-        type="text"
-        placeholder="Search"
-        ref={searchInput}
-        className="inline-flex mr-1 ml-1"
-        onKeyPress={(event) => {
-          if (event.key == "Enter") {
-            setTableFilter(searchInput.current.value);
-          }
-        }}
-      />
+      {sudoPassword === "" ? (
+        <Button
+          onClick={() => {
+            setSudoPasswordModal(true);
+          }}
+          className="mr-1"
+        >
+          Enter sudo password
+        </Button>
+      ) : (
+        <></>
+      )}
+      <div hidden={sudoPassword === ""}>
+        <Button
+          onClick={() => {
+            setLogRefreshKeyValue(new Date().getTime());
+          }}
+          variant="secondary"
+        >
+          Refresh
+        </Button>
+        <Input
+          type="text"
+          placeholder="Search"
+          ref={searchInput}
+          className="inline-flex"
+          onKeyPress={(event) => {
+            if (event.key == "Enter") {
+              setTableFilter(searchInput.current.value);
+            }
+          }}
+        />
 
-      <CalendarButton
-        placeholder="Since"
-        className="mr-1 ml-1"
-        onValueChange={setSince}
-        confirmMode={true}
-      />
-      <CalendarButton
-        placeholder="Until"
-        className="mr-1"
-        onValueChange={setUntil}
-        confirmMode={true}
-      />
-      <Dialog>
-        <DialogTrigger asChild>
-          <Button
-            variant="secondary"
-            className="mr-1"
-            title="Show QR code for Alerts app"
-          >
-            Alerts App
-          </Button>
-        </DialogTrigger>
-
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Alerts App</DialogTitle>
-            <DialogDescription>
-              Zentrox Alerts lets you view current system statistics and logs.
-            </DialogDescription>
-            <QRCodeSVG
-              value={"https://" + location.host + "/alerts"}
-              className="w-48 h-48"
-            />
-            <DialogFooter>
-              <DialogClose asChild>
-                <Button>Close</Button>
-              </DialogClose>
-            </DialogFooter>
-          </DialogHeader>
-        </DialogContent>
-      </Dialog>
-      <CurrentTimer />
-      <br />
-      <LogTable
-        log={selectedLog}
-        refreshKey={logRefreshKeyValue}
-        tableFilter={tableFilter}
-      />
+        <CalendarButton
+          placeholder="Since"
+          className="mr-1 ml-1"
+          onValueChange={setSince}
+          variant={"secondary"}
+          confirmMode={true}
+        />
+        <CalendarButton
+          placeholder="Until"
+          className="mr-1"
+          onValueChange={setUntil}
+          variant={"secondary"}
+          confirmMode={true}
+        />
+        <LogTable
+          log={selectedLog}
+          refreshKey={logRefreshKeyValue}
+          tableFilter={tableFilter}
+        />
+      </div>
     </Page>
   );
 }
