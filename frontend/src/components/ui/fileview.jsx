@@ -10,11 +10,13 @@ import {
   ShieldIcon,
   VideoIcon,
   DownloadIcon,
-  ArrowUp,
-  MapPin,
   Clock2,
   HouseIcon,
   PlugIcon,
+  UploadIcon,
+  FileTextIcon,
+  TextIcon,
+  BracketsIcon,
 } from "lucide-react";
 
 import {
@@ -30,13 +32,12 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
   DialogFooter,
   DialogClose,
 } from "@/components/ui/dialog";
 
 import { useEffect, useState, useRef } from "react";
-import PathViewer from "@/components/ui/pathViewer"
+import PathViewer from "@/components/ui/pathViewer";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -52,6 +53,8 @@ import {
   AlertDialogTitle,
   AlertDialogFooter,
 } from "@/components/ui/alert-dialog";
+import useNotification from "@/lib/notificationState";
+import { DialogTrigger } from "@radix-ui/react-dialog";
 
 const fetchURLPrefix = require("@/lib/fetchPrefix");
 
@@ -64,9 +67,10 @@ export default function FileView({ className = "" }) {
   const [renameFile, setRenameFile] = useState("");
   const [burnPopupVisible, setBurnPopupVisible] = useState(false);
   const [burnFile, setBurnFile] = useState("");
-
+  const [uploadFileName, setUploadFileName] = useState(null);
+  const { deleteNotification, notify, notifications } = useNotification();
   var renameFileInput = useRef();
-  var currentPathInput = useRef();
+  var uploadFileInput = useRef();
 
   /**
    * Fetch entries for directory
@@ -81,6 +85,8 @@ export default function FileView({ className = "" }) {
               setFiles(json["content"]);
               setCurrentPath(path);
             } else {
+              setFiles([]);
+              notify(`The path ${path} could not be accessed.`);
               toast({
                 title: "Path error",
                 description:
@@ -89,6 +95,8 @@ export default function FileView({ className = "" }) {
             }
           });
         } else {
+          setFiles([]);
+          notify(`The path ${path} could not be accessed.`);
           toast({
             title: "Path error",
             description:
@@ -167,18 +175,20 @@ export default function FileView({ className = "" }) {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
+                const forDeletion = deletionFile;
                 fetch(
                   fetchURLPrefix +
                     "/api/deleteFile/" +
-                    encodeURIComponent(deletionFile),
+                    encodeURIComponent(forDeletion),
                 ).then((res) => {
-                  setDeletionFile("");
                   if (res.ok) {
+                    notify("Deleted " + forDeletion);
                     fetchFiles(currentPath);
                   } else {
+                    notify("Failed to delete " + forDeletion);
                     toast({
                       title: "Deletion failed",
-                      description: `Zentrox failed to delete ${deletionFile}`,
+                      description: `Zentrox failed to delete ${forDeletion}`,
                     });
                   }
                 });
@@ -204,18 +214,21 @@ export default function FileView({ className = "" }) {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
+                const forBurn = burnFile;
                 fetch(
                   fetchURLPrefix +
                     "/api/burnFile/" +
-                    encodeURIComponent(burnFile),
+                    encodeURIComponent(forBurn),
                 ).then((res) => {
                   setBurnFile("");
                   if (res.ok) {
+                    notify("Burned " + forBurn);
                     fetchFiles(currentPath);
                   } else {
+                    notify("Failed to burn " + forBurn);
                     toast({
                       title: "Burn failed",
-                      description: `Zentrox failed to burn ${burnFile}`,
+                      description: `Zentrox failed to burn ${forBurn}`,
                     });
                   }
                 });
@@ -237,8 +250,8 @@ export default function FileView({ className = "" }) {
           <Input
             id="renameFileInput"
             ref={renameFileInput}
-			defaultValue={renameFile}
-			className="w-full"
+            defaultValue={renameFile}
+            className="w-full"
             placeholder="New path"
           />
           <DialogFooter>
@@ -250,22 +263,28 @@ export default function FileView({ className = "" }) {
                 onClick={() => {
                   var newPath = renameFileInput.current.value;
                   if (!newPath.includes("/")) {
-                    newPath = currentPath + "/" + newPath;
+                    newPath =
+                      currentPath +
+                      (!currentPath.endsWith("/") ? "/" : "") +
+                      newPath;
                   }
+                  const forRename = renameFile;
                   fetch(
                     fetchURLPrefix +
                       "/api/renameFile/" +
-                      encodeURIComponent(renameFile) +
+                      encodeURIComponent(forRename) +
                       "/" +
                       encodeURIComponent(newPath),
                   ).then((res) => {
                     setRenameFile("");
                     if (res.ok) {
+                      notify(`Renamed ${forRename} to ${newPath}`);
                       fetchFiles(currentPath);
                     } else {
+                      notify(`Failed to rename ${forRename} to ${newPath}`);
                       toast({
                         title: "Renaming failed",
-                        description: `Zentrox failed at renaming ${renameFile} to ${newPath}.`,
+                        description: `Zentrox failed at renaming ${forRename} to ${newPath}.`,
                       });
                     }
                   });
@@ -278,15 +297,87 @@ export default function FileView({ className = "" }) {
         </DialogContent>
       </Dialog>
       <Toaster />
-	  <PathViewer onValueChange={(e) => {
-		  setCurrentPath(e);
-		  fetchFiles(e);
-	  }} home="/home/" value={currentPath} />
+      <PathViewer
+        onValueChange={(e) => {
+          setCurrentPath(e);
+          fetchFiles(e);
+        }}
+        home="/home/"
+        value={currentPath}
+      >
+        <span title="Upload new file">
+          <Dialog>
+            <DialogTrigger>
+              <UploadIcon className="w-4 h-4 transition-all cursor-pointer opacity-75 hover:opacity-100 inline-block align-middle mr-2" />
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Upload new file</DialogTitle>
+                <DialogDescription>
+                  Upload a file with up to 8GB file size to your device.
+                </DialogDescription>
+              </DialogHeader>
+              <p>
+                <input
+                  className="hidden"
+                  type="file"
+                  ref={uploadFileInput}
+                  onChange={(e) => {
+                    let filename = e.target.files[0].name;
+                    setUploadFileName(filename);
+                  }}
+                />
+                <Button onClick={() => uploadFileInput.current.click()}>
+                  Select file
+                </Button>{" "}
+                {uploadFileName || "No selected file"}
+              </p>
+              <DialogFooter>
+                <DialogClose asChild>
+                  <Button variant="outline">Cancel</Button>
+                </DialogClose>
+                <DialogClose asChild>
+                  <Button
+                    onClick={() => {
+                      if (uploadFileName == null) return;
+                      var fileForSubmit = uploadFileInput.current.files[0];
+                      uploadFileInput.current.value = null;
+                      var formData = new FormData();
+                      formData.append("file", fileForSubmit);
+                      formData.append("path", currentPath);
+                      notify(`Started upload of ${fileForSubmit.name}`);
+                      fetch(fetchURLPrefix + "/upload/file", {
+                        method: "POST",
+                        body: formData,
+                      }).then((e) => {
+                        if (e.ok) {
+                          notify(`Finished upload file ${fileForSubmit.name}`);
+                          fetchFiles(currentPath);
+                        } else {
+                          e.text().then((t) => {
+                            notify(
+                              `Failed to upload file ${fileForSubmit.name}: ${t}`,
+                            );
+                            fetchFiles(currentPath);
+                          });
+                        }
+                        setUploadFileName(null);
+                      });
+                    }}
+                  >
+                    Upload
+                  </Button>
+                </DialogClose>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </span>
+      </PathViewer>
       <div
         className="rounded-xl m-2 overflow-hidden overflow-y-scroll border-2 border-neutral-800"
-	    style={{
-			maxHeight: "calc(100vh - 200px)"
-		}}
+        style={{
+          maxHeight: "calc(100vh - 200px)",
+        }}
       >
         {entries.map((entry, index) => {
           if (entry[1] === "d") {
@@ -314,7 +405,12 @@ export default function FileView({ className = "" }) {
               case "html":
               case "txt":
                 var icon = (
-                  <FileText className={iconViewClassName + " text-blue-500"} />
+                  <TextIcon className={iconViewClassName + " text-blue-500"} />
+                );
+                break;
+              case "pdf":
+                var icon = (
+                  <TextIcon className={iconViewClassName + " text-blue-500"} />
                 );
                 break;
               case "wav":
@@ -322,12 +418,16 @@ export default function FileView({ className = "" }) {
               case "m4a":
               case "aiv":
               case "flac":
+              case "opus":
+              case "webm":
                 var icon = (
                   <Music className={iconViewClassName + " text-pink-500"} />
                 );
                 break;
               case "mp4":
               case "avi":
+              case "mkv":
+              case "webv":
                 var icon = (
                   <VideoIcon className={iconViewClassName + " text-red-500"} />
                 );
@@ -352,6 +452,8 @@ export default function FileView({ className = "" }) {
               case "exe":
               case "elf":
               case "dll":
+              case "ini":
+              case "cnf":
                 var icon = (
                   <BracesIcon
                     className={iconViewClassName + " text-green-500"}
@@ -365,11 +467,19 @@ export default function FileView({ className = "" }) {
                 );
                 break;
               default:
-                var icon = (
-                  <FileIcon
-                    className={iconViewClassName + " text-neutral-100"}
-                  />
-                );
+                if (entry[0].split(".")[0] == "") {
+                  var icon = (
+                    <BracketsIcon
+                      className={iconViewClassName + " text-neutral-100"}
+                    />
+                  );
+                } else {
+                  var icon = (
+                    <FileIcon
+                      className={iconViewClassName + " text-neutral-100"}
+                    />
+                  );
+                }
             }
           } else if (entry[1] === "a") {
             var icon = (
@@ -381,7 +491,7 @@ export default function FileView({ className = "" }) {
 
           if (entry[1] === "f") {
             return (
-              <ContextMenu key={index} modal={false}>
+              <ContextMenu key={"file" + index} modal={false}>
                 <ContextMenuTrigger>
                   <span
                     id={index}
@@ -435,7 +545,7 @@ export default function FileView({ className = "" }) {
             );
           } else {
             return (
-              <ContextMenu modal={false}>
+              <ContextMenu key={"folder" + index} modal={false}>
                 <ContextMenuTrigger>
                   <span
                     id={index}
@@ -469,9 +579,9 @@ export default function FileView({ className = "" }) {
       </div>
       {entries.length === 0 ? (
         <>
-          <b className="text-white/40 block w-full text-center">
+          <span className="block w-full text-center">
             No files or folders in <br /> {currentPath}
-          </b>
+          </span>
         </>
       ) : (
         <></>
