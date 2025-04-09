@@ -11,7 +11,6 @@ use actix_web::{
     HttpServer,
 };
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::net::IpAddr;
 use std::str::FromStr;
 use std::time::Duration;
@@ -22,12 +21,12 @@ use std::{
     io::{BufReader, Read, Seek, SeekFrom},
     path::{self, PathBuf},
     sync::{Arc, Mutex},
-    time::{SystemTime, UNIX_EPOCH},
+    time::UNIX_EPOCH,
 };
 use systemstat::{Platform, System};
 use uuid::Uuid;
 extern crate inflector;
-use actix_governor::{self, Governor, GovernorConfig, GovernorConfigBuilder};
+use actix_governor::{self, Governor, GovernorConfigBuilder};
 use database::InsertValue;
 use inflector::Inflector;
 
