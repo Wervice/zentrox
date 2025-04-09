@@ -14,6 +14,7 @@ export default function CalendarButton({
   onValueChange = (_) => {},
   className,
   confirmMode = false,
+  variant,
 }) {
   var calendarModalRef = useRef();
   var calendarButtonRef = useRef();
@@ -87,7 +88,6 @@ export default function CalendarButton({
                 if (date.getFullYear() > 0) {
                   date.setFullYear(date.getFullYear() - 1);
                 }
-                onValueChange(date.getTime());
                 setCurrentSelectedTime(date.getTime());
               }}
               className={skipIconClass}
@@ -221,9 +221,9 @@ export default function CalendarButton({
                 className="mb-2"
                 onClick={() => {
                   onValueChange(currentSelectedTime);
-				  setCalendarModalStyle({
-					  display: "none"
-				  })
+                  setCalendarModalStyle({
+                    display: "none",
+                  });
                 }}
               >
                 Confirm
@@ -269,13 +269,16 @@ export default function CalendarButton({
         left: rect.left - 35 + "px",
         display: "block",
         width: "fit-content",
-        opacity: "0",
-        transition: "all 0.2s ease-out",
+        animationName: "fade-out",
+        animationDuration: "100ms",
       });
       setTimeout(() => {
-        setCalendarModalStyle({ display: "none" });
+        setCalendarModalStyle({
+          top: rect.bottom + window.scrollY + "px",
+          display: "none",
+        });
         setCalendarModalVisible(false);
-      }, 200);
+      }, 100);
     }
   };
 
@@ -284,7 +287,7 @@ export default function CalendarButton({
       <Calendar />
       <Button
         className={"relative border-neutral-600 align-middle " + className}
-        variant="outline"
+        variant={variant}
         ref={calendarButtonRef}
         onClick={toggleCalendar}
       >
