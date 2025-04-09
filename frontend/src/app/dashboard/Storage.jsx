@@ -201,7 +201,7 @@ function Storage() {
             </b>
             {na(driveInformation.drives.mountpoint)}
             <b className="block mb-1">
-              <PieChartIcon className="w-4 h-4 inline" /> Ussage (Capacity)
+              <PieChartIcon className="w-4 h-4 inline" /> Usage (Capacity)
             </b>
             {na(driveCapacity)}
           </DialogDescription>
