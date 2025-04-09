@@ -12,11 +12,6 @@ import {
   DownloadIcon,
   DatabaseIcon,
   SparklesIcon,
-  DoorOpenIcon,
-  CheckCircle,
-  XCircle,
-  XCircleIcon,
-  CheckIcon,
 } from "lucide-react";
 import { useEffect, useState, useRef } from "react";
 import "./table.css";
@@ -34,8 +29,11 @@ import {
   DialogClose,
 } from "@/components/ui/dialog";
 import Page from "@/components/ui/PageWrapper";
-import { useToast } from "@/components/ui/use-toast";
 import fetchURLPrefix from "@/lib/fetchPrefix";
+import useNotification from "@/lib/notificationState";
+import DateWrapper from "@/components/ui/Date";
+import secondsToFormat from "@/lib/dates";
+import { Details } from "@/components/ui/Details";
 
 function startTask(adress, options = {}, interval = 500) {
   return new Promise((resolve, reject) => {
@@ -69,7 +67,7 @@ function startTask(adress, options = {}, interval = 500) {
 }
 
 function Packages() {
-  const { toast } = useToast();
+  const { deleteNotification, notify, notifications } = useNotification();
   const [packagePopUpConfig, setPackagePopUp] = useState({
     visible: false,
     mode: "",
@@ -115,10 +113,7 @@ function Packages() {
           setLastDatabaseUpdate(json.lastDatabaseUpdate);
         });
       } else {
-        toast({
-          title: "Package Database Error",
-          message: "Zentrox failed to retrieve a list of packages",
-        });
+        notify("Failed to retrieve list of packages");
         setVisibility(false);
       }
     });
@@ -133,10 +128,7 @@ function Packages() {
           setAutoRemovePackages(json["packages"]);
         });
       } else {
-        toast({
-          title: "Package Database Error",
-          message: "Zentrox failed to retrieve a list of packages",
-        });
+        notify("Failed to retrieve list of packages");
         setVisibility(false);
       }
     });
@@ -166,29 +158,12 @@ function Packages() {
         delete updatedTasks[packageName];
         setActiveTasks(updatedTasks);
 
-        toast({
-          title: (
-            <>
-              <CheckIcon className="inline-block mt-[-4px]" /> Installed package
-            </>
-          ),
-          description: packageName + " has been successfully installed",
-          duration: 60000,
-        });
+        notify("Installed " + packageName + " successfully");
       })
       .catch(() => {
         closePackagePopUp();
         setActiveTasks({ ...activeTasks, [packageName]: "failed" });
-
-        toast({
-          title: (
-            <>
-              <XCircleIcon className="inline-block mt-[-4px]" /> Failed to
-              install package
-            </>
-          ),
-          description: "Zentrox failed to install " + packageName,
-        });
+        notify("Failed to install " + packageName);
       });
   }
 
@@ -221,29 +196,13 @@ function Packages() {
         delete updatedTasks[packageName];
         setActiveTasks(updatedTasks);
 
-        toast({
-          title: (
-            <>
-              <CheckIcon className="inline-block mt-[-4px]" /> Removed package
-            </>
-          ),
-          description: packageName + " has been successfully removed",
-          duration: 60000,
-        });
+        notify("Removed " + packageName + " successfully");
       })
       .catch(() => {
         closePackagePopUp();
         setActiveTasks({ ...activeTasks, [packageName]: "failed" });
 
-        toast({
-          title: (
-            <>
-              <XCircleIcon className="inline-block mt-[-4px]" /> Failed to
-              remove package
-            </>
-          ),
-          description: "Zentrox failed to remove " + packageName,
-        });
+        notify("Failed to remove " + packageName);
       });
   }
 
@@ -270,29 +229,13 @@ function Packages() {
         delete updatedTasks[packageName];
         setActiveTasks(updatedTasks);
 
-        toast({
-          title: (
-            <>
-              <CheckIcon className="inline-block mt-[-4px]" /> Updated package
-            </>
-          ),
-          description: packageName + " has been successfully updated",
-          duration: 60000,
-        });
+        notify("Updated package " + packageName);
       })
       .catch(() => {
         closePackagePopUp();
         setActiveTasks({ ...activeTasks, [packageName]: "failed" });
 
-        toast({
-          title: (
-            <>
-              <XCircleIcon className="inline-block mt-[-4px]" /> Failed to
-              update package
-            </>
-          ),
-          description: "Zentrox failed to update " + packageName,
-        });
+        notify("Failed to update " + packageName);
       });
   }
 
@@ -379,7 +322,7 @@ function Packages() {
     );
   }
 
-  function AutoRemoveButon() {
+  function AutoRemoveButton() {
     const [clearAutoRemoveButtonState, setClearAutoRemoveButtonState] =
       useState("default");
     var sudoPasswordInput = useRef();
@@ -389,7 +332,7 @@ function Packages() {
           <DialogTrigger asChild>
             <Button variant="destructive">
               <TrashIcon className="h-4 w-4 inline-block mr-2" /> Remove
-              packages
+              orphaned packages
             </Button>
           </DialogTrigger>
           <DialogContent>
@@ -431,29 +374,11 @@ function Packages() {
                       .then(() => {
                         setAutoRemovePackages([]);
                         setClearAutoRemoveButtonState("default");
-                        toast({
-                          title: (
-                            <>
-                              <CheckCircle className="inline-block mt-[-4px]" />{" "}
-                              Package removal successful
-                            </>
-                          ),
-                          description:
-                            "Orphaned packages have successfully been removed",
-                        });
+                        notify("Removed orphaned packages");
                       })
                       .catch(() => {
                         setClearAutoRemoveButtonState("default");
-                        toast({
-                          title: (
-                            <>
-                              <XCircleIcon className="inline-block mt-[-4px]" />{" "}
-                              Package removal failed
-                            </>
-                          ),
-                          description:
-                            "Zentrox failed to remove orphaned packages from your system.",
-                        });
+                        notify("Failed to remove orphaned packages");
                       });
                   }}
                 >
@@ -517,12 +442,16 @@ function Packages() {
                       }),
                     })
                       .then(() => {
+                        notify("Full package update succesful");
                         fetch(fetchURLPrefix + "/api/packageDatabase/false", {
                           headers: {
                             "Content-Type": "application/json",
                           },
                         }).then((res) => {
                           if (res.ok) {
+                            notify(
+                              "Updated package statistics after full package update",
+                            );
                             res.json().then((json) => {
                               setInstalledPackages(
                                 Array.from(json["packages"]),
@@ -534,16 +463,7 @@ function Packages() {
                               setVisibility(true);
                             });
                           } else {
-                            toast({
-                              title: (
-                                <>
-                                  <XCircleIcon className="inline-block mt-[-4px]" />{" "}
-                                  Package database error
-                                </>
-                              ),
-                              message:
-                                "Zentrox failed to retrieve a list of packages",
-                            });
+                            notify("Failed to fetch database");
                             setVisibility(false);
                           }
                         });
@@ -558,31 +478,13 @@ function Packages() {
                               setAutoRemovePackages(json["packages"]);
                             });
                           } else {
-                            toast({
-                              title: (
-                                <>
-                                  <XCircleIcon className="inline-block mt-[-4px]" />{" "}
-                                  Package database error
-                                </>
-                              ),
-                              message:
-                                "Zentrox failed to retrieve a list of packages",
-                            });
+                            notify("Failed to retrieve list of packages");
                             setVisibility(false);
                           }
                         });
                       })
                       .catch(() => {
-                        toast({
-                          title: (
-                            <>
-                              <XCircleIcon className="inline-block mt-[-4px]" />{" "}
-                              Full package update failed
-                            </>
-                          ),
-                          description:
-                            "Zentrox was unable to update all installed packages.",
-                        });
+                        notify("Failed to retrieve list of packages");
                       });
                   }}
                 >
@@ -771,12 +673,13 @@ function Packages() {
         </div>
         <br />
         <div className={packageSearchValue === "" ? "mb-2" : "hidden"}>
-          <details>
-            <summary className="mb-2 cursor-pointer">
-              <strong>
-                <RefreshCcw className="w-6 h-6 inline-block" /> Updates
-              </strong>
-            </summary>
+          <Details
+            title={
+              <>
+                <RefreshCcw className="h-5 inline-block mr-1" /> Updates
+              </>
+            }
+          >
             {updates.length > 0 ? (
               <small className="mb-1 block">
                 {updates.length} package{updates.length !== 1 ? "s" : ""} can be
@@ -788,11 +691,10 @@ function Packages() {
 
             <span className="block mb-2">
               Last successful database update:{" "}
-              {(function () {
-				if (lastDatabaseUpdate === 0) return "Never"
-                let d = new Date(lastDatabaseUpdate * 1000);
-                return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()} ${("0" + (d.getHours() % 12)).slice(-2)}:${("0" + d.getMinutes()).slice(-2)} ${d.getHours() >= 12 ? "PM" : "AM"}`;
-              })()}
+              {secondsToFormat(
+                lastDatabaseUpdate,
+                localStorage.getItem("dateFormat") || "8601",
+              )}
             </span>
             <Dialog>
               <DialogTrigger asChild>
@@ -862,16 +764,7 @@ function Packages() {
                           },
                         )
                           .then(() => {
-                            toast({
-                              title: (
-                                <>
-                                  <CheckCircle className="inline-block mt-[-4px]" />{" "}
-                                  Database update successful
-                                </>
-                              ),
-                              description:
-                                "The package database has been successfully updated",
-                            });
+                            notify("Package database update successful");
                             setDatabaseUpdateButton("default");
                             fetch(
                               fetchURLPrefix + "/api/packageDatabase/false",
@@ -900,16 +793,7 @@ function Packages() {
                           })
                           .catch(() => {
                             setDatabaseUpdateButton("failed");
-                            toast({
-                              title: (
-                                <>
-                                  <XCircleIcon className="inline-block mt-[-4px]" />{" "}
-                                  Database update failed
-                                </>
-                              ),
-                              description:
-                                "Zentrox was unable to update your package managers database",
-                            });
+                            notify("Failed to update package database");
                           });
                       }}
                     >
@@ -939,20 +823,20 @@ function Packages() {
                 ></PackageBox>
               );
             })}
-          </details>
+          </Details>
         </div>
-        <details
+        <Details
           className={
             autoRemovePackages.length > 0 && packageSearchValue === ""
               ? ""
               : "hidden"
           }
+          title={
+            <>
+              <TrashIcon className="h-5 inline-block mr-1" /> Orphaned packages
+            </>
+          }
         >
-          <summary className="mb-2 cursor-pointer">
-            <strong>
-              <TrashIcon className="w-6 h-6 inline-block" /> Orphaned packages
-            </strong>
-          </summary>
           <small className="mb-1 block">
             {autoRemovePackages.length} package
             {autoRemovePackages.length !== 1
@@ -960,14 +844,14 @@ function Packages() {
               : " may not be"}{" "}
             required by your system anymore.
           </small>
-          <AutoRemoveButon />
+          <AutoRemoveButton />
           <br />
           {autoRemovePackages.map((pkg, i) => {
             return (
               <PackageBox packageName={pkg} task="remove" key={i}></PackageBox>
             );
           })}
-        </details>
+        </Details>
         {PackageView}
       </Page>
     );
