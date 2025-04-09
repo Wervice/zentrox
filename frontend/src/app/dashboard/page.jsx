@@ -7,6 +7,7 @@ import "./scroll.css";
 import { Input } from "@/components/ui/input";
 import { Toaster } from "@/components/ui/toaster";
 import { toast } from "@/components/ui/use-toast";
+import useNotification from "@/lib/notificationState";
 import {
   Dialog,
   DialogContent,
@@ -44,12 +45,28 @@ import Firewall from "./Firewall";
 import Files from "./Files";
 import Storage from "./Storage";
 import Vault from "./Vault";
-import Sharing from "./Sharing";
+import Server from "./Server";
 import Logs from "./Logs";
 import Media from "./Media";
+import Networking from "./Networking";
 import { Checkbox } from "@/components/ui/checkbox";
-
-// const fetchURLPrefix = "";
+import {
+  BellDotIcon,
+  BellIcon,
+  BrickWall,
+  ChartBar,
+  CircleDot,
+  DiscIcon,
+  FileIcon,
+  HardDriveIcon,
+  LockIcon,
+  LogsIcon,
+  NetworkIcon,
+  PackageIcon,
+  ServerIcon,
+  XIcon,
+} from "lucide-react";
+import InfoButton from "@/components/ui/InfoButton";
 const fetchURLPrefix = require("@/lib/fetchPrefix");
 
 if (fetchURLPrefix.length > 0) {
@@ -60,14 +77,20 @@ if (fetchURLPrefix.length > 0) {
 
 function TopBar({ children }) {
   return (
-    <nav className="bg-transparent text-neutral-100 p-3 border-neutral-900 border-b font-semibold text-xl animate-fadein duration-300">
+    <nav className="bg-transparent text-neutral-100 p-3 border-neutral-900 border-b font-semibold text-xl flex items-center animate-fadein duration-300">
       {children}
     </nav>
   );
 }
 
-function TabButton({ onClick, isDefault, isActive, children }) {
+function TabButton({ onClick, isDefault, isActive, children, icon }) {
   const [isOnloadDefault, setOnloadDefault] = useState(isDefault);
+  const [smallTopBar, setSmallTopBar] = useState(false);
+
+  useEffect(() => {
+    setSmallTopBar(window.innerWidth < 1000);
+  }, []);
+
   if (isOnloadDefault || isActive) {
     var style =
       "mr-2 ml-2 text-lg hover:bg-neutral-900 text-white bg-neutral-900 hover:bg-neutral-800 hover:text-neutral-100";
@@ -79,16 +102,29 @@ function TabButton({ onClick, isDefault, isActive, children }) {
     onClick();
     setOnloadDefault(false);
   }
-  return (
-    <Button
-      className={style}
-      onClick={() => {
-        onClick();
-      }}
-    >
-      {children}
-    </Button>
-  );
+  if (!smallTopBar) {
+    return (
+      <Button
+        className={style}
+        onClick={() => {
+          onClick();
+        }}
+      >
+        {children}
+      </Button>
+    );
+  } else {
+    return (
+      <Button
+        className={style}
+        onClick={() => {
+          onClick();
+        }}
+      >
+        {icon}
+      </Button>
+    );
+  }
 }
 
 function Account() {
@@ -100,6 +136,7 @@ function Account() {
   const [reloadTrigger, setReloadTrigger] = useState(0);
   const [canUpdateCredentials, setCanUpdateCredentials] = useState(false);
   const [otpEnabled, setOtpEnabled] = useState(false);
+  const { deleteNotification, notify, notifications } = useNotification();
 
   const sudoPasswordInput = useRef(null);
   const accountUsernameInput = useRef(null);
@@ -108,9 +145,8 @@ function Account() {
 
   useEffect(() => {
     if (account.username == "") {
-      fetch(fetchURLPrefix + "/login/useOtp", { method: "POST" }).then((r) => {
+      fetch(fetchURLPrefix + "/api/useOtp", { method: "POST" }).then((r) => {
         if (r.ok) {
-          console.log(r.ok);
           r.json().then((j) => {
             setOtpEnabled(j.used);
           });
@@ -170,11 +206,13 @@ function Account() {
       body: JSON.stringify({ username, password }),
     }).then((res) => {
       if (res.ok) {
+        notify("Account details updated");
         toast({
           title: "Account details updated",
           description: "Your account details have been updated",
         });
       } else {
+        notify("Failed to updated account details");
         toast({
           title: "Failed to update account details",
           description: "Your account details have not been updated",
@@ -190,6 +228,7 @@ function Account() {
       body: JSON.stringify({ sudoPassword: sudoPasswordInput.current?.value }),
     }).then((res) => {
       if (!res.ok) {
+        notify("Power off failed");
         toast({ title: "Power off failed" });
       }
     });
@@ -326,8 +365,9 @@ function Account() {
               Two-factor authentication (2FA) uses a One-Time-Pad to generate a
               unique code every 30 seconds. To use 2FA, you need to securely
               store a code in an authenticator application. When you disable
-              2FA, Zentrox will automatically remove your current OTP token and generate
-              a new one when you re-enable OTP. You can not view your token after enabling OTP anymore.
+              2FA, Zentrox will automatically remove your current OTP token and
+              generate a new one when you re-enable OTP. You can not view your
+              token after enabling OTP anymore.
             </small>
             <input
               type="file"
@@ -393,8 +433,8 @@ function Account() {
               <Input
                 type="password"
                 placeholder="Sudo password"
-				className="w-full"
-				ref={sudoPasswordInput}
+                className="w-full"
+                ref={sudoPasswordInput}
               />
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -409,7 +449,7 @@ function Account() {
 
       <DropdownMenu modal={false}>
         <DropdownMenuTrigger asChild>
-          <Avatar className="block float-right cursor-pointer">
+          <Avatar className="block float-right cursor-pointer ml-2">
             <AvatarImage
               src={`${fetchURLPrefix}/api/profilePicture?reload=${reloadTrigger}`}
             />
@@ -442,28 +482,152 @@ function Account() {
   );
 }
 
+function NotificationBell() {
+  const {
+    deleteNotification,
+    notify,
+    notifications,
+    unreadNotifications,
+    readNotifications,
+    setSysNotification,
+  } = useNotification();
+  const [expanded, setExpanded] = useState(false);
+  const [closing, setClosing] = useState(false);
+
+  function openList() {
+    setExpanded(true);
+  }
+
+  function closeList() {
+    setClosing(true);
+    setTimeout(() => {
+      setExpanded(false);
+      setClosing(false);
+    }, 150 - 20);
+  }
+
+  const SuggestedIcon = unreadNotifications ? BellDotIcon : BellIcon;
+
+  return (
+    <>
+      <SuggestedIcon
+        className={
+          "inline-block ml-auto mr-2 h-4 w-4 cursor-pointer" +
+          (unreadNotifications ? " text-orange-500" : "")
+        }
+        onClick={() => {
+          readNotifications();
+          if (expanded) {
+            closeList();
+          } else {
+            openList();
+          }
+        }}
+      />
+      <span
+        className={
+          "w-screen h-screen top-0 left-0 fixed z-10" +
+          (expanded ? " block" : " hidden")
+        }
+        onClick={closeList}
+        onContextMenu={closeList}
+      ></span>
+      <span
+        className={
+          "w-64 h-full fixed top-[76px] right-0 bg-zinc-950 border-l-zinc-900 border-l z-20 duration-150 p-2 max-h-full overflow-scroll " +
+          (!closing
+            ? "fade-in-0 animate-in"
+            : "fade-out-0 animate-out right-[-20px]") +
+          (expanded ? " block" : " hidden")
+        }
+      >
+        <strong className="flex items-center w-full">
+          <BellIcon className="inline-block mr-1 ml-1 h-5 w-5" />
+          Notifications
+        </strong>
+        <span className="flex items-center h-fit ml-1 font-normal">
+          <Checkbox
+            className="mr-1"
+            defaultChecked={
+              typeof window !== "undefined"
+                ? localStorage.getItem("enableSysNotification") === "true"
+                : false
+            }
+            onCheckedChange={(e) => {
+              if (e) {
+                Notification.requestPermission();
+              }
+              setSysNotification(e);
+            }}
+          />{" "}
+          <label>
+            Push notifications{" "}
+            <InfoButton
+              title={"Push notifications"}
+              info={
+                <>
+                  Enable push notifications to get notifications when this tab
+                  is not active or your browser window is minimized. Zentrox
+                  will only send copies of the notifications that are written
+                  into this notification bar to your push notifications. You can
+                  disable this feature at any time.
+                </>
+              }
+            />
+          </label>
+        </span>
+        {notifications.length === 0 && (
+          <span className="opacity-50">No notifications</span>
+        )}
+        {notifications.map((e, k) => {
+          const deleteE = () => deleteNotification(e[1]);
+          return (
+            <span
+              key={"notbell" + k}
+              className="relative block w-full p-2 pt-5 mb-2 h-fit whitespace-pre-wrap overflow-ellipsis overflow-hidden rounded border-zinc-900 border hover:border-zinc-800 select-none cursor-pointer duration-200 transition-all text-sm font-normal"
+            >
+              {e[0]}
+              <XIcon
+                className="absolute top-1 right-1 h-4 w-4 opacity-75 hover:opacity-100 duration-150 transition-all cursor-pointer"
+                onClick={deleteE}
+              />
+            </span>
+          );
+        })}
+      </span>
+    </>
+  );
+}
+
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState("Overview");
+  const [smallTopBar, setSmallTopBar] = useState(false);
+
+  useEffect(() => {
+    setSmallTopBar(window.innerWidth < 1000);
+  }, []);
 
   function PageToShow() {
     if (activeTab == "Overview") {
-      return Overview();
+      return <Overview />;
     } else if (activeTab == "Packages") {
-      return Packages();
+      return <Packages />;
     } else if (activeTab == "Firewall") {
-      return Firewall();
+      return <Firewall />;
     } else if (activeTab == "Files") {
-      return Files();
+      return <Files />;
     } else if (activeTab == "Storage") {
-      return Storage();
+      return <Storage />;
     } else if (activeTab == "Vault") {
-      return Vault();
-    } else if (activeTab == "Sharing") {
-      return Sharing();
+      return <Vault />;
+    } else if (activeTab == "Server") {
+      return <Server />;
     } else if (activeTab == "Logs") {
-      return Logs();
+      return <Logs />;
     } else if (activeTab == "Media") {
-      return Media();
+      return <Media />;
+    } else if (activeTab == "Networking") {
+      return <Networking />;
     }
   }
 
@@ -472,13 +636,17 @@ export default function Dashboard() {
       <Toaster />
       <TopBar>
         <span
-          className="p-2 pl-4 pr-4 border border-neutral-700 cursor-pointer rounded transition-all content-center inline-block text-lg font-normal"
+          className={
+            !smallTopBar
+              ? "p-2 pl-4 pr-4 border border-neutral-700 cursor-pointer rounded transition-all content-center inline-block text-lg font-normal"
+              : "hidden"
+          }
           onClick={() => {
             window.open("https://github.com/wervice/zentrox");
           }}
         >
           <img
-            src="zentrox_dark.svg"
+            src="zentrox_dark_emblem.svg"
             className="inline-block pb-0.5 w-5 h-5"
             alt="Zentrox Logo"
           />{" "}
@@ -490,6 +658,7 @@ export default function Dashboard() {
           }}
           isDefault={true}
           isActive={activeTab == "Overview"}
+          icon={<ChartBar />}
         >
           Overview
         </TabButton>
@@ -499,8 +668,19 @@ export default function Dashboard() {
           }}
           isDefault={false}
           isActive={activeTab == "Packages"}
+          icon={<PackageIcon />}
         >
           Packages
+        </TabButton>
+        <TabButton
+          onClick={() => {
+            setActiveTab("Logs");
+          }}
+          isDefault={false}
+          isActive={activeTab == "Logs"}
+          icon={<LogsIcon />}
+        >
+          Logs
         </TabButton>
         <TabButton
           onClick={() => {
@@ -508,8 +688,19 @@ export default function Dashboard() {
           }}
           isDefault={false}
           isActive={activeTab == "Firewall"}
+          icon={<BrickWall />}
         >
           Firewall
+        </TabButton>
+        <TabButton
+          onClick={() => {
+            setActiveTab("Networking");
+          }}
+          isDefault={false}
+          isActive={activeTab == "Networking"}
+          icon={<NetworkIcon />}
+        >
+          Networking
         </TabButton>
         <TabButton
           onClick={() => {
@@ -517,6 +708,7 @@ export default function Dashboard() {
           }}
           isDefault={false}
           isActive={activeTab == "Files"}
+          icon={<FileIcon />}
         >
           Files
         </TabButton>
@@ -526,6 +718,7 @@ export default function Dashboard() {
           }}
           isDefault={false}
           isActive={activeTab == "Storage"}
+          icon={<HardDriveIcon />}
         >
           Storage
         </TabButton>
@@ -535,26 +728,19 @@ export default function Dashboard() {
           }}
           isDefault={false}
           isActive={activeTab == "Vault"}
+          icon={<LockIcon />}
         >
           Vault
         </TabButton>
         <TabButton
           onClick={() => {
-            setActiveTab("Sharing");
+            setActiveTab("Server");
           }}
           isDefault={false}
-          isActive={activeTab == "Sharing"}
+          isActive={activeTab == "Server"}
+          icon={<ServerIcon />}
         >
-          Sharing
-        </TabButton>
-        <TabButton
-          onClick={() => {
-            setActiveTab("Logs");
-          }}
-          isDefault={false}
-          isActive={activeTab == "Logs"}
-        >
-          Logs
+          Server
         </TabButton>
         <TabButton
           onClick={() => {
@@ -562,9 +748,11 @@ export default function Dashboard() {
           }}
           isDefault={false}
           isActive={activeTab == "Media"}
+          icon={<DiscIcon />}
         >
           Media
         </TabButton>
+        <NotificationBell />
         <Account />
       </TopBar>
       <PageToShow />
