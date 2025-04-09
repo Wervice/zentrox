@@ -40,7 +40,7 @@ function DataTable({
         variant="secondary"
         className="mb-1 mt-1"
         onClick={() => {
-          onEntriesChange(entries.concat([["Path", "Name", true]]));
+          onEntriesChange(entries.concat([["", "", true]]));
         }}
       >
         Add source
