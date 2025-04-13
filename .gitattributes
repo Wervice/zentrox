@@ -15,3 +15,4 @@ backend/static/* linguist-generated
 backend/target/* linguist-generated
 frontend/* linguist-generated
 frontend/src/components/ linguist-generated
+page/ linguist-generated
