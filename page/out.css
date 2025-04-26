@@ -204,9 +204,6 @@
   .ml-2 {
     margin-left: calc(var(--spacing) * 2);
   }
-  .ml-4 {
-    margin-left: calc(var(--spacing) * 4);
-  }
   .block {
     display: block;
   }
@@ -215,12 +212,6 @@
   }
   .hidden {
     display: none;
-  }
-  .w-1\/2 {
-    width: calc(1/2 * 100%);
-  }
-  .w-1\/4 {
-    width: calc(1/4 * 100%);
   }
   .w-3\/4 {
     width: calc(3/4 * 100%);
@@ -246,18 +237,11 @@
   .list-disc {
     list-style-type: disc;
   }
-  .items-center {
-    align-items: center;
-  }
   .justify-center {
     justify-content: center;
   }
   .rounded-lg {
     border-radius: var(--radius-lg);
-  }
-  .border-b {
-    border-bottom-style: var(--tw-border-style);
-    border-bottom-width: 1px;
   }
   .border-b-2 {
     border-bottom-style: var(--tw-border-style);
@@ -266,20 +250,11 @@
   .border-neutral-600 {
     border-color: var(--color-neutral-600);
   }
-  .border-b-neutral-200 {
-    border-bottom-color: var(--color-neutral-200);
-  }
-  .border-b-neutral-600 {
-    border-bottom-color: var(--color-neutral-600);
-  }
   .border-b-neutral-800 {
     border-bottom-color: var(--color-neutral-800);
   }
   .bg-neutral-950 {
     background-color: var(--color-neutral-950);
-  }
-  .bg-red-500 {
-    background-color: var(--color-red-500);
   }
   .bg-white {
     background-color: var(--color-white);
@@ -302,9 +277,6 @@
       background-color: color-mix(in oklab, var(--color-white) 20%, transparent);
     }
   }
-  .p-1 {
-    padding: calc(var(--spacing) * 1);
-  }
   .p-2 {
     padding: calc(var(--spacing) * 2);
   }
@@ -314,23 +286,8 @@
   .p-4 {
     padding: calc(var(--spacing) * 4);
   }
-  .pl-2 {
-    padding-left: calc(var(--spacing) * 2);
-  }
-  .pl-5 {
-    padding-left: calc(var(--spacing) * 5);
-  }
   .pl-6 {
     padding-left: calc(var(--spacing) * 6);
-  }
-  .pl-7 {
-    padding-left: calc(var(--spacing) * 7);
-  }
-  .pl-8 {
-    padding-left: calc(var(--spacing) * 8);
-  }
-  .pl-10 {
-    padding-left: calc(var(--spacing) * 10);
   }
   .text-center {
     text-align: center;
@@ -353,10 +310,6 @@
     font-size: var(--text-5xl);
     line-height: var(--tw-leading, var(--text-5xl--line-height));
   }
-  .text-lg {
-    font-size: var(--text-lg);
-    line-height: var(--tw-leading, var(--text-lg--line-height));
-  }
   .text-sm {
     font-size: var(--text-sm);
     line-height: var(--tw-leading, var(--text-sm--line-height));
@@ -373,33 +326,17 @@
     --tw-font-weight: var(--font-weight-medium);
     font-weight: var(--font-weight-medium);
   }
-  .font-semibold {
-    --tw-font-weight: var(--font-weight-semibold);
-    font-weight: var(--font-weight-semibold);
-  }
   .text-black {
     color: var(--color-black);
   }
   .text-blue-500 {
     color: var(--color-blue-500);
   }
-  .text-orange-200 {
-    color: var(--color-orange-200);
-  }
   .text-orange-300 {
     color: var(--color-orange-300);
   }
-  .text-orange-400 {
-    color: var(--color-orange-400);
-  }
   .text-white {
     color: var(--color-white);
-  }
-  .text-white\/80 {
-    color: color-mix(in srgb, #fff 80%, transparent);
-    @supports (color: color-mix(in lab, red, red)) {
-      color: color-mix(in oklab, var(--color-white) 80%, transparent);
-    }
   }
   .italic {
     font-style: italic;
@@ -429,14 +366,6 @@
       }
     }
   }
-  .hover\:brightness-80 {
-    &:hover {
-      @media (hover: hover) {
-        --tw-brightness: brightness(80%);
-        filter: var(--tw-blur,) var(--tw-brightness,) var(--tw-contrast,) var(--tw-grayscale,) var(--tw-hue-rotate,) var(--tw-invert,) var(--tw-saturate,) var(--tw-sepia,) var(--tw-drop-shadow,);
-      }
-    }
-  }
   .hover\:brightness-90 {
     &:hover {
       @media (hover: hover) {
@@ -455,11 +384,6 @@
       display: inline;
     }
   }
-  .md\:inline-block {
-    @media (width >= 48rem) {
-      display: inline-block;
-    }
-  }
   .md\:w-3\/4 {
     @media (width >= 48rem) {
       width: calc(3/4 * 100%);
@@ -470,29 +394,19 @@
       width: calc(var(--spacing) * 60);
     }
   }
-  .md\:w-\[50vw\] {
-    @media (width >= 48rem) {
-      width: 50vw;
-    }
-  }
-  .md\:w-full {
-    @media (width >= 48rem) {
-      width: 100%;
-    }
-  }
 }
 @font-face {
   font-family: "Geist";
-  src: url("/page/Geist-VariableFont_wght.ttf");
+  src: url("Geist-VariableFont_wght.ttf");
 }
 @font-face {
   font-family: "Gelasio";
-  src: url("/page/Gelasio-VariableFont_wght.ttf");
+  src: url("Gelasio-VariableFont_wght.ttf");
   font-style: normal;
 }
 @font-face {
   font-family: "Gelasio";
-  src: url("/page/Gelasio-Italic-VariableFont_wght.ttf");
+  src: url("Gelasio-Italic-VariableFont_wght.ttf");
   font-style: italic;
 }
 @property --tw-rotate-x {
