@@ -1,1 +1,110 @@
-Hello
+<!doctype html>
+<html>
+  <head>
+    <title>Zentrox | A powerful home server admin tool written in Rust</title>
+    <script src="/page/script.js"></script>
+    <link rel="stylesheet" href="out.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  </head>
+  <body class="bg-neutral-950 text-white font-geist">
+    <span class="p-4 bg-white/5 block border-b-2 border-b-neutral-800">
+      <h1 class="text-center w-full text-5xl font-bold">Zentrox</h1>
+      <h2
+        class="text-center font-gelasio w-full text-2xl font-medium mt-2 opacity-75 italic"
+      >
+        Powerful open-source home server admin utility written in
+        <span class="text-orange-300">Rust</span>
+      </h2>
+      <span class="my-10 flex justify-center">
+        <img
+          src="/page/logo.svg"
+          alt="Zentrox logo"
+          class="md:w-60 w-[calc(75vw-4em)] hover:scale-110 transition duration-200"
+        />
+      </span>
+    </span>
+    <span class="flex justify-center">
+      <span class="block w-full sm:w-[50vw] p-2">
+        <h3 class="font-gelasio italic font-medium text-3xl p-2">
+          What is Zentrox?
+        </h3>
+        <hr class="ml-2 w-10 block border-neutral-600" />
+        <p class="p-2 text-xl w-3/4 mb-2">
+          Zentrox is a powerful utility to manage Linux powered home servers
+          from any device with a browser. <br />
+          It uses widespread system utilities and files to offer a wide variety
+          of tools and provides helpful insights into your machine.
+        </p>
+
+        <h3 class="font-gelasio italic font-medium text-3xl p-2">
+          What can it do?
+        </h3>
+        <hr class="ml-2 w-10 block border-neutral-600" />
+        <p class="p-2 text-xl w-3/4 mb-2">
+          A short list of some key features includes...
+        </p>
+        <ul class="list-disc text-xl pl-6 mb-2">
+          <li>View system statistics</li>
+          <li>
+            Install, update and remove packages
+            <code
+              class="hidden md:inline opacity-75 bg-white/10 p-2 rounded-lg text-sm"
+              >apt, dnf or pacman</code
+            >
+          </li>
+          <li>
+            Display system logs
+            <code
+              class="hidden md:inline opacity-75 bg-white/10 p-2 rounded-lg text-sm"
+              >journalctl</code
+            >
+          </li>
+          <li>Manage files and storage</li>
+          <li>
+            Provide networking, routing and firewall insight
+            <code
+              class="hidden md:inline opacity-75 bg-white/10 p-2 rounded-lg text-sm"
+              >ip and ufw</code
+            >
+          </li>
+        </ul>
+
+        <h3 class="font-gelasio italic font-medium text-3xl p-2">
+          Where does it run?
+        </h3>
+        <hr class="ml-2 w-10 block border-neutral-600" />
+        <p class="p-2 text-xl w-3/4 mb-2">
+        Zentrox needs a Linux based OS with GNU utilities, systemd and sudo. <br />
+        For full functionality a package manager (apt, dnf or pacman) as well as <a class="text-blue-500 underline" href="https://wiki.ubuntu.com/UncomplicatedFirewall">UFW</a> are necessary.
+        This includes, but is not limited to<sup>1</sup>:
+        </p>
+        <ul class="list-disc text-xl pl-6 mb-2">
+          <li>Raspberry OS</li>
+          <li>Debian</li>
+          <li>Ubuntu server</li>
+          <li>Arch</li>
+          <li>Fedora</li>
+        </ul>
+      <sup class="mb-2">1</sup> It may be necessary to additionally install UFW or more, depending on the OS.
+ <h3 class="font-gelasio italic font-medium text-3xl p-2">
+          How secure is it?
+        </h3>
+        <hr class="ml-2 w-10 block border-neutral-600" />
+        <p class="p-2 text-xl w-3/4 mb-2">
+          Zentrox always asks for your sudo password before it can do anything that would require root privileges. This way, Zentrox itself never runs in any privileged state.
+          <br />
+          <br />
+          Additionally, sensitive data is handled securely. This includes using strong (and slow) encryption/hasing algorithms for passwords and sensitive data, offering 2FA using OTP for your account and only storing your sudo password for the minimum time necessary.<br />
+
+          <br />
+          Communication between the server and browser uses HTTPS. By default, a self-signed certificate is used, but it can be replaced with a custom one.
+        </p>
+        <span class="p-2 md:w-3/4 w-full justify-center flex">
+          <a href="https://github.com/Wervice/zentrox/blob/main/docs/user.md" target="_new"><button class="p-3 rounded-lg m-2 bg-white text-black min-w-32 font-medium font-geist cursor-pointer hover:brightness-90 transition duration-200">Docs</button>
+        <a href="https://github.com/Wervice/zentrox/" target="_new"><button class="p-3 rounded-lg m-2 bg-white/20 text-white min-w-32 font-medium font-geist cursor-pointer hover:brightness-90 transition duration-200">Repo</button></a>
+        </span>
+      </span>
+
+    </span>
+  </body>
+</html>

@@ -1,0 +1,23 @@
+@import "tailwindcss";
+
+@font-face {
+  font-family: "Geist";
+  src: url("/page/Geist-VariableFont_wght.ttf");
+}
+
+@font-face {
+  font-family: "Gelasio";
+  src: url("/page/Gelasio-VariableFont_wght.ttf");
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "Gelasio";
+  src: url("/page/Gelasio-Italic-VariableFont_wght.ttf");
+  font-style: italic;
+}
+
+@theme {
+  --font-geist: "Geist", sans-serif !important;
+  --font-gelasio: "Gelasio", sans-serif !important;
+}
