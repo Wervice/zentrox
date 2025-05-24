@@ -113,6 +113,8 @@ function Vault() {
           notify("Failed to validate vault key");
           toast({
             title: "Wrong key",
+            description:
+              "The key you provided to Zentrox could not be validated",
           });
         }
       }
@@ -183,7 +185,10 @@ function Vault() {
   }
 
   return (
-    <Page name="Vault">
+    <Page
+      name="Vault"
+      titleAbsolute={vaultState == "unconfigured" || vaultState == "locked"}
+    >
       <Toaster />
       <Dialog
         open={decryptKeyModalVisible}
@@ -196,7 +201,8 @@ function Vault() {
           </DialogHeader>
           <Input
             type="password"
-            placeholder="Current key"
+            placeholder="Vault key"
+            className="w-full"
             ref={vaultKeyDecryptModal}
           />
           <DialogFooter>
@@ -209,7 +215,7 @@ function Vault() {
                   vaultTree();
                 }}
               >
-                <KeyIcon className="w-4 h-4 pr-1" /> Unlock
+                Unlock
               </Button>
             </DialogClose>
           </DialogFooter>
@@ -227,15 +233,15 @@ function Vault() {
               need this password to view and upload files to vault.
             </DialogDescription>
           </DialogHeader>
-    <p>
-          <Input
-            type="password"
-            id="vaultEncryptionKey"
-            ref={vaultEncryptionKey}
-            placeholder="Key"
-            className="block w-full"
-          />
-    </p>
+          <p>
+            <Input
+              type="password"
+              id="vaultEncryptionKey"
+              ref={vaultEncryptionKey}
+              placeholder="Key"
+              className="block w-full"
+            />
+          </p>
 
           <DialogFooter>
             <DialogClose asChild>
@@ -301,7 +307,7 @@ function Vault() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <div>
+      <div className={vaultState != "unlocked" && "hidden"}>
         <Button
           className={vaultState !== "unlocked" ? "hidden mr-1" : "mr-1"}
           onClick={() => {
@@ -552,11 +558,7 @@ function Vault() {
         home={""}
       />
       <div
-        className={`no-scroll h-fit rounded-xl mt-2 overflow-hidden overflow-y-scroll no-scroll ${vaultState === "unlocked" ? "" : "absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2"}`}
-        style={{
-          minHeight: "fit-content",
-          maxHeight: "calc(100vh - 220px)",
-        }}
+        className={`no-scroll h-fit mt-2 overflow-hidden overflow-y-scroll no-scroll ${vaultState === "unlocked" ? "" : "flex items-center justify-center h-full"}`}
       >
         {vaultState == "locked" ? (
           <span className="h-fit">
@@ -591,6 +593,7 @@ function Vault() {
         ) : (
           <></>
         )}
+
         {vaultState === "unlocked" &&
         currentVaultContents.filter((e) => {
           return e !== ".vault";
@@ -601,69 +604,72 @@ function Vault() {
         ) : (
           <></>
         )}
-        {
-          /*
-           * @param {string} entry*/
-          currentVaultContents
-            .filter((entry) => {
-              return isDirectChild(entry, currentVaultPath);
-            })
-            .map((entry, k) => {
-              if (entry == ".vault" && currentVaultPath == "") return;
-              var type = "";
-              if (entry.endsWith("/")) {
-                type = "folder";
-              } else {
-                type = "file";
-              }
-              return (
-                <ContextMenu key={k} modal={false}>
-                  <ContextMenuContent>
-                    <ContextMenuItem
-                      onClick={() => {
-                        setCurrentVaultFileDelete(entry);
-                        requestDeletion(entry);
-                      }}
-                    >
-                      <DeleteIcon className="w-4 h-4 inline-block mr-1" />{" "}
-                      Delete
-                    </ContextMenuItem>
-                    <ContextMenuItem
-                      onClick={() => {
-                        setCurrentVaultFileRename(entry);
-                        requestRename(entry);
-                      }}
-                    >
-                      <PenLineIcon className="w-4 h-4 inline-block mr-1" />{" "}
-                      Rename
-                    </ContextMenuItem>
-                  </ContextMenuContent>
-                  <ContextMenuTrigger asChild>
-                    <span
-                      className="w-full p-4 bg-transparent block cursor-default select-none hover:bg-neutral-900 hover:transition-bg hover:duration-300 focus:outline-blue-500 focus:duration-50"
-                      onClick={
-                        type === "folder"
-                          ? () => setCurrentVaultPath(entry)
-                          : (event) => downloadFile(entry, event)
-                      }
-                    >
-                      {type === "folder" ? (
-                        <FolderIcon
-                          className="w-6 h-6 inline-block mr-1"
-                          fill="white"
-                        />
-                      ) : (
-                        <FileIcon className="w-6 h-6 inline-block mr-1" />
-                      )}{" "}
-                      {type === "folder"
-                        ? entry.split("/").at(-2)
-                        : entry.split("/").at(-1)}
-                    </span>
-                  </ContextMenuTrigger>
-                </ContextMenu>
-              );
-            })
-        }
+
+        <div className="rounded-xl m-2 overflow-hidden overflow-y-scroll border-2 border-neutral-800 max-h-[calc(100vh-170px)]">
+          {
+            /*
+             * @param {string} entry*/
+            currentVaultContents
+              .filter((entry) => {
+                return isDirectChild(entry, currentVaultPath);
+              })
+              .map((entry, k) => {
+                if (entry == ".vault" && currentVaultPath == "") return;
+                var type = "";
+                if (entry.endsWith("/")) {
+                  type = "folder";
+                } else {
+                  type = "file";
+                }
+                return (
+                  <ContextMenu key={k} modal={false}>
+                    <ContextMenuContent>
+                      <ContextMenuItem
+                        onClick={() => {
+                          setCurrentVaultFileDelete(entry);
+                          requestDeletion(entry);
+                        }}
+                      >
+                        <DeleteIcon className="w-4 h-4 inline-block mr-1" />{" "}
+                        Delete
+                      </ContextMenuItem>
+                      <ContextMenuItem
+                        onClick={() => {
+                          setCurrentVaultFileRename(entry);
+                          requestRename(entry);
+                        }}
+                      >
+                        <PenLineIcon className="w-4 h-4 inline-block mr-1" />{" "}
+                        Rename
+                      </ContextMenuItem>
+                    </ContextMenuContent>
+                    <ContextMenuTrigger asChild>
+                      <span
+                        className="w-full p-4 bg-transparent block cursor-default select-none hover:bg-neutral-900 hover:transition-bg hover:duration-300 focus:outline-blue-500 focus:duration-50 border-b-2 border-b-neutral-800"
+                        onClick={
+                          type === "folder"
+                            ? () => setCurrentVaultPath(entry)
+                            : (event) => downloadFile(entry, event)
+                        }
+                      >
+                        {type === "folder" ? (
+                          <FolderIcon
+                            className="w-6 h-6 inline-block mr-1"
+                            fill="white"
+                          />
+                        ) : (
+                          <FileIcon className="w-6 h-6 inline-block mr-1" />
+                        )}{" "}
+                        {type === "folder"
+                          ? entry.split("/").at(-2)
+                          : entry.split("/").at(-1)}
+                      </span>
+                    </ContextMenuTrigger>
+                  </ContextMenu>
+                );
+              })
+          }
+        </div>
       </div>
     </Page>
   );
