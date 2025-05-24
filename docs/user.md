@@ -88,7 +88,7 @@ You can select a time window using the "Since" and "Until" handles. Make sure no
 The firewall section can be used to enable/disable the UFW as well as create and delete firewall rules.
 Doing so requires your sudo password.
 
-## Networking
+## Endpoints
 The networking page can be used to view, disable and enable network interface as well as details about those interfaces. 
 Additionally, this page can also view and delete networking routes. 
 > [!WARNING]
@@ -128,6 +128,42 @@ Media center is disabled by default. Set enabled to checked to enable media cent
 You can now add and remove sources that will be shown in the dashboard of media center.
 A source consists of a name, folder path on the administered device and the status. The status can be on or off in order to enable or disable a media source.
 Media center can now be accessed under `/media`.
+
+## Processes
+Using the Processes tab, you can list, kill and view details about running processes.
+By clicking the details icon for a process you can find information like the command used to start it or the UID of the processes user.
+The skull icon can be used to kill a process if Zentrox has sufficient permissions.
+
+## Cronjobs
+You can create, delete, view and run cronjobs using the Cronjobs tab.
+It can only handle cronjobs for the user running Zentrox.
+When creating a new cronjob, you can decide between a specific and an interval cronjob.
+
+A specific cronjob is a cronjob that runs at a specific time or date. An examplary syntax could be:
+```
+* * * * * ls /
+```
+
+An interval cronjob is a cronjob that runs at a given interval, this includes:
+- Hourly
+- Daily
+- Weekly
+- Monthly
+- Yearly
+- At reboot
+
+An examplary syntax could be:
+```
+@daily ls /
+```
+
+While creating, deleting and viewing cronjobs, Zentrox relies on the `crontab`, `crontab -l` and `crontab -e` command on your system.
+Using cron.deny or cron.allow files to exclude Zentrox from using these commands will break this feature.
+
+### Supported crons
+- Vixie cron
+- Cronie
+- Crons with same syntax and CLI functionality
 
 ## Account
 You can access account settings by clicking your initials or profile picture in the top right corner of Zentrox and selecting account details.
