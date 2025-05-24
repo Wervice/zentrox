@@ -3,7 +3,6 @@ import {
   ArrowUpIcon,
   EthernetPortIcon,
   HourglassIcon,
-  KeyIcon,
 } from "lucide-react";
 
 import { useState, useEffect } from "react";
@@ -86,8 +85,7 @@ export default function Overview() {
   async function overviewFetch() {
     var t_a = Date.now();
     setReadyForFetch(false);
-    // Fetch new data for CPU usage
-    // Fetch new data for Device Information
+
     var devInfoFetch = await fetch(fetchURLPrefix + "/api/deviceInformation", {
       method: "GET",
       headers: {
@@ -97,7 +95,32 @@ export default function Overview() {
 
     devInfoFetch.json().then((json) => {
       let jk = json;
-      jk["unloaded"] = false;
+      jk.unloaded = false;
+
+      if (!packageStatisticsFetchedOnce) {
+        setPackageStatisticsFetchedOnce(true);
+        fetch(fetchURLPrefix + "/api/packageDatabase/true", {
+          headers: {
+            "Content-Type": "application/json",
+          },
+        })
+          .then((res) => {
+            res.json().then((json) => {
+              setPackageStatistics({
+                installed: json.packages,
+                available: json.others,
+                packageManager: json.packageManager,
+                canProvideUpdates: json.canProvideUpdates,
+                updates: json.updates,
+                unloaded: false,
+              });
+            });
+          })
+          .catch((_e) => {
+            notify("Reading package database failed");
+          });
+      }
+
       setDeviceInformation(jk);
     });
 
@@ -134,6 +157,8 @@ export default function Overview() {
   });
   const [readyForFetch, setReadyForFetch] = useState(true);
   const [fetchDuration, setFetchDuration] = useState(0);
+  const [packageStatisticsFetchedOnce, setPackageStatisticsFetchedOnce] =
+    useState(false);
   const tryOverviewFetch = () => {
     if (readyForFetch) {
       overviewFetch();
@@ -149,26 +174,6 @@ export default function Overview() {
   }, [readyForFetch]);
 
   useEffect(() => {
-    fetch(fetchURLPrefix + "/api/packageDatabase/true", {
-      headers: {
-        "Content-Type": "application/json",
-      },
-    })
-      .then((res) => {
-        res.json().then((json) => {
-          setPackageStatistics({
-            installed: json.packages,
-            available: json.others,
-            packageManager: json.packageManager,
-            canProvideUpdates: json.canProvideUpdates,
-            updates: json.updates,
-            unloaded: false,
-          });
-        });
-      })
-      .catch((_e) => {
-        notify("Reading package database failed");
-      });
     tryOverviewFetch();
   }, []);
 
