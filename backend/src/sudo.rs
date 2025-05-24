@@ -83,17 +83,12 @@ impl SwitchedUserCommand {
         let args = self.args.clone();
         let password = self.password.clone();
         let program = self.program.clone();
-        let random_prompt = Alphanumeric
-            .sample_string(&mut rand::thread_rng(), 16)
-            .to_ascii_lowercase();
 
         // Command Thread, handles the actual command
         let thread_handle = thread::spawn(move || {
             let mut command_handle = Command::new("sudo")
                 .arg("-S")
                 .arg("-k")
-                .arg("--prompt")
-                .arg(&random_prompt)
                 .args(program.clone().split(" "))
                 .args(args)
                 .stdin(Stdio::piped())
@@ -105,17 +100,7 @@ impl SwitchedUserCommand {
             let password = password;
             let mut stdinput = command_handle.stdin.take().unwrap();
             let mut stderr = command_handle.stderr.take().unwrap();
-            let sent_prompt = &mut [0; 16];
-            let sent_prompt_read = stderr.read(sent_prompt);
-            if let Err(_e) = sent_prompt_read {
-                return SudoExecutionResult::ExecutionError(
-                    "Failed to read prompt from sudo".to_string(),
-                );
-            }
-            let sent_prompt_string: String = sent_prompt.map(|x| (x as char).to_string()).join("");
-            if sent_prompt_string != random_prompt {
-                return SudoExecutionResult::ExecutionError("Unequal prompts".to_string());
-            }
+
             stdinput
                 .write_all(format!("{}\n", password).as_bytes())
                 .expect("Failed to write to stdin (password)");
@@ -156,17 +141,12 @@ impl SwitchedUserCommand {
         let args = self.args.clone();
         let password = self.password.clone();
         let program = self.program.clone();
-        let random_prompt = Alphanumeric
-            .sample_string(&mut rand::thread_rng(), 16)
-            .to_ascii_lowercase();
 
         // Command Thread, handles the actual command
         let thread_handle = thread::spawn(move || {
             let mut command_handle = Command::new("sudo")
                 .arg("-S") // Read password from stdin
                 .arg("-k") // Force sudo to prompt for the password
-                .arg("--prompt")
-                .arg(&random_prompt)
                 .args(program.clone().split(" "))
                 .args(args)
                 .stdin(Stdio::piped())
@@ -182,25 +162,11 @@ impl SwitchedUserCommand {
                 .stdout
                 .take()
                 .expect("Failed to capture stdout");
-            let mut stderr = command_handle
+            let stderr = command_handle
                 .stderr
                 .take()
                 .expect("Failed to capture stderr");
-            let sent_prompt = &mut [0; 16];
-            let sent_prompt_read = stderr.read(sent_prompt);
-            if let Err(_e) = sent_prompt_read {
-                return SudoExecutionOutput::ExecutionError(
-                    "Failed to read prompt from sudo".to_string(),
-                );
-            }
-            if sent_prompt.iter().map(|x| *x).collect::<Vec<u8>>()
-                != random_prompt
-                    .chars()
-                    .map(|x| x.to_ascii_lowercase() as u8)
-                    .collect::<Vec<u8>>()
-            {
-                return SudoExecutionOutput::ExecutionError("Unequal prompts".to_string());
-            }
+
             let _ = thread::spawn(move || {
                 writeln!(stdin, "{}", password).expect("Failed to write password to stdin");
                 stdin.flush().expect("Failed to flush stdin");

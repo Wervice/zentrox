@@ -1,5 +1,6 @@
 use actix_session::Session;
 use actix_web::web;
+use log::{debug, warn};
 use rand::Rng;
 
 use crate::{crypto_utils, AppState};
@@ -26,7 +27,7 @@ pub fn is_admin_state(session: &Session, state: web::Data<AppState>) -> bool {
         })
         .is_some();
     if disable_auth_for_development {
-        println!(include_str!("../notes/auth_note.txt"));
+        warn!("Authentication has been disabled for development. This is a massive security risk!");
         return true;
     }
 
@@ -37,21 +38,29 @@ pub fn is_admin_state(session: &Session, state: web::Data<AppState>) -> bool {
                     match hex::decode(&value) {
                         Ok(decoded) => {
                             if decoded.len() != 16 {
+                                debug!("The authentication token was not 16 characters long and was deemed invalid");
                                 return false;
+                            }
+                            if value != *state.login_token.lock().unwrap() {
+                                debug!("The authentication token was unequal to the correct token");
                             }
                             return value == *state.login_token.lock().unwrap();
                         }
                         Err(_) => {
-                            // If decoding fails, consider the token invalid
+                            debug!("The authentication token could not be decoded and was deemed invalid");
                             false
                         }
                     }
                 }
-                None => false,
+                None => {
+                    debug!("There was no authentication token");
+                    false
+                }
             }
             // Handle invalid hex decode safely
         }
         Err(err) => {
+            debug!("There was no authentication token");
             eprintln!("❌ Failed to get login_token from session: {err}");
             false
         }

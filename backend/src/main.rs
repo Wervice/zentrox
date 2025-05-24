@@ -10,8 +10,12 @@ use actix_web::{
     get, http::header, http::StatusCode, middleware, post, web, web::Data, App, HttpResponse,
     HttpServer,
 };
+use core::panic;
 use serde::{Deserialize, Serialize};
+use std::ffi::OsString;
 use std::net::IpAddr;
+use std::ops::Div;
+use std::process::{Command, Stdio};
 use std::str::FromStr;
 use std::time::Duration;
 use std::{
@@ -23,13 +27,15 @@ use std::{
     sync::{Arc, Mutex},
     time::UNIX_EPOCH,
 };
-use systemstat::{Platform, System};
+use sysinfo::{Components, MemoryRefreshKind, Pid, ProcessRefreshKind, RefreshKind, UpdateKind};
 use uuid::Uuid;
 extern crate inflector;
 use actix_governor::{self, Governor, GovernorConfigBuilder};
 use database::InsertValue;
 use inflector::Inflector;
+use log::{debug, error, warn};
 
+mod cron;
 mod crypto_utils;
 mod database;
 mod drives;
@@ -42,6 +48,7 @@ mod packages;
 mod setup;
 mod sudo;
 mod ufw;
+mod uptime;
 mod url_decode;
 mod vault;
 mod video;
@@ -51,6 +58,9 @@ use is_admin::is_admin_state;
 use net_data::private_ip;
 use visit_dirs::visit_dirs;
 
+use self::cron::{
+    delete_interval_cronjob, delete_specific_cronjob, IntervalCronJob, SpecificCronJob, User,
+};
 use self::net_data::{DeletionRoute, Destination, IpAddrWithSubnet, OperationalState, Route};
 
 #[derive(Debug, Clone)]
@@ -89,11 +99,11 @@ struct MeasuredInterface {
 /// attack requests and sharing a instance of the System struct.
 struct AppState {
     login_token: Arc<Mutex<String>>,
-    system: Arc<Mutex<System>>,
+    system: Arc<Mutex<sysinfo::System>>,
     username: Arc<Mutex<String>>,
     cpu_usage: Arc<Mutex<f32>>,
     network_interfaces: Arc<Mutex<Vec<MeasuredInterface>>>,
-    update_jobs: Arc<Mutex<HashMap<Uuid, BackgroundTaskState>>>,
+    background_jobs: Arc<Mutex<HashMap<Uuid, BackgroundTaskState>>>,
 }
 
 impl AppState {
@@ -104,11 +114,11 @@ impl AppState {
             login_token: Arc::new(Mutex::new(
                 String::from_utf8_lossy(&random_string).to_string(),
             )),
-            system: Arc::new(Mutex::new(System::new())),
+            system: Arc::new(Mutex::new(sysinfo::System::new())),
             username: Arc::new(Mutex::new(String::new())),
             network_interfaces: Arc::new(Mutex::new(Vec::new())),
             cpu_usage: Arc::new(Mutex::new(0_f32)),
-            update_jobs: Arc::new(Mutex::new(HashMap::new())),
+            background_jobs: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -158,20 +168,10 @@ impl AppState {
         if (*self.username.lock().unwrap()).to_string().is_empty() {
             return;
         }
-        *self.cpu_usage.lock().unwrap() = match &self.system.lock().unwrap().cpu_load() {
-            Ok(cpu) => {
-                std::thread::sleep(std::time::Duration::from_millis(1000));
-                let cpu = cpu.done().unwrap();
-                let cpu_len = cpu.len();
-                let mut cpu_sum = 0.0_f32;
-                cpu.into_iter().for_each(|core| cpu_sum += core.user);
-                (cpu_sum / cpu_len as f32) * 100.0
-            }
-            Err(err) => {
-                eprintln!("CPU Ussage Error (Returned f32 0.0) {}", err);
-                0.0
-            }
-        };
+        self.system.lock().unwrap().refresh_cpu_usage();
+        std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
+        self.system.lock().unwrap().refresh_cpu_usage();
+        *self.cpu_usage.lock().unwrap() = self.system.lock().unwrap().global_cpu_usage();
     }
 
     fn start_interval_tasks(self) {
@@ -263,10 +263,18 @@ async fn dashboard(session: Session, state: Data<AppState>) -> HttpResponse {
 
 /// Empty Json Response
 ///
-/// This struct implements serde::Serialize. It can be used to responde with an empty Json
+/// This struct implements serde::Serialize. It can be used to respond with an empty Json
 /// response.
 #[derive(Serialize)]
 struct EmptyJson {}
+
+/// Error JSON
+///
+/// This struct implements serder::Serialize. It can be used to respond with an error message.
+#[derive(Serialize)]
+struct ErrorJson {
+    error: String,
+}
 
 /// Request that only contains a sudo password from the backend.
 ///
@@ -299,11 +307,7 @@ struct Login {
 /// The function keeps track on how often a user attempted to login. If they tried to login more
 /// than 5 times in 10 seconds, they are automatically being rejected for the next 10 seconds, even
 /// if the credentials are correct.
-async fn login(
-    session: Session,
-    json: web::Json<Login>,
-    state: Data<AppState>,
-) -> HttpResponse {
+async fn login(session: Session, json: web::Json<Login>, state: Data<AppState>) -> HttpResponse {
     let username = &json.username;
     let password = &json.password;
     let otp_code = &json.userOtp;
@@ -508,25 +512,19 @@ async fn device_information(session: Session, state: Data<AppState>) -> HttpResp
         .replace("\n", "")
         .to_string();
 
-    let uptime = state.system.lock().unwrap().uptime().unwrap().as_millis();
+    let uptime = uptime::get().unwrap().as_millis();
 
-    let temperature = match state.system.lock().unwrap().cpu_temp() {
-        Ok(t) => t,
-        Err(_) => -300.0,
-    };
+    let mut temperature = -300_f32;
+    let c = Components::new_with_refreshed_list();
+    for comp in &c {
+        temperature = comp.temperature().unwrap_or(-300_f32);
+    }
 
-    let cpu_usage = *state.cpu_usage.lock().unwrap();
-
-    let mut memory_total: u64 = 0;
-    let mut memory_free: u64 = 0;
-
-    match state.system.lock().unwrap().memory() {
-        Ok(memory) => {
-            memory_total = memory.total.as_u64();
-            memory_free = memory.free.as_u64();
-        }
-        Err(_err) => {}
-    };
+    state.system.lock().unwrap().refresh_memory();
+    state.system.lock().unwrap().refresh_cpu_usage();
+    let cpu_usage = state.system.lock().unwrap().global_cpu_usage();
+    let memory_total: u64 = state.system.lock().unwrap().total_memory();
+    let memory_free: u64 = state.system.lock().unwrap().available_memory();
 
     let mut net_down = 0.0;
     let mut net_up = 0.0;
@@ -713,7 +711,7 @@ async fn update_package_database(
     let job_id = Uuid::new_v4();
 
     state
-        .update_jobs
+        .background_jobs
         .lock()
         .unwrap()
         .insert(job_id, BackgroundTaskState::Pending);
@@ -738,12 +736,12 @@ async fn update_package_database(
                 );
                 if x.is_ok() {
                     state
-                        .update_jobs
+                        .background_jobs
                         .lock()
                         .unwrap()
                         .insert(job_id, BackgroundTaskState::Success)
                 } else {
-                    state.update_jobs.lock().unwrap().insert(
+                    state.background_jobs.lock().unwrap().insert(
                         job_id,
                         BackgroundTaskState::FailOutput(
                             "Zentrox was unable to update package actions database".to_string(),
@@ -752,7 +750,7 @@ async fn update_package_database(
                 }
             }
             Err(_) => state
-                .update_jobs
+                .background_jobs
                 .lock()
                 .unwrap()
                 .insert(job_id, BackgroundTaskState::Fail),
@@ -789,12 +787,12 @@ async fn install_package(
         match packages::install_package(json.packageName.to_string(), json.sudoPassword.to_string())
         {
             Ok(_) => state
-                .update_jobs
+                .background_jobs
                 .lock()
                 .unwrap()
                 .insert(job_id, BackgroundTaskState::Success),
             Err(_) => state
-                .update_jobs
+                .background_jobs
                 .lock()
                 .unwrap()
                 .insert(job_id, BackgroundTaskState::Fail),
@@ -824,12 +822,12 @@ async fn remove_package(
         match packages::remove_package(json.packageName.to_string(), json.sudoPassword.to_string())
         {
             Ok(_) => state
-                .update_jobs
+                .background_jobs
                 .lock()
                 .unwrap()
                 .insert(job_id, BackgroundTaskState::Success),
             Err(_) => state
-                .update_jobs
+                .background_jobs
                 .lock()
                 .unwrap()
                 .insert(job_id, BackgroundTaskState::Fail),
@@ -859,12 +857,12 @@ async fn update_package(
         match packages::update_package(json.packageName.to_string(), json.sudoPassword.to_string())
         {
             Ok(_) => state
-                .update_jobs
+                .background_jobs
                 .lock()
                 .unwrap()
                 .insert(job_id, BackgroundTaskState::Success),
             Err(_) => state
-                .update_jobs
+                .background_jobs
                 .lock()
                 .unwrap()
                 .insert(job_id, BackgroundTaskState::Fail),
@@ -892,7 +890,7 @@ async fn update_all_packages(
     let job_id = Uuid::new_v4();
 
     state
-        .update_jobs
+        .background_jobs
         .lock()
         .unwrap()
         .insert(job_id, BackgroundTaskState::Pending);
@@ -900,12 +898,12 @@ async fn update_all_packages(
     let _ = actix_web::web::block(move || {
         match packages::update_all_packages(sudo_password.to_string()) {
             Ok(_) => state
-                .update_jobs
+                .background_jobs
                 .lock()
                 .unwrap()
                 .insert(job_id, BackgroundTaskState::Success),
             Err(_) => state
-                .update_jobs
+                .background_jobs
                 .lock()
                 .unwrap()
                 .insert(job_id, BackgroundTaskState::Fail),
@@ -926,7 +924,7 @@ async fn fetch_job_status(
     }
 
     let requested_id = path.into_inner().to_string();
-    let jobs = state.update_jobs.lock().unwrap().clone();
+    let jobs = state.background_jobs.lock().unwrap().clone();
     let background_state = jobs.get(&uuid::Uuid::parse_str(&requested_id).unwrap());
 
     match background_state {
@@ -958,7 +956,7 @@ async fn remove_orphaned_packages(
     let job_id = Uuid::new_v4();
 
     state
-        .update_jobs
+        .background_jobs
         .lock()
         .unwrap()
         .insert(job_id, BackgroundTaskState::Pending);
@@ -966,12 +964,12 @@ async fn remove_orphaned_packages(
     let _ = actix_web::web::block(move || {
         match packages::remove_orphaned_packages(sudo_password.to_string()) {
             Ok(_) => state
-                .update_jobs
+                .background_jobs
                 .lock()
                 .unwrap()
                 .insert(job_id, BackgroundTaskState::Success),
             Err(_) => state
-                .update_jobs
+                .background_jobs
                 .lock()
                 .unwrap()
                 .insert(job_id, BackgroundTaskState::Fail),
@@ -982,6 +980,32 @@ async fn remove_orphaned_packages(
 }
 
 // Firewall API
+
+#[get("/api/hasUfw")]
+async fn firewall_has_ufw(session: Session, state: Data<AppState>) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    let installed_packages = packages::list_installed_packages();
+
+    match installed_packages {
+        Ok(v) => {
+            if v.contains(&String::from("ufw")) {
+                return HttpResponse::Ok().body("true");
+            } else {
+                return HttpResponse::Ok().body("false");
+            }
+        }
+        Err(_) => {
+            if Command::new("ufw").spawn().is_ok() {
+                return HttpResponse::Ok().body("true");
+            } else {
+                return HttpResponse::Ok().body("false");
+            }
+        }
+    }
+}
 
 #[derive(Serialize)]
 struct FireWallInformationResponseJson {
@@ -1438,9 +1462,6 @@ async fn upload_file(
     let cpy = fs::copy(temp_path, &intended_path);
     let unk = fs::remove_file(temp_path);
 
-    dbg!(temp_path);
-    dbg!(intended_path);
-
     if !cpy.is_ok() {
         HttpResponse::InternalServerError()
             .body("Unable to copy temporary file to intended destination");
@@ -1549,8 +1570,7 @@ async fn vault_configure(
         .join("zentrox")
         .join("vault_directory");
 
-    if database::read_kv("Settings", "vault_enabled").unwrap()
-        == database::ST_BOOL_FALSE.to_string()
+    if database::read_kv("Settings", "vault_enabled").unwrap() == *database::ST_BOOL_FALSE
         && !vault_path.exists()
     {
         if json.key.is_none() {
@@ -3025,9 +3045,7 @@ async fn get_recomended_music(session: Session, state: Data<AppState>) -> HttpRe
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    if database::read_kv("Settings", "media_enabled").unwrap()
-        == database::ST_BOOL_FALSE.to_string()
-    {
+    if database::read_kv("Settings", "media_enabled").unwrap() == *database::ST_BOOL_FALSE {
         return HttpResponse::Forbidden().body("Media center has been disabled");
     }
 
@@ -3051,9 +3069,7 @@ async fn get_recomended_videos(session: Session, state: Data<AppState>) -> HttpR
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    if database::read_kv("Settings", "media_enabled").unwrap()
-        == database::ST_BOOL_FALSE.to_string()
-    {
+    if database::read_kv("Settings", "media_enabled").unwrap() == *database::ST_BOOL_FALSE {
         return HttpResponse::Forbidden().body("Media center has been disabled");
     }
 
@@ -3133,7 +3149,8 @@ async fn update_metadata(
     );
 
     if let Err(_e) = wx {
-        return HttpResponse::InternalServerError().body(format!("Failed to write to database."));
+        return HttpResponse::InternalServerError()
+            .body("Failed to write to database.".to_string());
     } else {
         return HttpResponse::Ok().body("Wrote data.");
     }
@@ -3248,6 +3265,455 @@ async fn networking_interface_active(
     return HttpResponse::Ok().finish();
 }
 
+fn convert_uid_to_name(uuid: usize) -> Result<String, ()> {
+    let passwd_file_path = PathBuf::from("/etc/passwd");
+    let passwd_file_contents = fs::read_to_string(passwd_file_path);
+    match passwd_file_contents {
+        Ok(v) => {
+            let lines = v.lines();
+            let mut username: String = "".to_string();
+            lines.for_each(|x| {
+                if x.split(":").nth(2).unwrap().to_string() == uuid.to_string() {
+                    username = x.split(":").nth(0).unwrap().to_string();
+                }
+            });
+            if username.is_empty() {
+                return Err(());
+            } else {
+                return Ok(username);
+            }
+        }
+        Err(_e) => Err(()),
+    }
+}
+
+#[derive(Serialize)]
+struct ListProcessesResponseJson {
+    processes: Vec<SerializableProcess>,
+}
+
+#[derive(Serialize)]
+struct SerializableProcess {
+    name: Option<String>,
+    cpu_usage: f32,
+    memory_usage_bytes: u64,
+    username: Option<String>,
+    uid: Option<u32>,
+    executable_path: Option<String>,
+    pid: u32,
+}
+
+fn os_string_array_to_string_vector(s: &[OsString]) -> Vec<String> {
+    s.iter()
+        .map(|x| {
+            let b = x.as_encoded_bytes();
+            String::from_utf8(b.to_vec()).unwrap()
+        })
+        .collect::<Vec<String>>()
+}
+
+#[get("/api/listProcesses")]
+async fn list_processes(session: Session, state: Data<AppState>) -> HttpResponse {
+    if !is_admin_state(&session, state.clone()) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    let process_refresh = ProcessRefreshKind::nothing()
+        .without_tasks()
+        .with_cpu()
+        .with_memory()
+        .with_user(UpdateKind::OnlyIfNotSet)
+        .with_exe(UpdateKind::OnlyIfNotSet);
+
+    let mut system = sysinfo::System::new_with_specifics(
+        RefreshKind::nothing()
+            .with_memory(MemoryRefreshKind::everything())
+            .with_processes(process_refresh),
+    );
+    std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
+    system.refresh_processes_specifics(sysinfo::ProcessesToUpdate::All, false, process_refresh);
+    let processes = system.processes();
+    let mut processes_for_response = Vec::new();
+
+    processes.iter().for_each(|x| {
+        let memory_usage_bytes = x.1.memory();
+        let cpu_usage = x.1.cpu_usage();
+
+        let executable_path: Option<String>;
+        match x.1.exe() {
+            Some(v) => {
+                executable_path = Some(v.to_str().unwrap().to_string());
+            }
+            None => executable_path = None,
+        }
+
+        let mut username: Option<String> = None;
+        let mut uid_true: Option<u32> = None;
+        let uid = x.1.user_id();
+        match uid {
+            Some(uid) => {
+                username = Some(convert_uid_to_name(uid.div(1) as usize).unwrap());
+                uid_true = Some(uid.div(1));
+            }
+            None => {}
+        }
+
+        let pid = x.1.pid().as_u32();
+        let name = Some(x.1.name().to_string_lossy().to_string());
+        processes_for_response.push(SerializableProcess {
+            cpu_usage,
+            memory_usage_bytes,
+            executable_path,
+            name,
+            pid,
+            uid: uid_true,
+            username,
+        });
+    });
+
+    return HttpResponse::Ok().json(ListProcessesResponseJson {
+        processes: processes_for_response,
+    });
+}
+
+#[get("/api/killProcess/{pid}")]
+async fn kill_process(session: Session, state: Data<AppState>, path: Path<u32>) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    let process_refresh = ProcessRefreshKind::nothing()
+        .without_tasks()
+        .with_cpu()
+        .with_memory()
+        .with_user(UpdateKind::OnlyIfNotSet)
+        .with_exe(UpdateKind::OnlyIfNotSet);
+    let mut system = sysinfo::System::new_with_specifics(
+        RefreshKind::nothing()
+            .with_memory(MemoryRefreshKind::everything())
+            .with_processes(process_refresh),
+    );
+    std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
+    system.refresh_processes_specifics(sysinfo::ProcessesToUpdate::All, false, process_refresh);
+    let processes = system.processes();
+
+    match processes.get(&Pid::from_u32(path.into_inner())) {
+        Some(p) => {
+            if p.kill() {
+                return HttpResponse::Ok().body("Signal sent successfully");
+            } else {
+                return HttpResponse::InternalServerError().json(ErrorJson {
+                    error: "SignalError".to_string(),
+                });
+            }
+        }
+        None => {
+            return HttpResponse::InternalServerError().json(ErrorJson {
+                error: "WrongPID".to_string(),
+            })
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct ProcessDetailsResponseJson {
+    name: String,
+    pid: u32,
+    username: String,
+    uid: u32,
+    memory_usage_bytes: u64,
+    cpu_usage: f32,
+    run_time: u64,
+    command_line: Vec<String>,
+    executable_path: String,
+    priority: isize,
+    threads: isize,
+}
+
+#[get("/api/detailsProcess/{pid}")]
+async fn details_process(session: Session, state: Data<AppState>, path: Path<u32>) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    let process_refresh = ProcessRefreshKind::nothing()
+        .without_tasks()
+        .with_cpu()
+        .with_memory()
+        .with_cmd(UpdateKind::OnlyIfNotSet)
+        .with_user(UpdateKind::OnlyIfNotSet)
+        .with_exe(UpdateKind::OnlyIfNotSet);
+    let mut system = sysinfo::System::new_with_specifics(
+        RefreshKind::nothing()
+            .with_memory(MemoryRefreshKind::everything())
+            .with_processes(process_refresh),
+    );
+    std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
+    system.refresh_processes_specifics(sysinfo::ProcessesToUpdate::All, false, process_refresh);
+    let processes = system.processes();
+    let selected_process = processes.get(&Pid::from_u32(path.into_inner())).unwrap();
+
+    let name = selected_process.name();
+    let pid = selected_process.pid();
+    let uid = selected_process.user_id().unwrap();
+    let username = convert_uid_to_name(uid.div(1) as usize);
+    let memory_usage_bytes = selected_process.memory();
+    let cpu_usage = selected_process.cpu_usage();
+    let run_time = selected_process.run_time();
+    let command_line = os_string_array_to_string_vector(selected_process.cmd());
+    let executable_path_determination = selected_process.exe();
+    let mut executable_path = String::from("Unknown");
+    if executable_path_determination.is_some() {
+        executable_path = executable_path_determination
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+    }
+    let stat_file = fs::read_to_string(
+        PathBuf::from("/")
+            .join("proc")
+            .join(pid.to_string())
+            .join("stat"),
+    )
+    .unwrap();
+
+    let stat_file_split = stat_file.split(" ").collect::<Vec<&str>>();
+    let priority = stat_file_split[18].parse::<isize>().unwrap_or(-1);
+
+    let thread_count = stat_file_split[19].parse::<isize>().unwrap_or(-1);
+
+    return HttpResponse::Ok().json(ProcessDetailsResponseJson {
+        name: name.to_str().unwrap().to_string(),
+        pid: pid.as_u32(),
+        username: username.unwrap_or(String::from("Unknown")),
+        uid: uid.div(1),
+        memory_usage_bytes,
+        cpu_usage,
+        command_line,
+        threads: thread_count,
+        priority,
+        run_time,
+        executable_path,
+    });
+}
+
+#[derive(Serialize)]
+struct ListCronjobsReturnJson {
+    specific_jobs: Vec<SpecificCronJob>,
+    interval_jobs: Vec<IntervalCronJob>,
+    crontab_exists: bool,
+}
+
+#[get("/api/listCronjobs/{current}/{specific}")]
+async fn list_cronjobs(
+    session: Session,
+    state: Data<AppState>,
+    path: Path<(String, Option<String>)>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state.clone()) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    let path_segs = path.into_inner();
+    let user: User;
+    if path_segs.0 == "current" {
+        user = User::Current
+    } else if path_segs.0 == "specific" {
+        user = User::Specific(path_segs.1.unwrap())
+    } else {
+        return HttpResponse::BadRequest().body(format!("Unknown variant {}", path_segs.0));
+    }
+
+    let crons = cron::list_cronjobs(user);
+    let mut interval_cronjobs: Vec<IntervalCronJob> = Vec::new();
+    let mut specific_cronjobs: Vec<SpecificCronJob> = Vec::new();
+    match crons {
+        Ok(crons_unwrapped) => {
+            for ele in crons_unwrapped {
+                match ele {
+                    cron::CronJob::Specific(spec) => specific_cronjobs.push(spec),
+                    cron::CronJob::Interval(inter) => interval_cronjobs.push(inter),
+                }
+            }
+        }
+        Err(e) => match e {
+            cron::CronListingError::NoCronFile => {
+                return HttpResponse::Ok().json(ListCronjobsReturnJson {
+                    specific_jobs: specific_cronjobs,
+                    interval_jobs: interval_cronjobs,
+                    crontab_exists: false,
+                })
+            }
+            _ => return HttpResponse::InternalServerError().body("Failed to retrieve cronjobs"),
+        },
+    }
+
+    return HttpResponse::Ok().json(ListCronjobsReturnJson {
+        specific_jobs: specific_cronjobs,
+        interval_jobs: interval_cronjobs,
+        crontab_exists: true,
+    });
+}
+
+#[derive(serde::Deserialize)]
+struct CronjobCommandJson {
+    command: String,
+}
+
+#[post("/api/runCronjobCommand")]
+async fn run_cronjob_command(
+    session: Session,
+    state: Data<AppState>,
+    json: web::Json<CronjobCommandJson>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state.clone()) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    let uuid = Uuid::new_v4();
+    state
+        .background_jobs
+        .lock()
+        .unwrap()
+        .insert(uuid, BackgroundTaskState::Pending);
+
+    let _ = actix_web::web::block(move || {
+        match Command::new("sh")
+            .arg("-c")
+            .arg(&json.command)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .stdin(Stdio::null())
+            .spawn()
+        {
+            Ok(mut h) => {
+                let _ = h.wait();
+                state
+                    .background_jobs
+                    .lock()
+                    .unwrap()
+                    .insert(uuid, BackgroundTaskState::Success);
+            }
+            Err(_) => {
+                state
+                    .background_jobs
+                    .lock()
+                    .unwrap()
+                    .insert(uuid, BackgroundTaskState::Fail);
+            }
+        }
+    });
+
+    return HttpResponse::Ok().body(uuid.to_string());
+}
+
+#[derive(serde::Deserialize)]
+struct DeleteCronjobJson {
+    index: u32,
+    variant: String,
+}
+
+#[post("/api/deleteCronjob")]
+async fn delete_cronjob(
+    session: Session,
+    state: Data<AppState>,
+    json: web::Json<DeleteCronjobJson>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state.clone()) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    if &json.variant == "specific" {
+        let _ = delete_specific_cronjob(json.index, User::Current);
+    } else if &json.variant == "interval" {
+        let _ = delete_interval_cronjob(json.index, User::Current);
+    } else {
+        return HttpResponse::BadRequest()
+            .body(format!("Unknown cronjob variant {}", &json.variant));
+    }
+
+    HttpResponse::Ok().finish()
+}
+
+#[derive(serde::Deserialize)]
+struct CreateCronjobJson {
+    variant: String,
+    command: String,
+    interval: Option<String>,
+    minute: Option<String>,
+    hour: Option<String>,
+    day_of_month: Option<String>,
+    day_of_week: Option<String>,
+    month: Option<String>,
+}
+
+#[post("/api/createCronjob")]
+async fn create_cronjob(
+    session: Session,
+    state: Data<AppState>,
+    json: web::Json<CreateCronjobJson>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state.clone()) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    let variant = &json.variant;
+
+    if variant == "interval" {
+        let json_interval = &json.interval.clone().unwrap();
+
+        let interval = match json_interval.as_str() {
+            "daily" => cron::Interval::Daily,
+            "weekly" => cron::Interval::Weekly,
+            "monthly" => cron::Interval::Monthly,
+            "yearly" => cron::Interval::Yearly,
+            "hourly" => cron::Interval::Hourly,
+            "reboot" => cron::Interval::Reboot,
+            _ => panic!("Unknown interval type {}", json_interval),
+        };
+
+        match cron::create_new_interval_cronjob(
+            cron::IntervalCronJob {
+                interval,
+                command: json.command.clone(),
+            },
+            User::Current,
+        ) {
+            Ok(_) => HttpResponse::Ok().finish(),
+            Err(_) => {
+                error!("Failed to create interval cronjob");
+                HttpResponse::InternalServerError().body("Failed to create new interval cronjob")
+            }
+        }
+    } else if variant == "specific" {
+        let day_of_month = cron::Digit::from(json.day_of_month.clone().unwrap().as_str());
+        let day_of_week = cron::DayOfWeek::from(json.day_of_week.clone().unwrap().as_str());
+        let month = cron::Month::from(json.month.clone().unwrap().as_str());
+        let minute = cron::Digit::from(json.minute.clone().unwrap().as_str());
+        let hour = cron::Digit::from(json.hour.clone().unwrap().as_str());
+        match cron::create_new_specific_cronjob(
+            cron::SpecificCronJob {
+                command: json.command.clone(),
+                day_of_week,
+                day_of_month,
+                minute,
+                hour,
+                month,
+            },
+            User::Current,
+        ) {
+            Ok(_) => HttpResponse::Ok().finish(),
+            Err(_) => {
+                error!("Failed to create specific cronjob");
+                HttpResponse::InternalServerError().body("Failed to create new specific cronjob")
+            }
+        }
+    } else {
+        HttpResponse::BadRequest().body("Unknown cronjob variant")
+    }
+}
+
 // ======================================================================
 // Blocks (Used to prevent users from accessing certain static resources)
 
@@ -3270,6 +3736,8 @@ async fn main() -> std::io::Result<()> {
         let _ = env::set_current_dir(dirs::home_dir().unwrap().join("zentrox"));
     }
 
+    env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
+
     if !dirs::home_dir()
         .unwrap()
         .join(".local")
@@ -3278,11 +3746,14 @@ async fn main() -> std::io::Result<()> {
         .exists()
     {
         let _ = setup::run_setup();
+    } else {
+        debug!("Found configurations in ~/.local/share/zentrox/")
     }
 
     let secret_session_key = Key::try_generate().expect("Failed to generate session key");
     let app_state = AppState::new();
     app_state.clone().start_interval_tasks();
+    debug!("Started interval tasks");
 
     if !database::exists("Secrets", "name", "otp_secret").unwrap()
         && database::read_cols::<&str, (bool,)>("Admin", &["use_otp"]).unwrap()[0].0
@@ -3302,7 +3773,7 @@ async fn main() -> std::io::Result<()> {
     }
 
     if database::read_kv("Settings", "tls_cert").unwrap() == "selfsigned.pem" {
-        println!(include_str!("../notes/cert_note.txt"));
+        warn!("Using a self singed certificate");
     }
 
     rustls::crypto::aws_lc_rs::default_provider()
@@ -3323,6 +3794,15 @@ async fn main() -> std::io::Result<()> {
         )
         .unwrap(),
     );
+    debug!(
+        "Using certificate file from {}",
+        data_path
+            .join("certificates")
+            .join(database::read_kv("Settings", "tls_cert").unwrap())
+            .to_str()
+            .unwrap()
+    );
+
     let mut key_file = BufReader::new(
         File::open(
             data_path
@@ -3350,31 +3830,49 @@ async fn main() -> std::io::Result<()> {
         .with_single_cert(tls_certs, rustls::pki_types::PrivateKeyDer::Pkcs8(tls_key))
         .unwrap();
 
-    let governor_conf = GovernorConfigBuilder::default()
-        .burst_size(100)
-        .period(Duration::from_millis(250))
-        .finish()
-        .unwrap();
+    let mut gov_vars = std::env::vars();
+    let governor_strict: bool = !gov_vars.any(|x| {
+        x == ("ZENTROX_MODE".to_string(), "NO_LIMITING".to_string())
+            || x == ("ZENTROX_MODE".to_string(), "DEV".to_string())
+    });
 
-    let harsh_governor_conf = GovernorConfigBuilder::default()
-        .requests_per_minute(5)
-        .finish()
-        .unwrap();
+    let governor_conf = if governor_strict {
+        GovernorConfigBuilder::default()
+            .burst_size(100)
+            .period(Duration::from_millis(250))
+            .finish()
+            .unwrap()
+    } else {
+        warn!("Using permissive governor configuration");
+        GovernorConfigBuilder::default()
+            .permissive(true)
+            .finish()
+            .unwrap()
+    };
 
-    env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
+    let harsh_governor_conf = if governor_strict {
+        GovernorConfigBuilder::default()
+            .requests_per_minute(5)
+            .finish()
+            .unwrap()
+    } else {
+        warn!("Using permissive governor configuration");
+        GovernorConfigBuilder::default()
+            .permissive(true)
+            .finish()
+            .unwrap()
+    };
 
     println!("🚀 Serving Zentrox on Port 8080");
 
     HttpServer::new(move || {
-        let mut vars = std::env::vars();
-        let cors_permissive: bool = vars
-            .find(|x| {
-                x == &("ZENTROX_MODE".to_string(), "NO_CORS".to_string())
-                    || x == &("ZENTROX_MODE".to_string(), "DEV".to_string())
-            })
-            .is_some();
+        let mut cors_vars = std::env::vars();
+        let cors_permissive: bool = cors_vars.any(|x| {
+            x == ("ZENTROX_MODE".to_string(), "NO_CORS".to_string())
+                || x == ("ZENTROX_MODE".to_string(), "DEV".to_string())
+        });
         if cors_permissive {
-            print!(include_str!("../notes/cors_note.txt"))
+            warn!("CORS policy is set to permissive! This poses a high security risk.")
         }
 
         App::new()
@@ -3410,7 +3908,7 @@ async fn main() -> std::io::Result<()> {
             .service(
                 web::scope("/login")
                     .wrap(Governor::new(&harsh_governor_conf))
-                    .route("/verify", web::post().to(login))
+                    .route("/verify", web::post().to(login)),
             )
             .service(use_otp)
             .service(otp_secret_request)
@@ -3433,6 +3931,7 @@ async fn main() -> std::io::Result<()> {
             .service(switch_ufw)
             .service(new_firewall_rule)
             .service(delete_firewall_rule)
+            .service(firewall_has_ufw)
             // API Files
             .service(call_file)
             .service(files_list)
@@ -3483,13 +3982,21 @@ async fn main() -> std::io::Result<()> {
             .service(network_routes)
             .service(delete_network_route)
             .service(networking_interface_active)
+            // Process manager
+            .service(list_processes)
+            .service(list_cronjobs)
+            .service(kill_process)
+            .service(details_process)
+            .service(delete_cronjob)
+            .service(run_cronjob_command)
+            .service(create_cronjob)
             // General services and blocks
             .service(dashboard_asset_block)
             .service(robots_txt)
             .service(afs::Files::new("/", "static/"))
     })
     .workers(16)
-    .keep_alive(systemstat::Duration::from_secs(60 * 6))
+    .keep_alive(std::time::Duration::from_secs(60 * 6))
     .bind_rustls_0_23(("0.0.0.0", 8080), tls_config)?
     .run()
     .await
