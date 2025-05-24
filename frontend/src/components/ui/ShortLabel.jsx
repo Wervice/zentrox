@@ -1,3 +1,7 @@
 export default function Label({ children }) {
-  return <label className="font-200 mb-0.5 block">{children}</label>;
+  return (
+    <label className="font-200 mb-1 text-base flex items-center gap-1">
+      {children}
+    </label>
+  );
 }
