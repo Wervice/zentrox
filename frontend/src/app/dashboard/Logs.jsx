@@ -17,6 +17,8 @@ import { QRCodeSVG } from "qrcode.react";
 import secondsToFormat from "@/lib/dates";
 const fetchURLPrefix = require("@/lib/fetchPrefix");
 import { Td, Tr, Th, Table } from "@/components/ui/table";
+import { LockIcon } from "lucide-react";
+import useNotification from "@/lib/notificationState";
 
 function Logs() {
   const [selectedLog, setSelectedLog] = useState("");
@@ -42,14 +44,11 @@ function Logs() {
   let sudoPasswordInput = useRef();
   let searchInput = useRef();
 
-  const LogTable = ({ log, logFilter }) => {
+  const LogTable = ({ log }) => {
     const [logEntries, setLogEntries] = useState([["", "", "", ""]]);
-    const [logInfo, setLogInfo] = useState("");
-    const [logMessageColor, setLogMessageColor] = useState("white");
+    const { deleteNotification, notify, notifications } = useNotification();
 
     const fetchLog = (log, sudo, since, until) => {
-      setLogInfo(`Fetching for logs`);
-      setLogMessageColor("blue");
       fetch(
         fetchURLPrefix +
           "/api/logs/" +
@@ -69,39 +68,32 @@ function Logs() {
         },
       ).then((res) => {
         if (res.ok) {
-          setLogInfo(`Viewing log`);
-          setLogMessageColor("green");
           res.json().then((j) => {
             setLogEntries(j.logs);
           });
         } else {
-          setLogEntries([["", "", "", ""]]);
-          setLogInfo(`Failed to fetch log`);
-          setLogMessageColor("red");
+          notify(
+            "Failed to fetch log entries. Please validate your sudo password.",
+          );
         }
       });
     };
 
     useEffect(() => {
-      if (sudoPassword != "") {
+      if (sudoPassword !== "") {
         fetchLog(log, sudoPassword, since, until);
-      } else {
-        setLogInfo(`Missing sudo password`);
-        setLogMessageColor("yellow");
       }
     }, []);
 
     return (
       <>
         <div className="overflow-scroll no-scroll">
-          <Table>
-            <thead>
-              <Tr>
-                <Th expand={true}>Time</Th>
-                <Th expand={true}>Application</Th>
-                <Th expand={true}>Message</Th>
-              </Tr>
-            </thead>
+          <Table className="overflow-y-scroll max-h-[calc(100vh - 300px)] block">
+            <Tr>
+              <Th>Time</Th>
+              <Th>Application</Th>
+              <Th>Message</Th>
+            </Tr>
             {logEntries
               .filter((e) => {
                 if (e[0] === "") return;
@@ -183,7 +175,7 @@ function Logs() {
   };
 
   return (
-    <Page name="Logs">
+    <Page name="Logs" titleAbsolute={sudoPassword === ""}>
       <Dialog open={sudoPasswordModal} onOpenChange={setSudoPasswordModal}>
         <DialogContent>
           <DialogHeader>
@@ -216,21 +208,29 @@ function Logs() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      <span className="m-1 block"></span>
-      {sudoPassword === "" ? (
-        <Button
-          onClick={() => {
-            setSudoPasswordModal(true);
-          }}
-          className="mr-1"
-        >
-          Enter sudo password
-        </Button>
-      ) : (
-        <></>
+      {sudoPassword === "" && (
+        <span className="flex items-center justify-center h-full overflow-hidden">
+          <span className="h-fit">
+            <div className="text-center text-2xl opacity-50">
+              <LockIcon className="m-auto h-52 w-52" />
+              Sudo password is required
+            </div>
+            <Button
+              className="m-auto block mt-4"
+              onClick={() => {
+                setSudoPasswordModal(true);
+              }}
+            >
+              Enter password
+            </Button>
+          </span>
+        </span>
       )}
-      <div hidden={sudoPassword === ""}>
+      <span
+        className={
+          "items-center space-x-1" + (sudoPassword === "" ? " hidden" : " flex")
+        }
+      >
         <Button
           onClick={() => {
             setLogRefreshKeyValue(new Date().getTime());
@@ -242,8 +242,8 @@ function Logs() {
         <Input
           type="text"
           placeholder="Search"
+          className="mt-0 mb-0"
           ref={searchInput}
-          className="inline-flex"
           onKeyPress={(event) => {
             if (event.key == "Enter") {
               setTableFilter(searchInput.current.value);
@@ -253,24 +253,24 @@ function Logs() {
 
         <CalendarButton
           placeholder="Since"
-          className="mr-1 ml-1"
           onValueChange={setSince}
           variant={"secondary"}
           confirmMode={true}
         />
         <CalendarButton
           placeholder="Until"
-          className="mr-1"
           onValueChange={setUntil}
           variant={"secondary"}
           confirmMode={true}
         />
+      </span>
+      <span hidden={sudoPassword === ""}>
         <LogTable
           log={selectedLog}
           refreshKey={logRefreshKeyValue}
           tableFilter={tableFilter}
         />
-      </div>
+      </span>
     </Page>
   );
 }
