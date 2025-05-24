@@ -12,6 +12,7 @@ import {
   DownloadIcon,
   DatabaseIcon,
   SparklesIcon,
+  PackageIcon,
 } from "lucide-react";
 import { useEffect, useState, useRef } from "react";
 import "./table.css";
@@ -31,9 +32,13 @@ import {
 import Page from "@/components/ui/PageWrapper";
 import fetchURLPrefix from "@/lib/fetchPrefix";
 import useNotification from "@/lib/notificationState";
-import DateWrapper from "@/components/ui/Date";
 import secondsToFormat from "@/lib/dates";
 import { Details } from "@/components/ui/Details";
+import {
+  Placeholder,
+  PlaceholderIcon,
+  PlaceholderSubtitle,
+} from "@/components/ui/placeholder";
 
 function startTask(adress, options = {}, interval = 500) {
   return new Promise((resolve, reject) => {
@@ -505,6 +510,9 @@ function Packages() {
     }
   }
 
+  var installedCount = 0;
+  var otherCount = 0;
+
   if (visible) {
     if (packageSearchValue.length > 1) {
       var PackageView = (
@@ -518,6 +526,7 @@ function Packages() {
               return +1;
             })
             .map((pkg, i) => {
+              installedCount++;
               return (
                 <PackageBox
                   packageName={pkg}
@@ -535,6 +544,7 @@ function Packages() {
               return +1;
             })
             .map((pkg, i) => {
+              otherCount++;
               return (
                 <PackageBox
                   packageName={pkg}
@@ -543,6 +553,12 @@ function Packages() {
                 ></PackageBox>
               );
             })}
+          {installedCount === 0 && otherCount === 0 && (
+            <Placeholder>
+              <PlaceholderIcon icon={PackageIcon} />
+              <PlaceholderSubtitle>No packages found</PlaceholderSubtitle>
+            </Placeholder>
+          )}
         </>
       );
     } else {
@@ -662,24 +678,18 @@ function Packages() {
         )}
 
         <br />
-        <div className="h-fit">
+        <div className="flex w-full items-center space-x-2 mb-2">
           <Input
             placeholder="Search for packages"
             onChange={(e) => {
               setPackageSearchValue(e.target.value);
             }}
-            className="mt-2 w-[300px] mr-1 w-max-[75vw] inline-block"
+            autoFocus
+            className="w-[300px] mr-1 w-max-[75vw] inline-block"
           />
         </div>
-        <br />
         <div className={packageSearchValue === "" ? "mb-2" : "hidden"}>
-          <Details
-            title={
-              <>
-                <RefreshCcw className="h-5 inline-block mr-1" /> Updates
-              </>
-            }
-          >
+          <Details rememberState name={"packagesUpdate"} title="Updates">
             {updates.length > 0 ? (
               <small className="mb-1 block">
                 {updates.length} package{updates.length !== 1 ? "s" : ""} can be
@@ -808,7 +818,7 @@ function Packages() {
             <br />
             {updates.length === 0 ? (
               <div className="text-center align-middle opacity-75">
-                <SparklesIcon className="w-8 h-8 inline-block" /> Everything is
+                <SparklesIcon className="w-full h-8 block mb-2" /> Everything is
                 up-to-date
               </div>
             ) : (
@@ -826,16 +836,14 @@ function Packages() {
           </Details>
         </div>
         <Details
+          rememberState
+          name={"packagesOrphaned"}
           className={
             autoRemovePackages.length > 0 && packageSearchValue === ""
               ? ""
               : "hidden"
           }
-          title={
-            <>
-              <TrashIcon className="h-5 inline-block mr-1" /> Orphaned packages
-            </>
-          }
+          title="Orphaned packages"
         >
           <small className="mb-1 block">
             {autoRemovePackages.length} package
@@ -857,8 +865,8 @@ function Packages() {
     );
   } else {
     return (
-      <div className="p-auto pt-5">
-        <Loader2 className="animate-spin m-auto w-20 h-20" />
+      <div className="h-screen w-screen flex items-center justify-center">
+        <Loader2 className="animate-spin m-auto w-32 h-32 opacity-75" />
       </div>
     );
   }
