@@ -43,30 +43,38 @@ import Overview from "./Overview";
 import Packages from "./Packages";
 import Firewall from "./Firewall";
 import Files from "./Files";
-import Storage from "./Storage";
+import Drives from "./Drives";
 import Vault from "./Vault";
 import Server from "./Server";
 import Logs from "./Logs";
 import Media from "./Media";
-import Networking from "./Networking";
+import Processes from "./Processes";
+import Endpoints from "./Endpoints";
+import Cron from "./Cron";
 import { Checkbox } from "@/components/ui/checkbox";
+import InfoButton from "@/components/ui/InfoButton";
 import {
+  ActivityIcon,
   BellDotIcon,
   BellIcon,
-  BrickWall,
-  ChartBar,
-  CircleDot,
-  DiscIcon,
-  FileIcon,
+  BrickWallIcon,
+  ClockIcon,
+  CornerDownRight,
+  EthernetPortIcon,
+  FoldersIcon,
   HardDriveIcon,
-  LockIcon,
-  LogsIcon,
-  NetworkIcon,
+  HouseIcon,
+  ListIcon,
+  MusicIcon,
   PackageIcon,
   ServerIcon,
+  SidebarCloseIcon,
+  SidebarOpenIcon,
+  VaultIcon,
   XIcon,
 } from "lucide-react";
-import InfoButton from "@/components/ui/InfoButton";
+import { Details } from "@/components/ui/Details";
+import { Switch } from "@/components/ui/switch";
 const fetchURLPrefix = require("@/lib/fetchPrefix");
 
 if (fetchURLPrefix.length > 0) {
@@ -75,56 +83,92 @@ if (fetchURLPrefix.length > 0) {
   );
 }
 
-function TopBar({ children }) {
+function SideBar({ children }) {
+  var def =
+    typeof window !== "undefined"
+      ? localStorage.getItem("sidebarExpanded") == null
+        ? true
+        : localStorage.getItem("sidebarExpanded") == "true"
+      : true;
+  const [expanded, setExpanded] = useState(def);
+
   return (
-    <nav className="bg-transparent text-neutral-100 p-3 border-neutral-900 border-b font-semibold text-xl flex items-center animate-fadein duration-300">
-      {children}
-    </nav>
+    <>
+      <span
+        className={
+          !expanded
+            ? "border-r border-r-neutral-800 p-4 overflow-hidden"
+            : "hidden"
+        }
+      >
+        <img
+          src="zentrox_dark_emblem.svg"
+          className="w-6 h-6 inline-block mb-2"
+        />
+        <SidebarOpenIcon
+          onClick={() => {
+            setExpanded(true);
+            localStorage.setItem("sidebarExpanded", true);
+          }}
+          className="h-5 w-5 cursor-pointer duration-200 opacity-75 hover:opacity-100 mb-2"
+        />
+        <NotificationBell />
+      </span>
+
+      <span
+        className={
+          "border-r border-r-neutral-800 overflow-hidden " +
+          (expanded ? "w-[300px]" : "hidden")
+        }
+      >
+        <span className="w-full max-w-full whitespace-nowrap p-3 flex items-center border-b border-neutral-800 bg-white/5">
+          <span className="w-full font-medium text-lg flex items-center">
+            <Account />
+            <span className="ml-2 font-semibold select-none">Zentrox</span>
+          </span>
+          <NotificationBell />
+          <SidebarCloseIcon
+            onClick={() => {
+              setExpanded(false);
+              localStorage.setItem("sidebarExpanded", false);
+            }}
+            className="h-5 w-5 cursor-pointer duration-200 opacity-75 hover:opacity-100 ml-1"
+          />
+        </span>
+        <span className="p-2 block h-full h-max-full overflow-y-scroll no-scroll">
+          {children}
+        </span>
+      </span>
+    </>
   );
 }
 
-function TabButton({ onClick, isDefault, isActive, children, icon }) {
-  const [isOnloadDefault, setOnloadDefault] = useState(isDefault);
-  const [smallTopBar, setSmallTopBar] = useState(false);
+function SideBarEntry({
+  children,
+  activeTab,
+  setActiveTab,
+  sub = false,
+  name,
+}) {
+  const active = activeTab == name;
 
-  useEffect(() => {
-    setSmallTopBar(window.innerWidth < 1000);
-  }, []);
-
-  if (isOnloadDefault || isActive) {
-    var style =
-      "mr-2 ml-2 text-lg hover:bg-neutral-900 text-white bg-neutral-900 hover:bg-neutral-800 hover:text-neutral-100";
-  } else {
-    var style =
-      "bg-transparent mr-2 ml-2 text-lg hover:bg-neutral-800 hover:text-neutral-200 text-neutral-400";
-  }
-  if (isOnloadDefault) {
-    onClick();
-    setOnloadDefault(false);
-  }
-  if (!smallTopBar) {
-    return (
-      <Button
-        className={style}
-        onClick={() => {
-          onClick();
-        }}
+  return (
+    <>
+      <span
+        className={
+          "p-2 pb-1 pt-1 text-white cursor-pointer select-none flex items-center " +
+          (!sub ? "font-semibold " : "ml-3 font-medium opacity-90 ") +
+          (active && "underline")
+        }
+        onClick={() => setActiveTab(name)}
       >
+        {!sub || (
+          <CornerDownRight className="h-4 mr-1 opacity-50 inline-block" />
+        )}
         {children}
-      </Button>
-    );
-  } else {
-    return (
-      <Button
-        className={style}
-        onClick={() => {
-          onClick();
-        }}
-      >
-        {icon}
-      </Button>
-    );
-  }
+      </span>
+    </>
+  );
 }
 
 function Account() {
@@ -153,7 +197,7 @@ function Account() {
         }
       });
     }
-  });
+  }, []);
 
   function fetchOtpInformation() {
     if (account.username == "") {
@@ -449,7 +493,7 @@ function Account() {
 
       <DropdownMenu modal={false}>
         <DropdownMenuTrigger asChild>
-          <Avatar className="block float-right cursor-pointer ml-2">
+          <Avatar className="cursor-pointer select-none">
             <AvatarImage
               src={`${fetchURLPrefix}/api/profilePicture?reload=${reloadTrigger}`}
             />
@@ -462,7 +506,7 @@ function Account() {
         </DropdownMenuTrigger>
 
         <DropdownMenuContent>
-          <DropdownMenuLabel>My Account</DropdownMenuLabel>
+          <DropdownMenuLabel>My account</DropdownMenuLabel>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={handleEditDetailsClick}>
             Edit details
@@ -492,109 +536,79 @@ function NotificationBell() {
     setSysNotification,
   } = useNotification();
   const [expanded, setExpanded] = useState(false);
-  const [closing, setClosing] = useState(false);
-
-  function openList() {
-    setExpanded(true);
-  }
-
-  function closeList() {
-    setClosing(true);
-    setTimeout(() => {
-      setExpanded(false);
-      setClosing(false);
-    }, 150 - 20);
-  }
-
   const SuggestedIcon = unreadNotifications ? BellDotIcon : BellIcon;
 
   return (
     <>
       <SuggestedIcon
         className={
-          "inline-block ml-auto mr-2 h-4 w-4 cursor-pointer" +
-          (unreadNotifications ? " text-orange-500" : "")
+          "h-5 w-5 cursor-pointer duration-200 opacity-75 hover:opacity-100" +
+          (unreadNotifications ? " text-blue-500 opacity-100" : "")
         }
         onClick={() => {
           readNotifications();
-          if (expanded) {
-            closeList();
-          } else {
-            openList();
-          }
+          setExpanded(true);
         }}
       />
-      <span
-        className={
-          "w-screen h-screen top-0 left-0 fixed z-10" +
-          (expanded ? " block" : " hidden")
-        }
-        onClick={closeList}
-        onContextMenu={closeList}
-      ></span>
-      <span
-        className={
-          "w-64 h-full fixed top-[76px] right-0 bg-zinc-950 border-l-zinc-900 border-l z-20 duration-150 p-2 max-h-full overflow-scroll " +
-          (!closing
-            ? "fade-in-0 animate-in"
-            : "fade-out-0 animate-out right-[-20px]") +
-          (expanded ? " block" : " hidden")
-        }
-      >
-        <strong className="flex items-center w-full">
-          <BellIcon className="inline-block mr-1 ml-1 h-5 w-5" />
-          Notifications
-        </strong>
-        <span className="flex items-center h-fit ml-1 font-normal">
-          <Checkbox
-            className="mr-1"
-            defaultChecked={
-              typeof window !== "undefined"
-                ? localStorage.getItem("enableSysNotification") === "true"
-                : false
-            }
-            onCheckedChange={(e) => {
-              if (e) {
-                Notification.requestPermission();
-              }
-              setSysNotification(e);
-            }}
-          />{" "}
-          <label>
-            Push notifications{" "}
-            <InfoButton
-              title={"Push notifications"}
-              info={
-                <>
-                  Enable push notifications to get notifications when this tab
-                  is not active or your browser window is minimized. Zentrox
-                  will only send copies of the notifications that are written
-                  into this notification bar to your push notifications. You can
-                  disable this feature at any time.
-                </>
-              }
-            />
-          </label>
-        </span>
-        {notifications.length === 0 && (
-          <span className="opacity-50">No notifications</span>
-        )}
-        {notifications.map((e, k) => {
-          const deleteE = () => deleteNotification(e[1]);
-          return (
-            <span
-              key={"notbell" + k}
-              className="relative block w-full p-2 pt-5 mb-2 h-fit whitespace-pre-wrap overflow-ellipsis overflow-hidden rounded border-zinc-900 border hover:border-zinc-800 select-none cursor-pointer duration-200 transition-all text-sm font-normal"
-            >
-              {e[0]}
-              <XIcon
-                className="absolute top-1 right-1 h-4 w-4 opacity-75 hover:opacity-100 duration-150 transition-all cursor-pointer"
-                onClick={deleteE}
+
+      <Dialog open={expanded} onOpenChange={setExpanded}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Notifications</DialogTitle>
+            <DialogDescription>
+              Zentrox yields notifications to inform you about errors, warnings
+              or success messages.
+            </DialogDescription>
+          </DialogHeader>
+          <p>
+            <span className="flex items-center">
+              <Switch
+                className="mr-2"
+                defaultChecked={
+                  typeof window != "undefined"
+                    ? localStorage.getItem("enableSysNotification") == "true"
+                    : false
+                }
+                onCheckedChange={(e) => {
+                  setSysNotification(e);
+                }}
+              />{" "}
+              Enable browser notifications{" "}
+              <InfoButton
+                className="ml-1"
+                title={"Enable browser notifications"}
+                info={
+                  "For every notification yielded by Zentrox, you will also get a notification in your browser."
+                }
               />
             </span>
-          );
-        })}
-      </span>
+
+            <span className="block w-full p-1 max-h-[250px] overflow-y-scroll no-scroll">
+              {notifications.length == 0 && (
+                <span className="opacity-75 pt-2 w-full text-center block select-none">
+                  No notifications
+                </span>
+              )}
+
+              {notifications.map((x) => {
+                return (
+                  <span className="p-2 m-1 block rounded-lg border-neutral-800 border relative">
+                    <XIcon
+                      className="absolute top-2 right-2 opacity-50 hover:opacity-75 transition-all duration-200 cursor-pointer"
+                      onClick={() => {
+                        deleteNotification(x[1]);
+                      }}
+                    />
+                    <span className="block max-w-[calc(100%-2rem)]">
+                      {x[0]}
+                    </span>
+                  </span>
+                );
+              })}
+            </span>
+          </p>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
@@ -616,8 +630,8 @@ export default function Dashboard() {
       return <Firewall />;
     } else if (activeTab == "Files") {
       return <Files />;
-    } else if (activeTab == "Storage") {
-      return <Storage />;
+    } else if (activeTab == "Drives") {
+      return <Drives />;
     } else if (activeTab == "Vault") {
       return <Vault />;
     } else if (activeTab == "Server") {
@@ -626,135 +640,147 @@ export default function Dashboard() {
       return <Logs />;
     } else if (activeTab == "Media") {
       return <Media />;
-    } else if (activeTab == "Networking") {
-      return <Networking />;
+    } else if (activeTab == "Endpoints") {
+      return <Endpoints />;
+    } else if (activeTab == "Processes") {
+      return <Processes />;
+    } else if (activeTab == "Cronjobs") {
+      return <Cron />;
     }
   }
 
   return (
-    <main className="h-screen w-screen overflow-hidden p-0 m-0 flex flex-col transition-opacity">
+    <main className="h-screen w-screen overflow-hidden p-0 m-0 flex transition-opacity">
       <Toaster />
-      <TopBar>
-        <span
-          className={
-            !smallTopBar
-              ? "p-2 pl-4 pr-4 border border-neutral-700 cursor-pointer rounded transition-all content-center inline-block text-lg font-normal"
-              : "hidden"
-          }
-          onClick={() => {
-            window.open("https://github.com/wervice/zentrox");
-          }}
+      <SideBar>
+        <SideBarEntry
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          name="Overview"
         >
-          <img
-            src="zentrox_dark_emblem.svg"
-            className="inline-block pb-0.5 w-5 h-5"
-            alt="Zentrox Logo"
-          />{" "}
-          Zentrox
-        </span>{" "}
-        <TabButton
-          onClick={() => {
-            setActiveTab("Overview");
-          }}
-          isDefault={true}
-          isActive={activeTab == "Overview"}
-          icon={<ChartBar />}
-        >
+          <HouseIcon className="w-4 inline-block mr-1" />
           Overview
-        </TabButton>
-        <TabButton
-          onClick={() => {
-            setActiveTab("Packages");
-          }}
-          isDefault={false}
-          isActive={activeTab == "Packages"}
-          icon={<PackageIcon />}
+        </SideBarEntry>
+        <Details
+          rememberState={true}
+          name={"sideBarApplications"}
+          open
+          title={"Applications"}
         >
-          Packages
-        </TabButton>
-        <TabButton
-          onClick={() => {
-            setActiveTab("Logs");
-          }}
-          isDefault={false}
-          isActive={activeTab == "Logs"}
-          icon={<LogsIcon />}
+          <SideBarEntry
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            name="Packages"
+            sub
+          >
+            <PackageIcon className="w-4 inline-block mr-1" />
+            Packages
+          </SideBarEntry>
+          <SideBarEntry
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            name="Processes"
+            sub
+          >
+            <ActivityIcon className="w-4 inline-block mr-1" />
+            Processes
+          </SideBarEntry>
+          <SideBarEntry
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            name="Cronjobs"
+            sub
+          >
+            <ClockIcon className="w-4 inline-block mr-1" />
+            Cronjobs
+          </SideBarEntry>
+          <SideBarEntry
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            name="Logs"
+            sub
+          >
+            <ListIcon className="w-4 inline-block mr-1" />
+            Logs
+          </SideBarEntry>
+        </Details>
+        <Details
+          rememberState={true}
+          name={"sideBarNetworking"}
+          open
+          title={"Networking"}
         >
-          Logs
-        </TabButton>
-        <TabButton
-          onClick={() => {
-            setActiveTab("Firewall");
-          }}
-          isDefault={false}
-          isActive={activeTab == "Firewall"}
-          icon={<BrickWall />}
+          <SideBarEntry
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            name="Firewall"
+            sub
+          >
+            <BrickWallIcon className="w-4 inline-block mr-1" />
+            Firewall
+          </SideBarEntry>
+          <SideBarEntry
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            name="Endpoints"
+            sub
+          >
+            <EthernetPortIcon className="w-4 inline-block mr-1" />
+            Endpoints
+          </SideBarEntry>
+        </Details>
+        <Details
+          rememberState={true}
+          name={"sideBarStorage"}
+          open
+          title={"Storage"}
         >
-          Firewall
-        </TabButton>
-        <TabButton
-          onClick={() => {
-            setActiveTab("Networking");
-          }}
-          isDefault={false}
-          isActive={activeTab == "Networking"}
-          icon={<NetworkIcon />}
+          <SideBarEntry
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            name="Drives"
+            sub
+          >
+            <HardDriveIcon className="w-4 inline-block mr-1" />
+            Drives
+          </SideBarEntry>
+          <SideBarEntry
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            name="Files"
+            sub
+          >
+            <FoldersIcon className="w-4 inline-block mr-1" />
+            Files
+          </SideBarEntry>
+          <SideBarEntry
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            name="Vault"
+            sub
+          >
+            <VaultIcon className="w-4 inline-block mr-1" />
+            Vault
+          </SideBarEntry>
+          <SideBarEntry
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            name="Media"
+            sub
+          >
+            <MusicIcon className="w-4 inline-block mr-1" />
+            Media
+          </SideBarEntry>
+        </Details>
+        <SideBarEntry
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          name="Server"
         >
-          Networking
-        </TabButton>
-        <TabButton
-          onClick={() => {
-            setActiveTab("Files");
-          }}
-          isDefault={false}
-          isActive={activeTab == "Files"}
-          icon={<FileIcon />}
-        >
-          Files
-        </TabButton>
-        <TabButton
-          onClick={() => {
-            setActiveTab("Storage");
-          }}
-          isDefault={false}
-          isActive={activeTab == "Storage"}
-          icon={<HardDriveIcon />}
-        >
-          Storage
-        </TabButton>
-        <TabButton
-          onClick={() => {
-            setActiveTab("Vault");
-          }}
-          isDefault={false}
-          isActive={activeTab == "Vault"}
-          icon={<LockIcon />}
-        >
-          Vault
-        </TabButton>
-        <TabButton
-          onClick={() => {
-            setActiveTab("Server");
-          }}
-          isDefault={false}
-          isActive={activeTab == "Server"}
-          icon={<ServerIcon />}
-        >
+          <ServerIcon className="w-4 inline-block mr-1" />
           Server
-        </TabButton>
-        <TabButton
-          onClick={() => {
-            setActiveTab("Media");
-          }}
-          isDefault={false}
-          isActive={activeTab == "Media"}
-          icon={<DiscIcon />}
-        >
-          Media
-        </TabButton>
-        <NotificationBell />
-        <Account />
-      </TopBar>
+        </SideBarEntry>
+      </SideBar>
       <PageToShow />
     </main>
   );
