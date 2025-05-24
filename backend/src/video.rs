@@ -21,8 +21,6 @@ pub fn compress_media(media_path: &Path) -> Result<PathBuf, String> {
     let output_location =
         Path::new("/tmp").join(format!("{}.{}", Uuid::new_v4().to_string(), extension).to_string());
 
-    dbg!(&output_location);
-
     // The ffmpeg command, it is not being called in this expression
     let mut ffmpeg_command = Command::new("ffmpeg");
     ffmpeg_command
