@@ -130,7 +130,7 @@ function InterfaceCard({
           </p>
           <DialogFooter>
             <DialogClose asChild>
-              <Button variant="secondary">Cancel</Button>
+              <Button variant="outline">Cancel</Button>
             </DialogClose>
             <DialogClose asChild>
               <Button
@@ -161,7 +161,7 @@ function MacAddress({ children }) {
   const [visible, setVisible] = useState(false);
   return (
     <span
-      title="Click to show MAC address"
+      title="Click to show sensitive data"
       className={
         "font-[monospace] cursor-pointer" +
         (visible ? " text-red-500" : " opacity-75")
@@ -173,7 +173,7 @@ function MacAddress({ children }) {
   );
 }
 
-export default function Networking() {
+export default function Endpoints() {
   const [routes, setRoutes] = useState([]);
   const [interfaces, setInterfaces] = useState([]);
 
@@ -278,8 +278,10 @@ export default function Networking() {
 
   return (
     <>
-      <Page name="Networking">
+      <Page name="Endpoints">
         <Details
+          rememberState
+          name="endpointsInterfaces"
           title={
             <>
               <EthernetPortIcon className="h-5 inline-block mr-1" /> Interfaces
@@ -372,6 +374,8 @@ export default function Networking() {
         </Details>
 
         <Details
+          rememberState
+          name="endpointsRoutes"
           title={
             <>
               <RouteIcon className="h-5 inline-block mr-1" /> Routes
