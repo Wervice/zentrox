@@ -9,6 +9,7 @@ import {
   ArrowDownToDot,
   Shield,
   TrashIcon,
+  LockIcon,
 } from "lucide-react";
 import { useState, useRef } from "react";
 import "./scroll.css";
@@ -50,6 +51,12 @@ import fetchURLPrefix from "@/lib/fetchPrefix";
 import useNotification from "@/lib/notificationState";
 import { Td, Tr, Th, Table, ActionTh, ActionTd } from "@/components/ui/table";
 import { Details } from "@/components/ui/Details";
+import Label from "@/components/ui/ShortLabel";
+import {
+  Placeholder,
+  PlaceholderIcon,
+  PlaceholderSubtitle,
+} from "@/components/ui/placeholder";
 
 function Firewall() {
   const [rules, setRules] = useState([]); // Firewall rules that are displayed on the frontend and fetched from UFW
@@ -62,6 +69,7 @@ function Firewall() {
   const [portOrRange, setPortOrRange] = useState("port");
   const [anyIp, setAnyIp] = useState(false);
   const [networkProtocol, setNetworkProtocol] = useState("tcp");
+  const [hasUfw, setHasUfw] = useState(true);
   var newRuleToSinglePort = useRef();
   var newRuleToRangeLeft = useRef();
   var newRuleToRangeRight = useRef();
@@ -70,6 +78,14 @@ function Firewall() {
   const { deleteNotification, notify, notifications } = useNotification();
 
   const { toast } = useToast();
+
+  function verifyUfwPersence() {
+    fetch(fetchURLPrefix + "/api/hasUfw").then((res) => {
+      res.text().then((text) => {
+        setHasUfw(text == "true");
+      });
+    });
+  }
 
   function fetchFireWallInformation(password = sudoPassword) {
     fetch(fetchURLPrefix + "/api/fireWallInformation", {
@@ -101,102 +117,100 @@ function Firewall() {
       return (
         <div className="max-h-full min-h-fit overflow-y-scroll overflow-x-hidden w-fit no-scroll">
           <Table>
-            <tbody>
-              <Tr>
-                <Th>
-                  <ArrowUpFromDot className="w-4 h-4 pb-0.5 inline" /> To
-                </Th>
-                <Th>
-                  <ArrowDownToDot className="w-4 h-4 pb-0.5 inline" /> From
-                </Th>
-                <Th>
-                  <Shield className="w-4 h-4 pb-0.5 inline" /> Action
-                </Th>
-                <ActionTh />
-              </Tr>
-              {rules.map((rule, i) => {
-                return (
-                  <Tr key={i} className="w-fit">
-                    <Td>{rule.to.replaceAll("(v6)", "IPv6")}</Td>
-                    <Td>{rule.from.replaceAll("(v6)", "IPv6")}</Td>
-                    <Td className="align-middle">
-                      {rule.action === "DENY" ? (
-                        <>
-                          <Ban className="h-6 w-6 mt-[-2px] inline-block text-red-500 pr-1" />
-                          Deny
-                        </>
-                      ) : (
-                        <>
-                          <CircleCheck className="h-6 w-6 mt-[-2px] inline-block text-green-500 pr-1" />
-                          Allow
-                        </>
-                      )}
-                    </Td>
-                    <ActionTd>
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <TrashIcon className="w-4 h-4 opacity-75 text-red-500 hover:opacity-100 transition-all duration-200 inline-block cursor-pointer" />
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Delete rule</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Do you really want to remove this rule? This
-                              action can not be undone.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction
-                              onClick={() => {
-                                fetch(
-                                  fetchURLPrefix +
-                                    "/api/deleteFireWallRule/" +
-                                    rule.index,
-                                  {
-                                    method: "POST",
-                                    headers: {
-                                      "Content-Type": "application/json",
-                                    },
-                                    body: JSON.stringify({
-                                      sudoPassword: sudoPassword,
-                                    }),
+            <Tr>
+              <Th>
+                <ArrowUpFromDot className="w-4 h-4 pb-0.5 inline" /> To
+              </Th>
+              <Th>
+                <ArrowDownToDot className="w-4 h-4 pb-0.5 inline" /> From
+              </Th>
+              <Th>
+                <Shield className="w-4 h-4 pb-0.5 inline" /> Action
+              </Th>
+              <ActionTh />
+            </Tr>
+            {rules.map((rule, i) => {
+              return (
+                <Tr key={i} className="w-fit">
+                  <Td>{rule.to.replaceAll("(v6)", "IPv6")}</Td>
+                  <Td>{rule.from.replaceAll("(v6)", "IPv6")}</Td>
+                  <Td className="align-middle">
+                    {rule.action === "DENY" ? (
+                      <>
+                        <Ban className="h-6 w-6 mt-[-2px] inline-block text-red-500 pr-1" />
+                        Deny
+                      </>
+                    ) : (
+                      <>
+                        <CircleCheck className="h-6 w-6 mt-[-2px] inline-block text-green-500 pr-1" />
+                        Allow
+                      </>
+                    )}
+                  </Td>
+                  <ActionTd>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <TrashIcon className="w-4 h-4 opacity-75 text-red-500 hover:opacity-100 transition-all duration-200 inline-block cursor-pointer" />
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete rule</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Do you really want to remove this rule? This action
+                            can not be undone.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={() => {
+                              fetch(
+                                fetchURLPrefix +
+                                  "/api/deleteFireWallRule/" +
+                                  rule.index,
+                                {
+                                  method: "POST",
+                                  headers: {
+                                    "Content-Type": "application/json",
                                   },
-                                ).then((res) => {
-                                  if (!res.ok) {
-                                    notify(
-                                      "Failed to delete firewall rule " +
-                                        rule.index,
-                                    );
-                                    toast({
-                                      title: "Failed to delete firewall rule",
-                                      description: `Zentrox failed to delete rule ${rule.index}.`,
-                                    });
-                                  } else {
-                                    fetchFireWallInformation();
-                                  }
-                                });
-                              }}
-                            >
-                              Proceed
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    </ActionTd>
-                  </Tr>
-                );
-              })}
-            </tbody>
+                                  body: JSON.stringify({
+                                    sudoPassword: sudoPassword,
+                                  }),
+                                },
+                              ).then((res) => {
+                                if (!res.ok) {
+                                  notify(
+                                    "Failed to delete firewall rule " +
+                                      rule.index,
+                                  );
+                                  toast({
+                                    title: "Failed to delete firewall rule",
+                                    description: `Zentrox failed to delete rule ${rule.index}.`,
+                                  });
+                                } else {
+                                  fetchFireWallInformation();
+                                }
+                              });
+                            }}
+                          >
+                            Proceed
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </ActionTd>
+                </Tr>
+              );
+            })}
           </Table>
         </div>
       );
     } else {
       return (
-        <span className="align-middle p-2 block">
-          <BrickWall className="w-8 h-8 inline text-neutral-600" /> Firewall is
-          disabled
-        </span>
+        <Placeholder>
+          <PlaceholderIcon icon={BrickWall} />
+          <PlaceholderSubtitle>Firewall is disabled</PlaceholderSubtitle>
+        </Placeholder>
       );
     }
   }
@@ -231,6 +245,7 @@ function Firewall() {
                 onClick={() => {
                   setSudoPassword(sudoPasswordInput.current.value);
                   fetchFireWallInformation(sudoPasswordInput.current.value);
+                  verifyUfwPersence();
                 }}
               >
                 Proceed
@@ -240,34 +255,40 @@ function Firewall() {
         </DialogContent>
       </Dialog>
       <Toaster />
-      <Page name="Firewall">
-        <Details title={"Technical details"} className="mb-2">
-          <p>
-            Zentrox uses UFW to retrieve and change firewall configurations.{" "}
-            <br />
-            In order to properly connect to UFW, a sudo password has to be
-            provided. <br />
-            Additionally, UFW has to be installed on your system. <br />
-          </p>
-        </Details>
-        <div className="w-64">
-          {sudoPassword.length === 0 ? (
-            <Button
-              className="block mb-2"
-              onClick={() => {
-                setSudoDialogOpen(true);
-              }}
-            >
-              Enter sudo password
-            </Button>
-          ) : (
-            <></>
-          )}
-
+      <Page name="Firewall" titleAbsolute={sudoPassword === ""}>
+        {" "}
+        {sudoPassword === "" && (
+          <span className="flex items-center justify-center h-full overflow-hidden">
+            <span className="h-fit">
+              <div className="text-center text-2xl opacity-50">
+                <LockIcon className="m-auto h-52 w-52" />
+                Sudo password is required
+              </div>
+              <Button
+                className="m-auto block mt-4"
+                onClick={() => {
+                  setSudoDialogOpen(true);
+                }}
+              >
+                Enter password
+              </Button>
+            </span>
+          </span>
+        )}
+        <div className="w-full">
           <span className={sudoPassword.length === 0 ? "hidden" : ""}>
+            {!hasUfw && (
+              <>
+                <span className="p-2 rounded-lg bg-red-500/10 border border-red-500/30 block lg:w-[500px] md:w-full my-2 text-red-500">
+                  This section does not work without UFW. <br />
+                  Please ensure, that you have UFW installed on your machine.
+                </span>
+              </>
+            )}
+
             <Dialog>
               <DialogTrigger disabled={sudoPassword.length === 0} asChild>
-                <Button className="mr-1" disabled={sudoPassword.length === 0}>
+                <Button className="mb-2" disabled={sudoPassword.length === 0}>
                   <Plus className="h-4 w-4 inline" />
                   New Rule
                 </Button>
@@ -464,55 +485,58 @@ function Firewall() {
                 </DialogHeader>
               </DialogContent>
             </Dialog>
-            <Switch
-              disabled={sudoPassword.length === 0}
-              onClick={(e) => {
-                if (sudoPassword.length === 0) {
-                  return;
-                }
 
-                e.target.disabled = true;
-                fetch(fetchURLPrefix + "/api/switchUfw/" + !fireWallEnabled, {
-                  method: "POST",
-                  headers: {
-                    "Content-Type": "application/json",
-                  },
-                  body: JSON.stringify({
-                    sudoPassword: sudoPassword,
-                  }),
-                }).then((res) => {
-                  if (res.ok) {
-                    setFireWallEnabled(!fireWallEnabled);
-                    notify(
-                      "Zentrox " +
-                        (!fireWallEnabled
-                          ? "enabled the firewall using UFW"
-                          : "disabled the firewall using UFW"),
-                    );
-                  } else {
-                    notify(
-                      "Zentrox failed to " +
-                        (!fireWallEnabled
-                          ? "enable firewall"
-                          : "disable firewall") +
-                        " using UFW",
-                    );
-                    toast({
-                      title: "Failed to apply firewall configuration",
-                      description:
-                        "Zentrox failed to change the state of the firewall.",
-                    });
+            <span className="flex items-center mb-1 space-x-2">
+              <Switch
+                disabled={sudoPassword.length === 0}
+                onClick={(e) => {
+                  if (sudoPassword.length === 0) {
+                    return;
                   }
-                  e.target.disabled = false;
-                  fetchFireWallInformation();
-                });
-              }}
-              value={fireWallEnabled ? "on" : "off"}
-              checked={fireWallEnabled}
-              hidden={fireWallEnabled === null}
-              title="Enable Firewall"
-              className="ml-1"
-            />
+
+                  e.target.disabled = true;
+                  fetch(fetchURLPrefix + "/api/switchUfw/" + !fireWallEnabled, {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                      sudoPassword: sudoPassword,
+                    }),
+                  }).then((res) => {
+                    if (res.ok) {
+                      setFireWallEnabled(!fireWallEnabled);
+                      notify(
+                        "Zentrox " +
+                          (!fireWallEnabled
+                            ? "enabled the firewall using UFW"
+                            : "disabled the firewall using UFW"),
+                      );
+                    } else {
+                      notify(
+                        "Zentrox failed to " +
+                          (!fireWallEnabled
+                            ? "enable firewall"
+                            : "disable firewall") +
+                          " using UFW",
+                      );
+                      toast({
+                        title: "Failed to apply firewall configuration",
+                        description:
+                          "Zentrox failed to change the state of the firewall.",
+                      });
+                    }
+                    e.target.disabled = false;
+                    fetchFireWallInformation();
+                  });
+                }}
+                value={fireWallEnabled ? "on" : "off"}
+                checked={fireWallEnabled}
+                hidden={fireWallEnabled === null}
+                title="Enable firewall"
+              />
+              <Label>Enable firewall</Label>
+            </span>
             <RuleView />
           </span>
         </div>
