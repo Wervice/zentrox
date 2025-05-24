@@ -20,7 +20,7 @@ export default function StatCard({
           (important ? "outline-red-500" : "")
         }
       >
-        <span className="text-neutral-400 block">
+        <span className="text-neutral-400 flex items-center">
           {Icon} {name} {I}
         </span>
         <span className="text-2xl text-white font-bold">{children}</span>
