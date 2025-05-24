@@ -66,8 +66,8 @@ function PathViewer({
             navigator.clipboard.writeText(value);
             toast({
               title: "Copied path",
-              description: "The current path was copied to your clipboard"
-            })
+              description: "The current path was copied to your clipboard",
+            });
           }}
         />
       </span>
