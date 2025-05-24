@@ -38,7 +38,7 @@ function na(value) {
   return value;
 }
 
-function Storage() {
+function Drives() {
   const { toast } = useToast();
   const [drivesList, setDrivesList] = useState([]);
   const [driveInformation, setDriveInformation] = useState({
@@ -212,7 +212,7 @@ function Storage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <Page name="Storage">
+      <Page name="Drives">
         <div
           className="rounded-xl m-2 overflow-hidden overflow-y-scroll border-2 border-neutral-800"
           style={{ maxHeight: "calc(100vh - 180px)" }}
@@ -231,4 +231,4 @@ function Storage() {
   );
 }
 
-export default Storage;
+export default Drives;
