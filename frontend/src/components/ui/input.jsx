@@ -2,7 +2,7 @@ import * as React from "react";
 import { useState } from "react";
 
 import { cn } from "@/lib/utils";
-import { EyeIcon, EyeOffIcon } from "lucide-react";
+import { EyeIcon, EyeOffIcon, SearchIcon } from "lucide-react";
 
 const Input = React.forwardRef(({ className, type, ...props }, ref) => {
   const [forceText, setForceText] = useState(false);
@@ -12,7 +12,7 @@ const Input = React.forwardRef(({ className, type, ...props }, ref) => {
     return (
       <span
         className={cn(
-          "flex h-10 w-56 rounded-md bg-transparent border-zinc-700 transition-colors duration-200 hover:border-zinc-600 border px-3 py-2 ml-0.5 mt-0.5 text-sm file:bg-transparent file:text-sm file:font-medium placeholder:text-white/80 focus-visible:outline-none focus-visible:border-transparent disabled:cursor-not-allowed disabled:opacity-50 focus-visible:ring-2 items-center",
+          "flex h-10 w-56 rounded-md bg-transparent border-neutral-700 transition-colors duration-200 hover:border-neutral-600 border px-3 py-2 mt-0.5 text-sm file:bg-transparent file:text-sm file:font-medium placeholder:text-white/80 focus-visible:outline-none focus-visible:border-transparent disabled:cursor-not-allowed disabled:opacity-50 focus-visible:ring-2 items-center",
           className,
         )}
       >
@@ -33,7 +33,7 @@ const Input = React.forwardRef(({ className, type, ...props }, ref) => {
       <input
         type={type}
         className={cn(
-          "flex h-10 w-56 rounded-md bg-transparent border-zinc-700 transition-colors duration-200 hover:border-zinc-600 border px-3 py-2 ml-0.5 mt-0.5 text-sm file:bg-transparent file:text-sm file:font-medium placeholder:text-white/80 focus-visible:outline-none focus-visible:border-transparent disabled:cursor-not-allowed disabled:opacity-50 focus-visible:ring-2",
+          "flex h-10 w-56 rounded-md bg-transparent border-neutral-700 transition-colors duration-200 hover:border-neutral-600 border px-3 py-2 mt-0.5 text-sm file:bg-transparent file:text-sm file:font-medium placeholder:text-white/80 focus-visible:outline-none focus-visible:border-transparent disabled:cursor-not-allowed disabled:opacity-50 focus-visible:ring-2",
           className,
         )}
         ref={ref}
