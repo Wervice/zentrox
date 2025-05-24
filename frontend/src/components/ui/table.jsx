@@ -1,31 +1,35 @@
 import "../../app/dashboard/scroll.css";
 
-function Table({ children }) {
+function Table({ children, className, ...props }) {
   return (
-    <span className="overflow-hidden border-2 border-b-0 border-neutral-800 block w-fit rounded-sm mt-1 mb-1">
-      <table className="border-spacing-0 border-collapse">{children}</table>
+    <span
+      className={
+        "overflow-hidden border-2 border-neutral-800 block w-fit rounded-sm mt-1 mb-1 " +
+        className
+      }
+      {...props}
+    >
+      <table className="border-spacing-0 border-collapse">
+        <tbody>{children}</tbody>
+      </table>
     </span>
   );
 }
 
-function Tr({ children }) {
+function Tr({ children, ...props }) {
   return (
-    <tr className={"border-b-2 border-neutral-800 hover:bg-white/10 "}>
+    <tr
+      className={"border-b-2 border-neutral-800 hover:bg-white/10 "}
+      {...props}
+    >
       {children}
     </tr>
   );
 }
 
-function Td({ children, className, expand }) {
+function Td({ children, className, ...props }) {
   return (
-    <td
-      className={
-        "p-2 border-0 " +
-        (className || "") +
-        " " +
-        (!expand ? "max-w[250px]" : "")
-      }
-    >
+    <td className={"p-2 border-0 " + (className || "")} {...props}>
       <span className="block max-w-full w-full overflow-x-scroll no-scroll">
         {children}
       </span>
@@ -35,15 +39,15 @@ function Td({ children, className, expand }) {
 
 function ActionTd({ children, className }) {
   return (
-    <td className={"p-2 border-0 w-min min-w-0 " + (className || "")}>
+    <td className={"p-2 border-0 w-max min-w-0 " + (className || "")}>
       {children}
     </td>
   );
 }
 
-function Th({ children, expand }) {
+function Th({ children, className, ...props }) {
   return (
-    <Td className={"bg-white/5"} expand={expand}>
+    <Td className={"bg-white/5 " + (className || "")} {...props}>
       {children}
     </Td>
   );
