@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Link } from "lucide-react";
 import { DataTable } from "@/components/ui/dataTable";
 import { toast } from "@/components/ui/use-toast";
+import { Switch } from "@/components/ui/switch";
 
 function Media() {
   const [mediaEnabled, setMediaEnabled] = useState(false);
@@ -57,7 +58,7 @@ function Media() {
     <Page name="Media">
       <Toaster />
       <div className="flex items-center">
-        <Checkbox
+        <Switch
           onCheckedChange={(e) => {
             fetch(`${fetchURLPrefix}/api/setEnableMedia/` + e).then((res) => {
               if (!res.ok) {
