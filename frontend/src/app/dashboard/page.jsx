@@ -615,11 +615,6 @@ function NotificationBell() {
 
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState("Overview");
-  const [smallTopBar, setSmallTopBar] = useState(false);
-
-  useEffect(() => {
-    setSmallTopBar(window.innerWidth < 1000);
-  }, []);
 
   function PageToShow() {
     if (activeTab == "Overview") {
