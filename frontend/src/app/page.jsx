@@ -191,7 +191,7 @@ export default function Login() {
           <Image src="zentrox_dark_emblem.svg" />
           <Caption text="Welcome" />
           <Label>
-            <User className="inline-block pr-1" /> Username
+            <User className="inline-block" /> Username
           </Label>
           <Input
             className="mb-2"
@@ -202,7 +202,7 @@ export default function Login() {
             }}
           />
           <Label>
-            <KeyIcon className="inline-block pr-1" /> Password
+            <KeyIcon className="inline-block" /> Password
           </Label>
           <Input
             className="mb-2"
