@@ -190,11 +190,7 @@ pub fn write_cronfile(content: String, user: User) -> Option<()> {
     let random_uuid = uuid::Uuid::new_v4().to_string();
     let mut tmp_p = std::env::temp_dir();
     tmp_p.push(random_uuid);
-    let pad = if !content.ends_with('\n') {
-        "\n"
-    } else {
-        ""
-    };
+    let pad = if !content.ends_with('\n') { "\n" } else { "" };
     let _ = fs::write(&tmp_p, format!("{}{}", content, pad));
     let mut c = Command::new("crontab");
     if user != User::Current {
@@ -206,7 +202,7 @@ pub fn write_cronfile(content: String, user: User) -> Option<()> {
     c.arg(tmp_p.to_str().unwrap());
     let x = c.output();
     let _ = fs::remove_file(tmp_p);
-    
+
     if !x.unwrap().status.success() {
         return None;
     }
