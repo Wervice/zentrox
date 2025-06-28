@@ -40,7 +40,10 @@ const useNotification = create((set) => ({
         });
       }
       return {
-        notifications: [[message, v4()], ...prevState.notifications],
+        notifications: [
+          [message, v4(), Date.now()],
+          ...prevState.notifications,
+        ],
         unreadNotifications: true,
       };
     });
