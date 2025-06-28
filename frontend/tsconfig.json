@@ -1,9 +1,8 @@
 {
   "compilerOptions": {
     "lib": ["dom", "dom.iterable", "esnext"],
-    "allowJs": true,
     "skipLibCheck": true,
-    "strict": false,
+    "strict": true,
     "noEmit": true,
     "incremental": true,
     "module": "esnext",
@@ -11,17 +10,18 @@
     "moduleResolution": "node",
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "jsx": "preserve",
     "plugins": [
       {
         "name": "next"
       }
     ],
-    "baseUrl": ".", // This can be "./src" if your base directory is src
+    "baseUrl": "./src", // This can be "./src" if your base directory is src
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["*"]
     },
-    "target": "ES2017"
+    "target": "ES2017",
+    "jsx": "preserve",
+    "allowJs": true
   },
   "include": ["next-env.d.ts", ".next/types/**/*.ts", "**/*.ts", "**/*.tsx"],
   "exclude": ["node_modules"]
