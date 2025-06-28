@@ -1,20 +1,19 @@
-import { Button } from "@/components/ui/button.jsx";
-import { useEffect, useState, useRef, act } from "react";
+import { Button } from "@/components/ui/button";
+import { useEffect, useState, useRef } from "react";
 import "./table.css";
 import "./scroll.css";
 import { Input } from "@/components/ui/input";
 import { Toaster } from "@/components/ui/toaster";
 import {
-  KeyIcon,
   LockIcon,
   FolderIcon,
   CogIcon,
   PenLineIcon,
-  UploadIcon,
-  ArrowUp,
   DeleteIcon,
-  LoaderIcon,
-  FileIcon,
+  TelescopeIcon,
+  LayersIcon,
+  UploadIcon,
+  XIcon,
 } from "lucide-react";
 import {
   Dialog,
@@ -46,9 +45,15 @@ import { useToast } from "@/components/ui/use-toast";
 import Page from "@/components/ui/PageWrapper";
 import PathViewer from "@/components/ui/pathViewer";
 import useNotification from "@/lib/notificationState";
+import {
+  Placeholder,
+  PlaceholderIcon,
+  PlaceholderSubtitle,
+} from "@/components/ui/placeholder";
+import FileIcon from "@/components/ui/FileIcon";
+import { v4 as uuid } from "uuid";
 
-// const fetchURLPrefix = "";
-const fetchURLPrefix = require("@/lib/fetchPrefix");
+import { fetchURLPrefix } from "@/lib/fetchPrefix";
 
 function Vault() {
   var vaultEncryptionKey = useRef();
@@ -69,6 +74,8 @@ function Vault() {
   const [renamingModalVisible, setRenamingModalVisible] = useState(false);
   const [currentVaultFileRename, setCurrentVaultFileRename] = useState("");
   const [currentVaultFileDelete, setCurrentVaultFileDelete] = useState("");
+  const [uploadQueue, setUploadQueue] = useState([]);
+  const [filter, setFilter] = useState("");
 
   const [vaultConfigModalOpen, setVaultConfigModalOpen] = useState(false);
   const [vaultState, setVaultState] = useState("locked");
@@ -133,15 +140,11 @@ function Vault() {
     // Remove trailing `/` from entry if it exists
     entry = entry.endsWith("/") ? entry.slice(0, -1) : entry;
 
-    console.log(currentVaultPath);
-
     // Check if the entry starts with the currentVaultPath
     if (!entry.startsWith(currentVaultPath)) return false;
 
     // Get the remaining part of the entry after currentVaultPath
     let remainingPath = entry.slice(currentVaultPath.length);
-
-    console.log(remainingPath);
 
     // Check if the remaining path contains any `/`
     return !remainingPath.includes("/");
@@ -307,7 +310,7 @@ function Vault() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <div className={vaultState != "unlocked" && "hidden"}>
+      <div className={vaultState != "unlocked" ? "hidden" : "block"}>
         <Button
           className={vaultState !== "unlocked" ? "hidden mr-1" : "mr-1"}
           onClick={() => {
@@ -319,6 +322,7 @@ function Vault() {
           }}
           variant="secondary"
         >
+          <XIcon className="h-4" />
           Exit
         </Button>
         <Dialog>
@@ -326,6 +330,7 @@ function Vault() {
             <Button
               className={vaultState !== "unlocked" ? "invisible mr-1" : "mr-1"}
             >
+              <FolderIcon className="h-4" />
               New directory
             </Button>
           </DialogTrigger>
@@ -480,12 +485,23 @@ function Vault() {
                     }),
                   }).then((res) => {
                     if (vaultState !== "unlocked") return;
-                    if (res.ok) vaultTree(vaultSessionKey);
-                    else
-                      toast({
-                        title: "Failed to delete file",
-                        description: "Zentrox failed to delete a file.",
-                      });
+
+                    res.text().then((uuid) => {
+                      let inter = setInterval(() => {
+                        fetch(
+                          fetchURLPrefix + "/api/fetchJobStatus/" + uuid,
+                        ).then((res) => {
+                          if (res.status === 200) {
+                            clearInterval(inter);
+                            vaultTree(vaultSessionKey);
+                          } else if (res.status == 422) {
+                            res.text().then((msg) => {
+                              notify("Failed to delete file. " + msg);
+                            });
+                          }
+                        });
+                      }, 1000);
+                    });
                   });
                 }}
               >
@@ -500,8 +516,14 @@ function Vault() {
             uploadInput.current.click();
           }}
         >
+          <UploadIcon className="h-4" />
           {uploadButton === "default" ? <>Upload file</> : <>Uploading file</>}
         </Button>
+        {uploadQueue.length > 0 && (
+          <Button variant="outline">
+            <LayersIcon className="h-4" /> Uploads
+          </Button>
+        )}
         <input
           type="file"
           ref={uploadInput}
@@ -509,14 +531,16 @@ function Vault() {
             if (event.target.files.length > 0) {
               setUploadButton("loading");
               var fileForSubmit = uploadInput.current.files[0];
-              if (fileForSubmit.size >= 1024 * 1024 * 1024 * 10) {
+              if (fileForSubmit.size >= 1024 * 1024 * 1024 * 32) {
                 notify(
-                  `File ${fileForSubmit.name} can not be uploaded because it is larger than 10GB.`,
+                  `File ${fileForSubmit.name} can not be uploaded because it is larger than 32GB.`,
                 );
                 toast({
                   title: "File to big",
-                  description: "The file you provided was larger than 10GB",
+                  description:
+                    "The file you provided was larger than 32GB and can thus not be uploaded.",
                 });
+                return;
               }
               var formData = new FormData();
               formData.append("file", fileForSubmit);
@@ -554,6 +578,8 @@ function Vault() {
         onValueChange={(e) => {
           setCurrentVaultPath(e.replace("/", ""));
         }}
+        onFilter={setFilter}
+        filter={filter}
         value={"/" + currentVaultPath}
         home={""}
       />
@@ -595,81 +621,97 @@ function Vault() {
         )}
 
         {vaultState === "unlocked" &&
-        currentVaultContents.filter((e) => {
-          return e !== ".vault";
-        }).length === 0 ? (
-          <span className="text-l text-center w-full block">
-            Create directory or upload files
-          </span>
-        ) : (
-          <></>
-        )}
-
-        <div className="rounded-xl m-2 overflow-hidden overflow-y-scroll border-2 border-neutral-800 max-h-[calc(100vh-170px)]">
-          {
-            /*
-             * @param {string} entry*/
-            currentVaultContents
-              .filter((entry) => {
-                return isDirectChild(entry, currentVaultPath);
-              })
-              .map((entry, k) => {
-                if (entry == ".vault" && currentVaultPath == "") return;
-                var type = "";
-                if (entry.endsWith("/")) {
-                  type = "folder";
-                } else {
-                  type = "file";
-                }
-                return (
-                  <ContextMenu key={k} modal={false}>
-                    <ContextMenuContent>
-                      <ContextMenuItem
-                        onClick={() => {
-                          setCurrentVaultFileDelete(entry);
-                          requestDeletion(entry);
-                        }}
-                      >
-                        <DeleteIcon className="w-4 h-4 inline-block mr-1" />{" "}
-                        Delete
-                      </ContextMenuItem>
-                      <ContextMenuItem
-                        onClick={() => {
-                          setCurrentVaultFileRename(entry);
-                          requestRename(entry);
-                        }}
-                      >
-                        <PenLineIcon className="w-4 h-4 inline-block mr-1" />{" "}
-                        Rename
-                      </ContextMenuItem>
-                    </ContextMenuContent>
-                    <ContextMenuTrigger asChild>
-                      <span
-                        className="w-full p-4 bg-transparent block cursor-default select-none hover:bg-neutral-900 hover:transition-bg hover:duration-300 focus:outline-blue-500 focus:duration-50 border-b-2 border-b-neutral-800"
-                        onClick={
-                          type === "folder"
-                            ? () => setCurrentVaultPath(entry)
-                            : (event) => downloadFile(entry, event)
-                        }
-                      >
-                        {type === "folder" ? (
-                          <FolderIcon
-                            className="w-6 h-6 inline-block mr-1"
-                            fill="white"
-                          />
-                        ) : (
-                          <FileIcon className="w-6 h-6 inline-block mr-1" />
-                        )}{" "}
-                        {type === "folder"
-                          ? entry.split("/").at(-2)
-                          : entry.split("/").at(-1)}
-                      </span>
-                    </ContextMenuTrigger>
-                  </ContextMenu>
-                );
-              })
-          }
-        </div>
+          currentVaultContents.filter((entry) => {
+            if (entry == ".vault" && currentVaultPath == "") return false;
+            return isDirectChild(entry, currentVaultPath);
+          }).length !== 0 && (
+            <div className="rounded-xl overflow-hidden overflow-y-scroll border-2 border-neutral-800 max-h-[calc(100vh-170px)]">
+              {
+                /*
+                 * @param {string} entry*/
+                currentVaultContents
+                  .filter((entry) => {
+                    if (entry == ".vault" && currentVaultPath == "")
+                      return false;
+                    return isDirectChild(entry, currentVaultPath);
+                  })
+                  .filter((e) => {
+                    return e.includes(filter);
+                  })
+                  .map((entry, index, arr) => {
+                    var type = "";
+                    if (entry.endsWith("/")) {
+                      type = "folder";
+                    } else {
+                      type = "file";
+                    }
+                    return (
+                      <ContextMenu key={uuid()} modal={false}>
+                        <ContextMenuContent>
+                          <ContextMenuItem
+                            onClick={() => {
+                              setCurrentVaultFileDelete(entry);
+                              requestDeletion(entry);
+                            }}
+                          >
+                            <DeleteIcon className="w-4 h-4 inline-block mr-1" />{" "}
+                            Delete
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            onClick={() => {
+                              setCurrentVaultFileRename(entry);
+                              requestRename(entry);
+                            }}
+                          >
+                            <PenLineIcon className="w-4 h-4 inline-block mr-1" />{" "}
+                            Rename
+                          </ContextMenuItem>
+                        </ContextMenuContent>
+                        <ContextMenuTrigger asChild>
+                          <span
+                            className={
+                              "w-full p-4 bg-transparent block cursor-default select-none hover:bg-neutral-900 hover:transition-bg hover:duration-300 focus:outline-blue-500 focus:duration-50 " +
+                              (index != arr.length &&
+                                "border-b-2 border-b-neutral-800")
+                            }
+                            onClick={
+                              type === "folder"
+                                ? () => setCurrentVaultPath(entry)
+                                : (event) => downloadFile(entry, event)
+                            }
+                          >
+                            {type === "folder" ? (
+                              <FolderIcon
+                                className="w-6 h-6 inline-block mr-1"
+                                fill="white"
+                              />
+                            ) : (
+                              <FileIcon
+                                filename={entry.split("/").at(-1)}
+                                className="w-6 h-6 inline-block mr-1"
+                              />
+                            )}{" "}
+                            {type === "folder"
+                              ? entry.split("/").at(-2)
+                              : entry.split("/").at(-1)}
+                          </span>
+                        </ContextMenuTrigger>
+                      </ContextMenu>
+                    );
+                  })
+              }
+            </div>
+          )}
+        {vaultState === "unlocked" &&
+          currentVaultContents.filter((entry) => {
+            if (entry == ".vault" && currentVaultPath == "") return false;
+            return isDirectChild(entry, currentVaultPath);
+          }).length === 0 && (
+            <Placeholder>
+              <PlaceholderIcon icon={TelescopeIcon} />
+              <PlaceholderSubtitle>This directory is empty</PlaceholderSubtitle>
+            </Placeholder>
+          )}
       </div>
     </Page>
   );
