@@ -1,4 +1,4 @@
-import { Button } from "@/components/ui/button.jsx";
+import { Button } from "@/components/ui/button";
 import {
   RefreshCcw,
   HardDriveIcon,
@@ -19,18 +19,8 @@ import "./table.css";
 import "./scroll.css";
 import StatCard from "@/components/ui/StatCard.jsx";
 import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-  DialogFooter,
-  DialogClose,
-} from "@/components/ui/dialog";
 import Page from "@/components/ui/PageWrapper";
-import fetchURLPrefix from "@/lib/fetchPrefix";
+import { fetchURLPrefix } from "@/lib/fetchPrefix";
 import useNotification from "@/lib/notificationState";
 import secondsToFormat from "@/lib/dates";
 import { Details } from "@/components/ui/Details";
@@ -39,6 +29,7 @@ import {
   PlaceholderIcon,
   PlaceholderSubtitle,
 } from "@/components/ui/placeholder";
+import SudoDialog from "@/components/ui/SudoDialog";
 
 function startTask(adress, options = {}, interval = 500) {
   return new Promise((resolve, reject) => {
@@ -79,7 +70,6 @@ function Packages() {
     packageName: "",
   });
   var databaseUpdateSudoPasswordInput = useRef();
-  var packageSudoPasswordInput = useRef();
   const [installedPackages, setInstalledPackages] = useState([]);
   const [otherPackages, setOtherPackages] = useState([]);
   const [canProvideUpdates, setCanProvideUpdates] = useState(false);
@@ -91,7 +81,10 @@ function Packages() {
   const [databaseUpdateButton, setDatabaseUpdateButton] = useState("default");
   const [activeTasks, setActiveTasks] = useState({});
   const [lastDatabaseUpdate, setLastDatabaseUpdate] = useState(0);
+  const [updateDatabaseModalOpen, setUpdateDatabaseModalOpen] = useState(false);
+
   useEffect(() => fetchPackageList(), []);
+
   function closePackagePopUp() {
     setPackagePopUp({
       visible: false,
@@ -139,7 +132,7 @@ function Packages() {
     });
   }
 
-  function installPackage(packageName) {
+  function installPackage(packageName, password) {
     let activeTasksCopy = { ...activeTasks, [packageName]: "working" };
     setActiveTasks(activeTasksCopy);
 
@@ -150,7 +143,7 @@ function Packages() {
       },
       body: JSON.stringify({
         packageName: packageName,
-        sudoPassword: packageSudoPasswordInput.current.value,
+        sudoPassword: password,
       }),
     })
       .then(() => {
@@ -172,7 +165,7 @@ function Packages() {
       });
   }
 
-  function removePackage(packageName) {
+  function removePackage(packageName, password) {
     let activeTasksCopy = { ...activeTasks, [packageName]: "working" };
     setActiveTasks(activeTasksCopy);
 
@@ -183,7 +176,7 @@ function Packages() {
       },
       body: JSON.stringify({
         packageName: packageName,
-        sudoPassword: packageSudoPasswordInput.current.value,
+        sudoPassword: password,
       }),
     })
       .then(() => {
@@ -211,7 +204,7 @@ function Packages() {
       });
   }
 
-  function updatePackage(packageName) {
+  function updatePackage(packageName, password) {
     let activeTasksCopy = { ...activeTasks, [packageName]: "working" };
     setActiveTasks(activeTasksCopy);
 
@@ -222,7 +215,7 @@ function Packages() {
       },
       body: JSON.stringify({
         packageName: packageName,
-        sudoPassword: packageSudoPasswordInput.current.value,
+        sudoPassword: password,
       }),
     })
       .then(() => {
@@ -330,175 +323,132 @@ function Packages() {
   function AutoRemoveButton() {
     const [clearAutoRemoveButtonState, setClearAutoRemoveButtonState] =
       useState("default");
-    var sudoPasswordInput = useRef();
+    const [removeOrphanedPackagesDialog, setRemoveOrphanedPackagesDialog] =
+      useState(false);
     if (clearAutoRemoveButtonState === "default") {
       return (
-        <Dialog>
-          <DialogTrigger asChild>
-            <Button variant="destructive">
-              <TrashIcon className="h-4 w-4 inline-block mr-2" /> Remove
-              orphaned packages
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Remove packages</DialogTitle>
-              <DialogDescription>
-                Remove packages that may not be requried by the system according
-                to your package manager.
-                <br />
-                Make sure you want to remove the packages before you continue.
-                <br />
-                Removing packages requires your sudo password.
-              </DialogDescription>
-            </DialogHeader>
-            <Input
-              type="password"
-              placeholder="Sudo password"
-              ref={sudoPasswordInput}
-              className="w-full"
-            />
-            <DialogFooter>
-              <DialogClose asChild>
-                <Button variant="outline">Close</Button>
-              </DialogClose>
-              <DialogClose asChild>
-                <Button
-                  variant="destructive"
-                  onClick={() => {
-                    setClearAutoRemoveButtonState("working");
-                    startTask(fetchURLPrefix + "/api/removeOrphanedPackages", {
-                      method: "POST",
-                      headers: {
-                        "Content-Type": "application/json",
-                      },
-                      body: JSON.stringify({
-                        sudoPassword: sudoPasswordInput.current.value,
-                      }),
-                    })
-                      .then(() => {
-                        setAutoRemovePackages([]);
-                        setClearAutoRemoveButtonState("default");
-                        notify("Removed orphaned packages");
-                      })
-                      .catch(() => {
-                        setClearAutoRemoveButtonState("default");
-                        notify("Failed to remove orphaned packages");
-                      });
-                  }}
-                >
-                  Proceed
-                </Button>
-              </DialogClose>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <>
+          <Button
+            variant="destructive"
+            onClick={() => {
+              setRemoveOrphanedPackagesDialog(true);
+            }}
+          >
+            <TrashIcon className="mr-1 h-4 w-4 inline-block" /> Remove all
+            orphaned packages
+          </Button>
+          <SudoDialog
+            modalOpen={removeOrphanedPackagesDialog}
+            onOpenChange={setRemoveOrphanedPackagesDialog}
+            note={
+              "Removing orphaned packages may also remove packages that are relevant for your system."
+            }
+            onFinish={(password) => {
+              setClearAutoRemoveButtonState("working");
+              startTask(fetchURLPrefix + "/api/removeOrphanedPackages", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  sudoPassword: password,
+                }),
+              })
+                .then(() => {
+                  setAutoRemovePackages([]);
+                  setClearAutoRemoveButtonState("default");
+                  notify("Removed orphaned packages");
+                })
+                .catch(() => {
+                  setClearAutoRemoveButtonState("default");
+                  notify("Failed to remove orphaned packages");
+                });
+            }}
+          />
+        </>
       );
     } else if (clearAutoRemoveButtonState === "working") {
       return (
         <Button variant="destructive">
-          <Loader2 className="h-4 w-4 inline-block animate-spin" /> Removing
-          packages
+          <Loader2 className="h-4 w-4 mr-1 inline-block animate-spin" />{" "}
+          Removing packages
         </Button>
       );
     }
   }
 
   function UpdateButton() {
-    var sudoPasswordInput = useRef();
     const [buttonState, setButtonState] = useState("default");
+    const [sudoPasswordDialogOpen, setSudoPasswordDialogOpen] = useState(false);
+
     if (buttonState === "default") {
       return (
-        <Dialog>
-          <DialogTrigger asChild>
-            <Button>
-              <DownloadIcon className="h-4 w-4 inline-block mr-1" /> Update
-              packages
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Update all packages</DialogTitle>
-              <DialogDescription>
-                To update all packages, please enter your sudo password.
-              </DialogDescription>
-            </DialogHeader>
-            <Input
-              type="password"
-              placeholder="Sudo password"
-              ref={sudoPasswordInput}
-              className="w-full"
-            />
-            <DialogFooter>
-              <DialogClose asChild>
-                <Button variant="outline">Close</Button>
-              </DialogClose>
-              <DialogClose asChild>
-                <Button
-                  onClick={() => {
-                    setButtonState("working");
-                    startTask(fetchURLPrefix + "/api/updateAllPackages", {
-                      method: "POST",
-                      headers: {
-                        "Content-Type": "application/json",
-                      },
-                      body: JSON.stringify({
-                        sudoPassword: sudoPasswordInput.current.value,
-                      }),
-                    })
-                      .then(() => {
-                        notify("Full package update succesful");
-                        fetch(fetchURLPrefix + "/api/packageDatabase/false", {
-                          headers: {
-                            "Content-Type": "application/json",
-                          },
-                        }).then((res) => {
-                          if (res.ok) {
-                            notify(
-                              "Updated package statistics after full package update",
-                            );
-                            res.json().then((json) => {
-                              setInstalledPackages(
-                                Array.from(json["packages"]),
-                              );
-                              setOtherPackages(Array.from(json["others"]));
-                              setCanProvideUpdates(json.canProvideUpdates);
-                              setUpdates(json.updates);
-                              setPackageManager(json.packageManager);
-                              setVisibility(true);
-                            });
-                          } else {
-                            notify("Failed to fetch database");
-                            setVisibility(false);
-                          }
-                        });
-
-                        fetch(fetchURLPrefix + "/api/listOrphanedPackages", {
-                          headers: {
-                            "Content-Type": "application/json",
-                          },
-                        }).then((res) => {
-                          if (res.ok) {
-                            res.json().then((json) => {
-                              setAutoRemovePackages(json["packages"]);
-                            });
-                          } else {
-                            notify("Failed to retrieve list of packages");
-                            setVisibility(false);
-                          }
-                        });
-                      })
-                      .catch(() => {
-                        notify("Failed to retrieve list of packages");
+        <>
+          <Button onClick={() => setSudoPasswordDialogOpen(true)}>
+            <DownloadIcon className="h-4 w-4 mr-1 inline-block" /> Update all
+            packages
+          </Button>
+          <SudoDialog
+            modalOpen={sudoPasswordDialogOpen}
+            onOpenChange={setSudoPasswordDialogOpen}
+            onFinish={(password) => {
+              notify("Started full system update");
+              setButtonState("working");
+              startTask(fetchURLPrefix + "/api/updateAllPackages", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  sudoPassword: password,
+                }),
+              })
+                .then(() => {
+                  notify("Full package update succesful");
+                  fetch(fetchURLPrefix + "/api/packageDatabase/false", {
+                    headers: {
+                      "Content-Type": "application/json",
+                    },
+                  }).then((res) => {
+                    if (res.ok) {
+                      notify(
+                        "Updated package statistics after full package update",
+                      );
+                      res.json().then((json) => {
+                        setInstalledPackages(Array.from(json["packages"]));
+                        setOtherPackages(Array.from(json["others"]));
+                        setCanProvideUpdates(json.canProvideUpdates);
+                        setUpdates(json.updates);
+                        setPackageManager(json.packageManager);
+                        setVisibility(true);
                       });
-                  }}
-                >
-                  Proceed
-                </Button>
-              </DialogClose>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+                    } else {
+                      notify("Failed to fetch database");
+                      setVisibility(false);
+                    }
+                  });
+
+                  fetch(fetchURLPrefix + "/api/listOrphanedPackages", {
+                    headers: {
+                      "Content-Type": "application/json",
+                    },
+                  }).then((res) => {
+                    if (res.ok) {
+                      res.json().then((json) => {
+                        setAutoRemovePackages(json["packages"]);
+                      });
+                    } else {
+                      notify("Failed to retrieve list of packages");
+                      setVisibility(false);
+                    }
+                  });
+                })
+                .catch(() => {
+                  notify("Failed to retrieve list of packages");
+                });
+            }}
+          />
+        </>
       );
     } else {
       return (
@@ -565,71 +515,21 @@ function Packages() {
       var PackageView = <></>;
     }
     return (
-      <Page name="Packages">
-        <Dialog
-          open={packagePopUpConfig.visible}
+      <Page className="overflow-y-scroll" name="Packages">
+        <SudoDialog
+          modalOpen={packagePopUpConfig.visible}
           onOpenChange={closePackagePopUp}
-        >
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>
-                {
-                  {
-                    install: "Install package",
-                    remove: "Remove package",
-                    update: "Update package",
-                  }[packagePopUpConfig.mode]
-                }
-              </DialogTitle>
-              <DialogDescription>
-                {
-                  {
-                    install: `To install ${packagePopUpConfig.packageName}, please enter your sudo password.`,
-                    remove: `Do you really want to remove ${packagePopUpConfig.packageName}? To remove ${packagePopUpConfig.packageName}, please enter your sudo password.`,
-                    update: `To update ${packagePopUpConfig.packageName}, please enter your sudo password.`,
-                  }[packagePopUpConfig.mode]
-                }
-              </DialogDescription>
-            </DialogHeader>
-
-            <p>
-              <Input
-                type="password"
-                placeholder="Sudo password"
-                ref={packageSudoPasswordInput}
-                className="w-full"
-              />
-            </p>
-            <DialogFooter>
-              <DialogClose asChild>
-                <Button variant="outline" onClick={closePackagePopUp}>
-                  Cancel
-                </Button>
-              </DialogClose>
-              <DialogClose asChild>
-                <Button
-                  variant={
-                    packagePopUpConfig.mode === "remove"
-                      ? "destructive"
-                      : "default"
-                  }
-                  onClick={() => {
-                    if (packagePopUpConfig.mode === "install") {
-                      installPackage(packagePopUpConfig.packageName);
-                    } else if (packagePopUpConfig.mode === "remove") {
-                      removePackage(packagePopUpConfig.packageName);
-                    } else if (packagePopUpConfig.mode === "update") {
-                      updatePackage(packagePopUpConfig.packageName);
-                    }
-                  }}
-                >
-                  Continue
-                </Button>
-              </DialogClose>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
+          note={`You are ${packagePopUpConfig.mode} ${packagePopUpConfig.packageName}.`}
+          onFinish={(password) => {
+            if (packagePopUpConfig.mode === "install") {
+              installPackage(packagePopUpConfig.packageName, password);
+            } else if (packagePopUpConfig.mode === "remove") {
+              removePackage(packagePopUpConfig.packageName, password);
+            } else if (packagePopUpConfig.mode === "update") {
+              updatePackage(packagePopUpConfig.packageName, password);
+            }
+          }}
+        />
         <StatCard
           name="Installed packages"
           Icon={<HardDriveIcon className="h-5 w-5 inline-block" />}
@@ -706,113 +606,77 @@ function Packages() {
                 localStorage.getItem("dateFormat") || "8601",
               )}
             </span>
-            <Dialog>
-              <DialogTrigger asChild>
-                <Button className="mr-2" variant="secondary">
-                  {
-                    {
-                      default: (
-                        <>
-                          <DatabaseIcon className="w-4 h-4 inline-block mr-1" />{" "}
-                          Update database
-                        </>
-                      ),
-                      working: (
-                        <>
-                          <Loader2 className="w-4 h-4 inline-block animate-spin mr-1" />{" "}
-                          Updating database
-                        </>
-                      ),
-                      failed: (
-                        <>
-                          <CircleAlert className="w-4 h-4 inline-block mr-1" />{" "}
-                          Failed to update database
-                        </>
-                      ),
-                    }[databaseUpdateButton]
-                  }
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Update package database</DialogTitle>
-                  <DialogDescription>
-                    Update your package database to check for new packages and
-                    updates. Please enter your sudo password to continue.
-                  </DialogDescription>
-                </DialogHeader>
+            <Button
+              onClick={() => setUpdateDatabaseModalOpen(true)}
+              className="mr-2"
+              variant="secondary"
+            >
+              {
+                {
+                  default: (
+                    <>
+                      <DatabaseIcon className="w-4 h-4 inline-block mr-1" />{" "}
+                      Update database
+                    </>
+                  ),
+                  working: (
+                    <>
+                      <Loader2 className="w-4 h-4 inline-block animate-spin mr-1" />{" "}
+                      Updating database
+                    </>
+                  ),
+                  failed: (
+                    <>
+                      <CircleAlert className="w-4 h-4 inline-block mr-1" />{" "}
+                      Failed to update database
+                    </>
+                  ),
+                }[databaseUpdateButton]
+              }
+            </Button>
 
-                <p>
-                  <Input
-                    type="password"
-                    placeholder="Sudo password"
-                    className="w-full"
-                    ref={databaseUpdateSudoPasswordInput}
-                  />
-                </p>
-
-                <DialogFooter>
-                  <DialogClose asChild>
-                    <Button variant="outline">Cancel</Button>
-                  </DialogClose>
-
-                  <DialogClose asChild>
-                    <Button
-                      onClick={() => {
-                        setDatabaseUpdateButton("working");
-                        startTask(
-                          fetchURLPrefix + "/api/updatePackageDatabase",
-                          {
-                            method: "POST",
-                            headers: {
-                              "Content-Type": "application/json",
-                            },
-                            body: JSON.stringify({
-                              sudoPassword:
-                                databaseUpdateSudoPasswordInput.current.value,
-                            }),
-                          },
-                        )
-                          .then(() => {
-                            notify("Package database update successful");
-                            setDatabaseUpdateButton("default");
-                            fetch(
-                              fetchURLPrefix + "/api/packageDatabase/false",
-                              {
-                                headers: {
-                                  "Content-Type": "application/json",
-                                },
-                              },
-                            ).then((res) => {
-                              if (res.ok) {
-                                res.json().then((json) => {
-                                  setInstalledPackages(
-                                    Array.from(json["packages"]),
-                                  );
-                                  setOtherPackages(Array.from(json["others"]));
-                                  setCanProvideUpdates(json.canProvideUpdates);
-                                  setUpdates(json.updates);
-                                  setPackageManager(json.packageManager);
-                                  setVisibility(true);
-                                  setLastDatabaseUpdate(
-                                    json.lastDatabaseUpdate,
-                                  );
-                                });
-                              }
-                            });
-                          })
-                          .catch(() => {
-                            setDatabaseUpdateButton("failed");
-                            notify("Failed to update package database");
-                          });
-                      }}
-                    >
-                      Continue
-                    </Button>
-                  </DialogClose>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
+            <SudoDialog
+              modalOpen={updateDatabaseModalOpen}
+              onOpenChange={setUpdateDatabaseModalOpen}
+              onFinish={(password) => {
+                setDatabaseUpdateButton("working");
+                notify("Package database update started");
+                startTask(fetchURLPrefix + "/api/updatePackageDatabase", {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify({
+                    sudoPassword: password,
+                  }),
+                })
+                  .then(() => {
+                    notify("Package database update successful");
+                    setDatabaseUpdateButton("default");
+                    fetch(fetchURLPrefix + "/api/packageDatabase/false", {
+                      headers: {
+                        "Content-Type": "application/json",
+                      },
+                    }).then((res) => {
+                      if (res.ok) {
+                        res.json().then((json) => {
+                          setInstalledPackages(Array.from(json["packages"]));
+                          setOtherPackages(Array.from(json["others"]));
+                          setCanProvideUpdates(json.canProvideUpdates);
+                          setUpdates(json.updates);
+                          setPackageManager(json.packageManager);
+                          setVisibility(true);
+                          setLastDatabaseUpdate(json.lastDatabaseUpdate);
+                        });
+                      }
+                    });
+                  })
+                  .catch(() => {
+                    setDatabaseUpdateButton("failed");
+                    notify("Failed to update package database");
+                  });
+              }}
+            />
 
             {updates.length > 0 ? <UpdateButton /> : <></>}
             <br />

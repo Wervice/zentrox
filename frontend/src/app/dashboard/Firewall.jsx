@@ -1,5 +1,5 @@
 import { Switch } from "@/components/ui/switch.jsx";
-import { Button } from "@/components/ui/button.jsx";
+import { Button } from "@/components/ui/button";
 import {
   Plus,
   Ban,
@@ -47,16 +47,16 @@ import {
 } from "@/components/ui/alert-dialog";
 import "./scroll.css";
 import Page from "@/components/ui/PageWrapper";
-import fetchURLPrefix from "@/lib/fetchPrefix";
+import { fetchURLPrefix } from "@/lib/fetchPrefix";
 import useNotification from "@/lib/notificationState";
 import { Td, Tr, Th, Table, ActionTh, ActionTd } from "@/components/ui/table";
-import { Details } from "@/components/ui/Details";
 import Label from "@/components/ui/ShortLabel";
 import {
   Placeholder,
   PlaceholderIcon,
   PlaceholderSubtitle,
 } from "@/components/ui/placeholder";
+import SudoDialog from "@/components/ui/SudoDialog";
 
 function Firewall() {
   const [rules, setRules] = useState([]); // Firewall rules that are displayed on the frontend and fetched from UFW
@@ -217,43 +217,16 @@ function Firewall() {
 
   return (
     <>
-      <Dialog
-        open={sudoPassword == "" && sudoDialogOpen}
+      <SudoDialog
+        onFinish={(password) => {
+          setSudoPassword(password);
+          fetchFireWallInformation(password);
+          verifyUfwPersence();
+        }}
+        modalOpen={sudoDialogOpen}
         onOpenChange={setSudoDialogOpen}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Sudo password</DialogTitle>
-            <DialogDescription className="text-white">
-              To view the current state of your firewall, please enter your sudo
-              password. The password will be saved for the time you are viewing
-              the firewall tab.
-            </DialogDescription>
-          </DialogHeader>
-          <Input
-            type="password"
-            placeholder="Sudo password"
-            ref={sudoPasswordInput}
-            className="w-full"
-          />
-          <DialogFooter>
-            <DialogClose asChild>
-              <Button variant="outline">Cancel</Button>
-            </DialogClose>
-            <DialogClose asChild>
-              <Button
-                onClick={() => {
-                  setSudoPassword(sudoPasswordInput.current.value);
-                  fetchFireWallInformation(sudoPasswordInput.current.value);
-                  verifyUfwPersence();
-                }}
-              >
-                Proceed
-              </Button>
-            </DialogClose>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      />
+
       <Toaster />
       <Page name="Firewall" titleAbsolute={sudoPassword === ""}>
         {" "}
@@ -300,15 +273,15 @@ function Firewall() {
                     You can create a new rule that applies to your firewall.
                   </DialogDescription>
                   <p>
-                    <label htmlFor="ruleTo" className="block">
+                    <Label htmlFor="ruleTo" className="block">
                       <ArrowUpFromDot className="w-4 h-4 inline" /> To
-                    </label>
-                    <small className="text-neutral-600 m-1">
+                    </Label>
+                    <small className="text-neutral-600 mb-2">
                       The port or port range on which protocol the request was
                       sent to
                     </small>
                     <Select onValueChange={setPortOrRange}>
-                      <SelectTrigger className="w-[210px] m-1">
+                      <SelectTrigger className="w-[210px] mb-1">
                         <SelectValue placeholder="Port or port range" />
                       </SelectTrigger>
                       <SelectContent>
@@ -321,7 +294,7 @@ function Firewall() {
                         id="ruleTo"
                         placeholder="port"
                         ref={newRuleToSinglePort}
-                        className="inline-flex m-1 w-[210px]"
+                        className="inline-flex mb-1 w-[210px]"
                       />
                     ) : (
                       <>
@@ -329,13 +302,13 @@ function Firewall() {
                           id="ruleTo"
                           placeholder="port"
                           ref={newRuleToRangeLeft}
-                          className="inline-flex w-[100px] m-1"
+                          className="inline-flex w-[100px] mb-1 mr-2"
                         />
                         <Input
                           id="ruleTo"
                           placeholder="port"
                           ref={newRuleToRangeRight}
-                          className="inline-flex w-[100px] m-1"
+                          className="inline-flex w-[100px] mb-1"
                         />
                         <br />
                       </>
@@ -345,7 +318,7 @@ function Firewall() {
                       value={networkProtocol}
                       onValueChange={setNetworkProtocol}
                     >
-                      <SelectTrigger className="w-[210px] m-1">
+                      <SelectTrigger className="w-[210px] mb-1">
                         <SelectValue placeholder="Network protocol" />
                       </SelectTrigger>
                       <SelectContent>
@@ -354,16 +327,16 @@ function Firewall() {
                       </SelectContent>
                     </Select>
 
-                    <label htmlFor="ruleFrom" className="block m-1">
+                    <Label htmlFor="ruleFrom" className="block m-1">
                       <ArrowDownToDot className="w-4 h-4 inline" /> From
-                    </label>
-                    <small className="text-neutral-600 m-1 mb-2">
+                    </Label>
+                    <small className="text-neutral-600 mb-2">
                       The ip address or hostname the request was sent from
                     </small>
                     <Button
                       variant={anyIp ? "" : "outline"}
                       onClick={() => setAnyIp(!anyIp)}
-                      className="block m-1"
+                      className="block mb-1"
                     >
                       From any IP
                     </Button>
@@ -407,10 +380,6 @@ function Firewall() {
                     <DialogClose asChild>
                       <Button
                         onClick={() => {
-                          // /["p", "r"]/[port, a":"b]/["tcp", "udp"]/["any", "specific"]/["", ip address]/["allow", "deny"]
-                          // /Port Or	Port / Range  Network		 Any Adress or		 IP or nothing	 Action to take
-                          // /Range					  Protocol		 specific host
-
                           let isPortOrRangeFormatted =
                             portOrRange == "port" ? "p" : "r";
                           let portOrRangeFormatted;

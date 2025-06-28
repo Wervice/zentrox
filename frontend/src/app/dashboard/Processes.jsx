@@ -1,7 +1,7 @@
 import { Details } from "@/components/ui/Details";
 import Page from "@/components/ui/PageWrapper";
 import StatCard from "@/components/ui/StatCard";
-import fetchURLPrefix from "@/lib/fetchPrefix";
+import { fetchURLPrefix } from "@/lib/fetchPrefix";
 import useNotification from "@/lib/notificationState";
 import {
   AmpersandIcon,
@@ -12,6 +12,7 @@ import {
   FileIcon,
   GitBranchIcon,
   ListIcon,
+  ListTreeIcon,
   Loader2,
   MemoryStickIcon,
   SkullIcon,
@@ -50,29 +51,7 @@ import {
   DialogFooter,
   DialogClose,
 } from "@/components/ui/dialog";
-
-function InformationHighlight({ title, children, Icon, collapsible = false }) {
-  const [isOpen, setIsOpen] = useState(!collapsible);
-
-  return (
-    <div className="p-2 rounded border border-neutral-900 mb-2">
-      <span className="w-full flex items-center opacity-75">
-        <Icon className="h-4 w-4 mr-1" />
-        {title}
-      </span>
-      {isOpen && <span className="text-xl">{children}</span>}
-      {collapsible && (
-        <Button
-          className="block mt-2"
-          variant="secondary"
-          onClick={() => setIsOpen(!isOpen)}
-        >
-          {isOpen ? "Collaps" : "Expand"}
-        </Button>
-      )}
-    </div>
-  );
-}
+import InformationHighlight from "@/components/ui/InformationHighlight";
 
 function Processes() {
   const [deviceInformation, setDeviceInformation] = useState(null);
@@ -193,6 +172,7 @@ function Processes() {
   return (
     <Page
       name="Processes"
+      className="overflow-y-scroll"
       titleAbsolute={deviceInformation === null || processList === null}
     >
       <AlertDialog
@@ -278,6 +258,10 @@ function Processes() {
 
             <InformationHighlight title={"Thread count"} Icon={GitBranchIcon}>
               {processDetails && processDetails.threads}
+            </InformationHighlight>
+
+            <InformationHighlight title={"Parent process"} Icon={ListTreeIcon}>
+              {processDetails && processDetails.parent}
             </InformationHighlight>
           </p>
           <DialogFooter>
@@ -406,7 +390,7 @@ function Processes() {
                     <Th className="min-w-[100px]">PID</Th>
                     <Th className="min-w-[100px]">CPU</Th>
                     <Th className="min-w-[100px]">Memory</Th>
-                    <Th>User</Th>
+                    <Th className="min-w-[250px]">User</Th>
                   </Tr>
                   {processList
                     .filter((x) => {
