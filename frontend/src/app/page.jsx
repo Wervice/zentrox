@@ -1,5 +1,5 @@
 "use client";
-import { Button } from "@/components/ui/button.jsx";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input.jsx";
 import {
   InputOTP,
@@ -7,7 +7,7 @@ import {
   InputOTPSlot,
 } from "@/components/ui/input-otp";
 import { Toaster } from "@/components/ui/toaster";
-import { toast, useToast } from "@/components/ui/use-toast";
+import { useToast } from "@/components/ui/use-toast";
 import { ToastAction } from "@/components/ui/toast.jsx";
 
 import Label from "@/components/ui/ShortLabel.jsx";
@@ -15,8 +15,7 @@ import Caption from "@/components/ui/Caption.jsx";
 import Image from "@/components/ui/Image.jsx";
 import { useEffect, useRef, useState } from "react";
 import { ClipboardIcon, KeyIcon, LockKeyholeIcon, User } from "lucide-react";
-
-const fetchURLPrefix = require("@/lib/fetchPrefix");
+import { fetchURLPrefix } from "@/lib/fetchPrefix";
 
 if (fetchURLPrefix.length > 0) {
   console.error("Fetch URL Prefix is enabled");
@@ -189,7 +188,7 @@ export default function Login() {
           }
         >
           <Image src="zentrox_dark_emblem.svg" />
-          <Caption text="Welcome" />
+          <Caption text="Login" />
           <Label>
             <User className="inline-block" /> Username
           </Label>
