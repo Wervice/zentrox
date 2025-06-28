@@ -43,4 +43,23 @@ CREATE TABLE PackageActions (
 	key integer,
 	last_database_update integer,
 	PRIMARY KEY (key)
-)
+);
+CREATE TABLE FileSharingCollection (
+	id varchar(40) NOT NULL,
+	real_name varchar(1047) NOT NULL,
+	time_limit integer NOT NULL,
+	password_protection boolean NOT NULL,
+	download_counter integer NOT NULL,
+	added_timestamp integer NOT NULL,
+	PRIMARY KEY (id)
+);
+CREATE TABLE FileSharingPasswordAttempts (
+	ip varchar(128) NOT NULL,
+	id varchar(40) NOT NULL,
+	attempts int NOT NULL,
+	PRIMARY KEY (ip)
+);
+CREATE TABLE FileSharingLocationAttempts (
+	ip varchar(128) NOT NULL,
+	attempts int NOT NULL
+);
