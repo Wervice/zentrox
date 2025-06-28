@@ -209,6 +209,28 @@ impl SwitchedUserCommand {
     }
 }
 
+pub fn verify_password(password: String) -> bool {
+    let mut c = Command::new("sudo");
+    c.args(&["-S", "-k", "-v"]);
+    c.stdin(Stdio::piped());
+    c.stdout(Stdio::piped());
+    c.stderr(Stdio::piped());
+    let mut h = c.spawn().unwrap();
+    let mut stdin = h.stdin.take().unwrap();
+    let stderr = h.stderr.take().unwrap();
+    let _ = thread::spawn(move || {
+        writeln!(stdin, "{}", password).expect("Failed to write password to stdin");
+        stdin.flush().expect("Failed to flush stdin");
+    });
+    let mut e_reader = BufReader::new(stderr);
+    let mut stderr_content = String::new();
+    e_reader
+        .read_to_string(&mut stderr_content)
+        .expect("Failed to read stdout");
+    return !(stderr_content.contains("incorrect password attempt")
+        || stderr_content.contains("Sorry, try again."));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

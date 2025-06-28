@@ -1,5 +1,6 @@
 use actix_cors::Cors;
 use actix_files as afs;
+use actix_multipart::form::MultipartFormConfig;
 use actix_multipart::form::{tempfile::TempFile, text::Text, MultipartForm};
 use actix_session::config::CookieContentSecurity;
 use actix_session::{storage::CookieSessionStore, Session, SessionMiddleware};
@@ -11,10 +12,12 @@ use actix_web::{
     HttpServer,
 };
 use core::panic;
+use futures::FutureExt;
 use serde::{Deserialize, Serialize};
 use std::ffi::OsString;
 use std::net::IpAddr;
 use std::ops::Div;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::process::{Command, Stdio};
 use std::str::FromStr;
 use std::time::Duration;
@@ -50,12 +53,14 @@ mod sudo;
 mod ufw;
 mod uptime;
 mod url_decode;
+mod users;
 mod vault;
 mod video;
 mod visit_dirs;
 
 use is_admin::is_admin_state;
 use net_data::private_ip;
+use users::convert_uid_to_name;
 use visit_dirs::visit_dirs;
 
 use self::cron::{
@@ -198,7 +203,7 @@ async fn index(session: Session, state: Data<AppState>) -> HttpResponse {
     if is_admin_state(&session, state) {
         HttpResponse::Found()
             .append_header(("Location", "/dashboard"))
-            .finish()
+            .body("You will soon be redirected")
     } else {
         HttpResponse::build(StatusCode::OK)
             .body(std::fs::read_to_string("static/index.html").expect("Failed to read file"))
@@ -216,7 +221,7 @@ async fn alerts(session: Session, state: Data<AppState>) -> HttpResponse {
     } else {
         HttpResponse::Found()
             .append_header(("Location", "/?app=true"))
-            .finish()
+            .body("You will soon be redirected")
     }
 }
 
@@ -233,7 +238,7 @@ async fn media(session: Session, state: Data<AppState>) -> HttpResponse {
     } else {
         HttpResponse::Found()
             .append_header(("Location", "/"))
-            .finish()
+            .body("You will soon be redirected")
     }
 }
 
@@ -255,7 +260,7 @@ async fn dashboard(session: Session, state: Data<AppState>) -> HttpResponse {
     } else {
         HttpResponse::Found()
             .append_header(("Location", "/"))
-            .finish()
+            .body("You will soon be redirected")
     }
 }
 
@@ -374,7 +379,7 @@ async fn logout(session: Session, state: Data<AppState>) -> HttpResponse {
             hex::encode((0..64).map(|_| rand::random::<u8>()).collect::<Vec<u8>>()).to_string();
         HttpResponse::Found()
             .append_header(("Location", "/"))
-            .finish()
+            .body("You will soon be redirected")
     } else {
         HttpResponse::BadRequest().body("You are not logged in.")
     }
@@ -455,7 +460,7 @@ async fn update_otp_status(
             "key",
             "0",
         );
-        return HttpResponse::Ok().finish();
+        return HttpResponse::Ok().body("OTP secret has been updated");
     }
 }
 
@@ -474,6 +479,24 @@ async fn use_otp(_state: Data<AppState>) -> HttpResponse {
     })
 }
 
+/// Verifies a given sudo password
+#[post("/api/verifySudoPassword")]
+async fn verify_sudo_password(
+    session: Session,
+    state: Data<AppState>,
+    json: web::Json<SudoPasswordOnlyRequest>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state.clone()) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    if !sudo::verify_password(json.sudoPassword.clone()) {
+        return HttpResponse::BadRequest().body("Wrong sudo password");
+    }
+
+    return HttpResponse::Ok().body("Sudo password has been verified");
+}
+
 // Functional Requests
 
 /// Return general information about the system. This includes:
@@ -488,7 +511,7 @@ async fn use_otp(_state: Data<AppState>) -> HttpResponse {
 async fn device_information(session: Session, state: Data<AppState>) -> HttpResponse {
     if !is_admin_state(&session, state.clone()) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
-    };
+    }
 
     #[derive(Serialize)]
     struct JsonResponse {
@@ -504,6 +527,7 @@ async fn device_information(session: Session, state: Data<AppState>) -> HttpResp
         memory_total: u64,
         memory_free: u64,
         cpu_usage: f32,
+        os_name: String,
     }
 
     // Current machines hostname. i.e.: debian_pc or 192.168.1.3
@@ -551,6 +575,19 @@ async fn device_information(session: Session, state: Data<AppState>) -> HttpResp
         net_up = u.up;
     }
 
+    let os_release = fs::read_to_string("/etc/os-release");
+    let mut os_name = String::new();
+    match os_release {
+        Ok(s) => {
+            s.lines().for_each(|l| {
+                if l.starts_with("PRETTY_NAME") {
+                    os_name = l.split("=").nth(1).unwrap_or("").replace("\"", "");
+                }
+            });
+        }
+        Err(_) => {}
+    }
+
     HttpResponse::Ok().json(JsonResponse {
         zentrox_pid: std::process::id() as u16,
         hostname,
@@ -567,6 +604,7 @@ async fn device_information(session: Session, state: Data<AppState>) -> HttpResp
         memory_free,
         memory_total,
         cpu_usage,
+        os_name,
     })
 }
 
@@ -929,15 +967,15 @@ async fn fetch_job_status(
 
     match background_state {
         Some(bs) => match bs {
-            BackgroundTaskState::Success => HttpResponse::Ok().finish(),
-            BackgroundTaskState::Fail => HttpResponse::UnprocessableEntity().finish(),
+            BackgroundTaskState::Success => HttpResponse::Ok().body("Task finished successfully"),
+            BackgroundTaskState::Fail => HttpResponse::UnprocessableEntity().body("Task failed"),
             BackgroundTaskState::SuccessOutput(s) => HttpResponse::Ok().body(s.clone()),
             BackgroundTaskState::FailOutput(f) => {
                 HttpResponse::UnprocessableEntity().body(f.clone())
             }
-            BackgroundTaskState::Pending => HttpResponse::Accepted().finish(),
+            BackgroundTaskState::Pending => HttpResponse::Accepted().body("Task is pending"),
         },
-        None => HttpResponse::Accepted().finish(),
+        None => HttpResponse::Accepted().body("Task does not exist"),
     }
 }
 
@@ -1067,7 +1105,7 @@ async fn switch_ufw(
         {
             sudo::SudoExecutionResult::Success(status) => {
                 if status == 0 {
-                    return HttpResponse::Ok().finish();
+                    return HttpResponse::Ok().body("UFW has been started");
                 } else {
                     return HttpResponse::InternalServerError()
                         .body("Failed to start UFW (Return value unequal 0)");
@@ -1092,7 +1130,7 @@ async fn switch_ufw(
         {
             sudo::SudoExecutionResult::Success(status) => {
                 if status == 0 {
-                    return HttpResponse::Ok().finish();
+                    return HttpResponse::Ok().body("UFW has been stopped");
                 } else {
                     return HttpResponse::InternalServerError()
                         .body("Failed to stop UFW (Return value unequal 0)");
@@ -1109,7 +1147,7 @@ async fn switch_ufw(
         }
     }
 
-    HttpResponse::Ok().finish()
+    HttpResponse::Ok().body("UFW has been configured")
 }
 
 #[post(
@@ -1245,7 +1283,7 @@ async fn delete_firewall_rule(
     let password = &json.sudoPassword;
 
     match ufw::delete_rule(password.to_string(), i as u32) {
-        Ok(_) => HttpResponse::Ok().finish(),
+        Ok(_) => HttpResponse::Ok().body("The rule has been deleted"),
         Err(_) => HttpResponse::InternalServerError()
             .body("Failed to remove rule because of command error"),
     }
@@ -1282,7 +1320,14 @@ async fn call_file(
 
 #[derive(Serialize)]
 struct FilesListJson {
-    content: Vec<(String, String)>,
+    content: Vec<(String, DirectoryEntryType)>,
+}
+
+#[derive(Serialize)]
+enum DirectoryEntryType {
+    File,
+    Directory,
+    InsufficientPermissions,
 }
 
 #[get("/api/filesList/{path}")]
@@ -1301,7 +1346,7 @@ async fn files_list(
 
     match fs::read_dir(dir_path) {
         Ok(contents) => {
-            let mut result: Vec<(String, String)> = Vec::new();
+            let mut result: Vec<(String, DirectoryEntryType)> = Vec::new();
             for e in contents {
                 let e_unwrap = &e.unwrap();
                 let file_name = &e_unwrap.file_name().into_string().unwrap();
@@ -1310,11 +1355,14 @@ async fn files_list(
                 let is_symlink = e_unwrap.metadata().unwrap().is_symlink();
 
                 if is_file {
-                    result.push((file_name.to_string(), "f".to_string()))
+                    result.push((file_name.to_string(), DirectoryEntryType::File))
                 } else if is_dir || is_symlink {
-                    result.push((file_name.to_string(), "d".to_string()))
+                    result.push((file_name.to_string(), DirectoryEntryType::Directory))
                 } else {
-                    result.push((file_name.to_string(), "a".to_string()))
+                    result.push((
+                        file_name.to_string(),
+                        DirectoryEntryType::InsufficientPermissions,
+                    ))
                 }
             }
             HttpResponse::Ok().json(FilesListJson { content: result })
@@ -1347,12 +1395,12 @@ async fn delete_file(
 
         if (is_file || is_link) && has_permissions {
             match fs::remove_file(&file_path) {
-                Ok(_) => HttpResponse::Ok().finish(),
+                Ok(_) => HttpResponse::Ok().body("The file has been deleted"),
                 Err(_) => HttpResponse::InternalServerError().body("Failed to delete file."),
             }
         } else if is_dir && has_permissions {
             match fs::remove_dir_all(&file_path) {
-                Ok(_) => HttpResponse::Ok().finish(),
+                Ok(_) => HttpResponse::Ok().body("The directory has been deleted"),
                 Err(_) => HttpResponse::InternalServerError().body("Failed to delete directory."),
             }
         } else {
@@ -1385,7 +1433,7 @@ async fn rename_file(
         let has_permissions = !metadata.permissions().readonly();
         if has_permissions && !std::path::Path::new(&new_path).exists() {
             match fs::rename(old_path, new_path) {
-                Ok(_) => HttpResponse::Ok().finish(),
+                Ok(_) => HttpResponse::Ok().body("The file has been renamed"),
                 Err(_) => HttpResponse::InternalServerError().body("Failed to rename file"),
             }
         } else {
@@ -1410,31 +1458,166 @@ async fn burn_file(
     }
 
     let file_path = url_decode::url_decode(&path);
+    let path = std::path::Path::new(&file_path);
 
-    if std::path::Path::new(&file_path).exists() {
-        let metadata = fs::metadata(&file_path).unwrap();
-        let has_permissions = !metadata.permissions().readonly();
-        if has_permissions {
-            let size = metadata.len();
-            let r_s = (0..size).map(|_| rand::random::<u8>()).collect::<Vec<u8>>();
-            match fs::write(file_path.clone(), r_s) {
-                Ok(_) => {
-                    let _ = fs::remove_file(&file_path);
-                    HttpResponse::Ok().finish()
-                }
-                Err(_) => HttpResponse::InternalServerError().body("Failed to destroy file."),
-            }
-        } else {
-            HttpResponse::Forbidden().body("Missing file permissions. Can not burn.")
-        }
-    } else {
-        HttpResponse::BadRequest().body("This path does not exist")
+    if path.is_dir() {
+        return HttpResponse::BadRequest().body("This is a directory. It can not be burned.");
     }
+
+    if !path.exists() {
+        return HttpResponse::BadRequest().body("This path does not exist");
+    }
+
+    let metadata = fs::metadata(&file_path).unwrap();
+    let has_permissions = !metadata.permissions().readonly();
+
+    if !has_permissions {
+        return HttpResponse::Forbidden().body("Missing file permissions. Can not burn.");
+    }
+
+    let size = metadata.len();
+    let r_s = (0..size).map(|_| rand::random::<u8>()).collect::<Vec<u8>>();
+    match fs::write(file_path.clone(), r_s) {
+        Ok(_) => {
+            let _ = fs::remove_file(&file_path);
+            HttpResponse::Ok().body("The file has been burned")
+        }
+        Err(_) => HttpResponse::InternalServerError().body("Failed to destroy file."),
+    }
+}
+
+#[derive(Serialize)]
+enum FileSystemEntry {
+    File,
+    Directory,
+    Symlink,
+    Unknown,
+}
+
+#[derive(Serialize)]
+struct GetMetadataResponseJson {
+    permissions: i32,
+    owner_username: String,
+    owner_uid: u32,
+    owner_gid: u32,
+    size: u64,
+    entry_type: FileSystemEntry,
+    created: Option<u64>,
+    modified: Option<u64>,
+    filename: String,
+    absolute_path: String,
+}
+
+fn recursive_size_of_directory(path: &PathBuf) -> u64 {
+    let mut size = 0_u64;
+    match fs::read_dir(path) {
+        Ok(contents) => {
+            contents.for_each(|f| {
+                if f.is_err() { return; }
+                match f.as_ref().unwrap().metadata() {
+                    Ok(metadata) => {
+                if metadata.is_symlink() || metadata.is_file() {
+                    size += metadata.size();
+                } else {
+                    size += recursive_size_of_directory(&f.unwrap().path());
+                }
+                    },
+                    _ => {}
+                }
+            });
+        }
+        Err(_) => {}
+    }
+    return size;
+}
+
+#[get("/api/getMetadata/{path}")]
+async fn get_metadata(
+    session: Session,
+    state: Data<AppState>,
+    path: web::Path<String>,
+) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    let from_url_path = url_decode::url_decode(&path);
+    let constructed_path = std::path::PathBuf::from(from_url_path);
+    let metadata =
+        fs::metadata(constructed_path.clone()).expect("Failed to retrieve metadata for file");
+
+    let permissions = metadata.permissions().mode() & 0o777;
+    let permissions_octal_string = format!("{:o}", permissions);
+    let permissions_octal: i32 = permissions_octal_string.parse().unwrap();
+
+    // UNIX timestamp in seconds at which this file was created
+    let created_stamp = match metadata.created() {
+        Ok(v) => Some(
+            v.duration_since(UNIX_EPOCH)
+                .expect("Time went backwards.")
+                .as_secs(),
+        ),
+        Err(_) => None,
+    };
+
+    // UNIX timestamp in seconds at which this file was last modified
+    let modified_stamp = match metadata.modified() {
+        Ok(v) => Some(
+            v.duration_since(UNIX_EPOCH)
+                .expect("Time went backwards.")
+                .as_secs(),
+        ),
+        Err(_) => None,
+    };
+
+    let size;
+    let is_file = metadata.is_file();
+    let is_dir = metadata.is_dir();
+    let is_symlink = metadata.is_symlink();
+
+    if is_file || is_symlink {
+        size = metadata.size();
+    } else {
+        size = recursive_size_of_directory(&constructed_path)
+    }
+
+    let owner_uid = metadata.uid();
+    let owner_username =
+        convert_uid_to_name(owner_uid as usize).unwrap_or("Unknown owner username".to_string());
+    let owner_gid = metadata.gid();
+
+    return HttpResponse::Ok().json(GetMetadataResponseJson {
+        permissions: permissions_octal,
+        size: size,
+        owner_uid,
+        owner_gid,
+        owner_username,
+        modified: modified_stamp,
+        created: created_stamp,
+        entry_type: {
+            if is_dir {
+                FileSystemEntry::Directory
+            } else if is_file {
+                FileSystemEntry::File
+            } else if is_symlink {
+                FileSystemEntry::Symlink
+            } else {
+                FileSystemEntry::Unknown
+            }
+        },
+        absolute_path: constructed_path.to_str().unwrap().to_string(),
+        filename: constructed_path
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string(),
+    });
 }
 
 #[derive(Debug, MultipartForm)]
 struct UploadFileForm {
-    #[multipart(limit = "8GB")]
+    #[multipart(limit = "32 GiB")]
     file: TempFile,
     path: Text<String>,
 }
@@ -1471,7 +1654,7 @@ async fn upload_file(
         HttpResponse::InternalServerError().body("Unable to delete temporary file");
     }
 
-    HttpResponse::Ok().finish()
+    HttpResponse::Ok().body("The upload has been finished")
 }
 
 // Block Device API
@@ -1862,61 +2045,88 @@ async fn delete_vault_file(
     state: Data<AppState>,
     json: web::Json<VaultDeleteRequest>,
 ) -> HttpResponse {
-    if !is_admin_state(&session, state) {
+    if !is_admin_state(&session, state.clone()) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    let sent_path = &json.deletePath;
+    let uuid = Uuid::new_v4();
+    state
+        .background_jobs
+        .lock()
+        .unwrap()
+        .insert(uuid, BackgroundTaskState::Pending);
 
-    if sent_path == ".vault" {
-        HttpResponse::BadRequest().finish();
-    }
-
-    let path = path::Path::new(&dirs::home_dir().unwrap().to_string_lossy().to_string())
-        .join(".local")
-        .join("share")
-        .join("zentrox")
-        .join("vault_directory")
-        .join(
-            sent_path
-                .split("/")
-                .filter(|x| !x.is_empty())
-                .map(|x| vault::encrypt_string_hash(x.to_string(), &json.key.to_string()).unwrap())
-                .collect::<Vec<String>>()
-                .join("/"),
-        );
-
-    if path.metadata().unwrap().is_file() {
-        let file_size = fs::metadata(&path).unwrap().len();
-        let mut i = 0;
-
-        while i != 5 {
-            let random_data = (0..file_size)
-                .map(|_| rand::random::<u8>())
-                .collect::<Vec<u8>>();
-            let _ = fs::write(&path, random_data);
-            i += 1;
+    let _ = actix_web::web::block(move || {
+        let sent_path = &json.deletePath;
+        if sent_path == ".vault" {
+            error!(".vault file may never be deleted.");
+            state.background_jobs.lock().unwrap().insert(
+                uuid,
+                BackgroundTaskState::FailOutput(".vault file may never be deleted.".to_string()),
+            );
         }
 
-        match fs::remove_file(path) {
-            Ok(_) => {}
-            Err(e) => {
-                eprintln!("Failed to remove vault file.\n{}", e);
-                return HttpResponse::InternalServerError().finish();
-            }
-        };
-    } else {
-        let _ = vault::burn_directory(path.to_string_lossy().to_string());
-        match fs::remove_dir_all(path) {
-            Ok(_) => {}
-            Err(e) => {
-                eprintln!("Failed to remove vault directory.\n{}", e);
-                return HttpResponse::InternalServerError().finish();
-            }
-        };
-    }
+        let path = path::Path::new(&dirs::home_dir().unwrap().to_string_lossy().to_string())
+            .join(".local")
+            .join("share")
+            .join("zentrox")
+            .join("vault_directory")
+            .join(
+                sent_path
+                    .split("/")
+                    .filter(|x| !x.is_empty())
+                    .map(|x| {
+                        vault::encrypt_string_hash(x.to_string(), &json.key.to_string()).unwrap()
+                    })
+                    .collect::<Vec<String>>()
+                    .join("/"),
+            );
 
-    HttpResponse::Ok().json(EmptyJson {})
+        if path.metadata().unwrap().is_file() {
+            let file_size = fs::metadata(&path).unwrap().len();
+            let mut i = 0;
+
+            while i != 5 {
+                let random_data = (0..file_size)
+                    .map(|_| rand::random::<u8>())
+                    .collect::<Vec<u8>>();
+                let _ = fs::write(&path, random_data);
+                i += 1;
+            }
+
+            match fs::remove_file(path) {
+                Ok(_) => {}
+                Err(_e) => {
+                    error!("Failed to remove vault file.");
+                    state.background_jobs.lock().unwrap().insert(
+                        uuid,
+                        BackgroundTaskState::FailOutput("Failed to remove vault file.".to_string()),
+                    );
+                }
+            };
+        } else {
+            let _ = vault::burn_directory(path.to_string_lossy().to_string());
+            match fs::remove_dir_all(path) {
+                Ok(_) => {}
+                Err(_e) => {
+                    error!("Failed to remove vault directory.");
+                    state.background_jobs.lock().unwrap().insert(
+                        uuid,
+                        BackgroundTaskState::FailOutput(
+                            "Failed to remove vault directory.".to_string(),
+                        ),
+                    );
+                }
+            };
+        }
+        state
+            .background_jobs
+            .lock()
+            .unwrap()
+            .insert(uuid, BackgroundTaskState::Success);
+    });
+
+    HttpResponse::Ok().body(uuid.to_string())
 }
 
 // Create new folder in vault
@@ -1943,7 +2153,7 @@ async fn vault_new_folder(
     let sent_path = &json.folder_name;
 
     if sent_path.split("/").last().unwrap().len() > 64 {
-        return HttpResponse::InternalServerError().finish();
+        return HttpResponse::InternalServerError().body("The path is invalid");
     }
 
     let path = path::Path::new(&dirs::home_dir().unwrap().to_string_lossy().to_string())
@@ -1972,9 +2182,11 @@ async fn vault_new_folder(
 
 #[derive(Debug, MultipartForm)]
 struct VaultUploadForm {
-    file: TempFile,
     key: Text<String>,
     path: Text<String>,
+
+    #[multipart(limit = "32 GiB")]
+    file: TempFile,
 }
 
 #[post("/upload/vault")]
@@ -1995,6 +2207,7 @@ async fn upload_vault(
         .unwrap_or_else(|| "vault_default_file".to_string())
         .replace("..", "")
         .replace("/", "");
+
     let key = &form.key;
 
     if file_name == ".vault" {
@@ -2029,22 +2242,26 @@ async fn upload_vault(
 
     let _ = tokio::fs::copy(&tmp_file_path, &in_vault_path).await;
 
-    let file_size = fs::metadata(&tmp_file_path).unwrap().len();
-    let mut i = 0;
+    println!("{:?}", &tmp_file_path);
 
-    while i != 5 {
-        let random_data = (0..file_size)
-            .map(|_| rand::random::<u8>())
-            .collect::<Vec<u8>>();
-        let _ = fs::write(&tmp_file_path, random_data);
-        i += 1;
-    }
-
-    let _ = tokio::fs::remove_file(&tmp_file_path).await;
+    let _ = actix_web::web::block(|| {
+        let _ = tokio::fs::metadata(&tmp_file_path.clone()).then(async move |v| {
+            let file_size = v.unwrap().len();
+            let mut i = 0;
+            while i != 5 {
+                let random_data = (0..file_size)
+                    .map(|_| rand::random::<u8>())
+                    .collect::<Vec<u8>>();
+                let _ = tokio::fs::write(&tmp_file_path, random_data);
+                i += 1;
+            }
+            let _ = tokio::fs::remove_file(&tmp_file_path);
+        });
+    });
 
     vault::encrypt_file(in_vault_path.to_string_lossy().to_string(), key);
 
-    HttpResponse::Ok().finish()
+    HttpResponse::Ok().body("The upload has been finished")
 }
 
 // Rename file/folder in vault
@@ -2071,7 +2288,7 @@ async fn rename_vault_file(
     let sent_path = &json.path;
 
     if sent_path == "/.vault" {
-        HttpResponse::BadRequest().finish();
+        HttpResponse::BadRequest().body("This file can never be deleted");
     }
 
     let path = path::Path::new(&dirs::home_dir().unwrap().to_string_lossy().to_string())
@@ -3265,28 +3482,6 @@ async fn networking_interface_active(
     return HttpResponse::Ok().finish();
 }
 
-fn convert_uid_to_name(uuid: usize) -> Result<String, ()> {
-    let passwd_file_path = PathBuf::from("/etc/passwd");
-    let passwd_file_contents = fs::read_to_string(passwd_file_path);
-    match passwd_file_contents {
-        Ok(v) => {
-            let lines = v.lines();
-            let mut username: String = "".to_string();
-            lines.for_each(|x| {
-                if x.split(":").nth(2).unwrap().to_string() == uuid.to_string() {
-                    username = x.split(":").nth(0).unwrap().to_string();
-                }
-            });
-            if username.is_empty() {
-                return Err(());
-            } else {
-                return Ok(username);
-            }
-        }
-        Err(_e) => Err(()),
-    }
-}
-
 #[derive(Serialize)]
 struct ListProcessesResponseJson {
     processes: Vec<SerializableProcess>,
@@ -3352,7 +3547,10 @@ async fn list_processes(session: Session, state: Data<AppState>) -> HttpResponse
         let uid = x.1.user_id();
         match uid {
             Some(uid) => {
-                username = Some(convert_uid_to_name(uid.div(1) as usize).unwrap());
+                username = Some(
+                    convert_uid_to_name(uid.div(1) as usize)
+                        .unwrap_or(format!("Missing username ({})", uid.div(1)).to_string()),
+                );
                 uid_true = Some(uid.div(1));
             }
             None => {}
@@ -3428,6 +3626,7 @@ struct ProcessDetailsResponseJson {
     executable_path: String,
     priority: isize,
     threads: isize,
+    parent: String,
 }
 
 #[get("/api/detailsProcess/{pid}")]
@@ -3462,6 +3661,18 @@ async fn details_process(session: Session, state: Data<AppState>, path: Path<u32
     let run_time = selected_process.run_time();
     let command_line = os_string_array_to_string_vector(selected_process.cmd());
     let executable_path_determination = selected_process.exe();
+
+    let parent = selected_process
+        .parent()
+        .expect("The process has no parrent id.");
+    let parent_name = system
+        .process(parent)
+        .expect("The process can not be accessed.")
+        .name()
+        .to_str()
+        .unwrap()
+        .to_string();
+
     let mut executable_path = String::from("Unknown");
     if executable_path_determination.is_some() {
         executable_path = executable_path_determination
@@ -3495,6 +3706,7 @@ async fn details_process(session: Session, state: Data<AppState>, path: Path<u32
         priority,
         run_time,
         executable_path,
+        parent: parent_name,
     });
 }
 
@@ -3729,6 +3941,14 @@ async fn dashboard_asset_block(session: Session, state: Data<AppState>) -> HttpR
 
 // The main function
 
+fn configure_multipart(cfg: &mut web::ServiceConfig) {
+    // Configure multipart form settings
+    let multipart_config = MultipartFormConfig::default().total_limit(1024 * 1024 * 1024 * 32);
+
+    // Store the configuration in app data
+    cfg.app_data(multipart_config);
+}
+
 #[actix_web::main]
 /// Prepares Zentrox and starts the server.
 async fn main() -> std::io::Result<()> {
@@ -3877,6 +4097,7 @@ async fn main() -> std::io::Result<()> {
 
         App::new()
             .app_data(Data::new(app_state.clone()))
+            .configure(configure_multipart)
             .wrap(middleware::Logger::new("%a %U %s"))
             .wrap(
                 SessionMiddleware::builder(
@@ -3914,6 +4135,8 @@ async fn main() -> std::io::Result<()> {
             .service(otp_secret_request)
             .service(logout) // Remove admin status and redirect to /
             .service(update_otp_status)
+            // Sudo
+            .service(verify_sudo_password)
             // API Device Stats
             .service(device_information) // General device information
             // API Packages
@@ -3939,6 +4162,7 @@ async fn main() -> std::io::Result<()> {
             .service(rename_file)
             .service(burn_file)
             .service(upload_file)
+            .service(get_metadata)
             // Block Device API
             .service(list_drives)
             .service(drive_information)
