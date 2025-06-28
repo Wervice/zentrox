@@ -13,6 +13,7 @@ import { useState } from "react";
  * DateWrapper is a component that wraps around the secondsToFormat function.
  * It automatically chooses and sets a date format prerefence for the user.
  * By clicking the component, that format is changed.*/
+
 function DateWrapper({ updating, interval, seconds, className }) {
   if (typeof window === "undefined") return;
   const userPreference = localStorage.getItem("dateFormat") || "8601"; // Get user preference and default to ISO-8601
