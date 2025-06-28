@@ -1,5 +1,5 @@
 import Page from "@/components/ui/PageWrapper";
-import fetchURLPrefix from "@/lib/fetchPrefix";
+import { fetchURLPrefix } from "@/lib/fetchPrefix";
 import useNotification from "@/lib/notificationState";
 import {
   AntennaIcon,
@@ -12,7 +12,7 @@ import {
   RouteIcon,
   TrashIcon,
 } from "lucide-react";
-import { use, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Select,
   SelectContent,

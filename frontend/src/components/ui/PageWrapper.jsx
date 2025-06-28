@@ -1,24 +1,24 @@
+import { cn } from "@/lib/utils";
+
 export default function Page({
   name,
   children,
-  className,
+  className = "",
   titleAbsolute = false,
   ...props
 }) {
   return (
     <div
-      className={
-        "w-full h-screen flex-grow overflow-y-auto text-white animate-fadein duration-300 overflow-hidden" +
-        className
-      }
+      className={cn(
+        "w-full h-screen max-h-screen flex-grow overflow-y-hidden text-white animate-fadein duration-300 overflow-hidden p-4",
+        className,
+      )}
       {...props}
     >
-      <div className="p-4 h-full">
-        <h2 className={"text-3xl font-bold " + (titleAbsolute && "absolute")}>
-          {name}
-        </h2>
-        {children}
-      </div>
+      <h2 className={"text-3xl font-bold " + (titleAbsolute && "absolute")}>
+        {name}
+      </h2>
+      {children}
     </div>
   );
 }

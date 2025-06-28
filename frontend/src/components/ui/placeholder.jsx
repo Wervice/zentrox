@@ -1,5 +1,9 @@
-function Placeholder({ children }) {
-  return <div className="w-full p-20">{children}</div>;
+function Placeholder({ children, ...props }) {
+  return (
+    <div className="w-full p-20" {...props}>
+      {children}
+    </div>
+  );
 }
 
 function PlaceholderIcon({ icon }) {

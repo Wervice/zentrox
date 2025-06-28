@@ -1,6 +1,6 @@
 import Page from "@/components/ui/PageWrapper";
 import { ActionTd, ActionTh, Table, Td, Th, Tr } from "@/components/ui/table";
-import fetchURLPrefix from "@/lib/fetchPrefix";
+import { fetchURLPrefix } from "@/lib/fetchPrefix";
 import useNotification from "@/lib/notificationState";
 import {
   AlertDialog,

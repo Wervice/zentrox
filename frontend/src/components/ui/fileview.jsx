@@ -1,22 +1,15 @@
 import {
-  BracesIcon,
   DeleteIcon,
   Flame,
-  FileIcon,
-  FileText,
   FolderIcon,
-  Music,
   PenLineIcon,
   ShieldIcon,
-  VideoIcon,
   DownloadIcon,
-  Clock2,
   HouseIcon,
-  PlugIcon,
   UploadIcon,
-  FileTextIcon,
-  TextIcon,
-  BracketsIcon,
+  TelescopeIcon,
+  CircleDotDashedIcon,
+  CircleDotIcon,
 } from "lucide-react";
 
 import {
@@ -55,8 +48,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import useNotification from "@/lib/notificationState";
 import { DialogTrigger } from "@radix-ui/react-dialog";
-
-const fetchURLPrefix = require("@/lib/fetchPrefix");
+import {
+  Placeholder,
+  PlaceholderIcon,
+  PlaceholderSubtitle,
+} from "./placeholder";
+import FileIcon from "./FileIcon";
+import { fetchURLPrefix } from "@/lib/fetchPrefix.js";
 
 export default function FileView({ className = "" }) {
   const [currentPath, setCurrentPath] = useState("/");
@@ -68,6 +66,8 @@ export default function FileView({ className = "" }) {
   const [burnPopupVisible, setBurnPopupVisible] = useState(false);
   const [burnFile, setBurnFile] = useState("");
   const [uploadFileName, setUploadFileName] = useState(null);
+  const [showDotfiles, setShowDotfiles] = useState(false);
+  const [filter, setFilter] = useState("");
   const { deleteNotification, notify, notifications } = useNotification();
   var renameFileInput = useRef();
   var uploadFileInput = useRef();
@@ -302,9 +302,28 @@ export default function FileView({ className = "" }) {
           setCurrentPath(e);
           fetchFiles(e);
         }}
+        onFilter={(filter) => {
+          setFilter(filter);
+        }}
+        filter={filter}
         home="/home/"
         value={currentPath}
       >
+        <span
+          title={`Click to ${showDotfiles ? "hide" : "show"} files with leading dot`}
+        >
+          {!showDotfiles ? (
+            <CircleDotDashedIcon
+              className="w-4 h-4 transition-all cursor-pointer opacity-75 hover:opacity-100 inline-block align-middle mr-2"
+              onClick={() => setShowDotfiles(!showDotfiles)}
+            />
+          ) : (
+            <CircleDotIcon
+              className="w-4 h-4 transition-all cursor-pointer opacity-75 hover:opacity-100 inline-block align-middle mr-2"
+              onClick={() => setShowDotfiles(!showDotfiles)}
+            />
+          )}
+        </span>
         <span title="Upload new file">
           <Dialog>
             <DialogTrigger>
@@ -314,7 +333,7 @@ export default function FileView({ className = "" }) {
               <DialogHeader>
                 <DialogTitle>Upload new file</DialogTitle>
                 <DialogDescription>
-                  Upload a file with up to 8GB file size to your device.
+                  Upload a file with up to 32GB file size to your device.
                 </DialogDescription>
               </DialogHeader>
               <p>
@@ -341,6 +360,20 @@ export default function FileView({ className = "" }) {
                     onClick={() => {
                       if (uploadFileName == null) return;
                       var fileForSubmit = uploadFileInput.current.files[0];
+                      if (
+                        uploadFileInput.current.files[0].size >
+                        1024 * 1024 * 1024 * 32
+                      ) {
+                        notify(
+                          "The file you provided was larger than 32GB and can thus not be uploaded.",
+                        );
+                        toast({
+                          title: "File to big",
+                          description:
+                            "The file you provided was larger than 32GB and can thus not be uploaded.",
+                        });
+                        return;
+                      }
                       uploadFileInput.current.value = null;
                       var formData = new FormData();
                       formData.append("file", fileForSubmit);
@@ -374,213 +407,150 @@ export default function FileView({ className = "" }) {
         </span>
       </PathViewer>
       <div
-        className="rounded-xl m-2 overflow-hidden overflow-y-scroll border-2 border-neutral-800"
+        className="rounded-xl mt-2 overflow-hidden overflow-y-scroll border-2 border-neutral-800"
         style={{
-          maxHeight: "calc(100vh - 200px)",
+          maxHeight: "calc(100vh - 150px)",
         }}
+        hidden={entries.length === 0}
       >
-        {entries.map((entry, index) => {
-          if (entry[1] === "d") {
-            if (entry[0] === "home" && currentPath === "/") {
-              var icon = (
-                <HouseIcon className={iconViewClassName + " text-red-500"} />
-              );
-            } else if (entry[0] === "dev" && currentPath === "/") {
-              var icon = (
-                <PlugIcon className={iconViewClassName + " text-red-500"} />
-              );
+        {entries
+          .filter((e) => {
+            if (e[0].startsWith(".")) {
+              return showDotfiles;
             } else {
+              return true;
+            }
+          })
+          .toSorted((e) => {
+            if (e[1] === "d") {
+              if (e[0].startsWith(".")) {
+                return 1;
+              }
+              return -1;
+            }
+            return 1;
+          })
+          .filter((e) => {
+            return e[0].includes(filter);
+          })
+          .map((entry, index) => {
+            if (entry[1] === "d") {
+              if (entry[0] === "home" && currentPath === "/") {
+                var icon = <HouseIcon className={iconViewClassName} />;
+              } else {
+                var icon = (
+                  <FolderIcon className={iconViewClassName} fill="white" />
+                );
+              }
+            } else if (entry[1] === "f") {
               var icon = (
-                <FolderIcon
-                  className={iconViewClassName + " text-yellow-500"}
-                  fill="#eab308"
+                <FileIcon filename={entry[0]} className={iconViewClassName} />
+              );
+            } else if (entry[1] === "a") {
+              var icon = (
+                <ShieldIcon
+                  className={iconViewClassName + " text-neutral-100"}
                 />
               );
             }
-          } else if (entry[1] === "f") {
-            switch (entry[0].split(".").slice(-1)[0]) {
-              case "odt":
-              case "docx":
-              case "doc":
-              case "html":
-              case "txt":
-                var icon = (
-                  <TextIcon className={iconViewClassName + " text-blue-500"} />
-                );
-                break;
-              case "pdf":
-                var icon = (
-                  <TextIcon className={iconViewClassName + " text-blue-500"} />
-                );
-                break;
-              case "wav":
-              case "mp3":
-              case "m4a":
-              case "aiv":
-              case "flac":
-              case "opus":
-              case "webm":
-                var icon = (
-                  <Music className={iconViewClassName + " text-pink-500"} />
-                );
-                break;
-              case "mp4":
-              case "avi":
-              case "mkv":
-              case "webv":
-                var icon = (
-                  <VideoIcon className={iconViewClassName + " text-red-500"} />
-                );
-                break;
-              case "css":
-              case "js":
-              case "ts":
-              case "jsx":
-              case "tsx":
-              case "py":
-              case "cpp":
-              case "c":
-              case "h":
-              case "php":
-              case "rs":
-              case "go":
-              case "json":
-              case "bash":
-              case "sh":
-              case "Makefile":
-              case "lua":
-              case "exe":
-              case "elf":
-              case "dll":
-              case "ini":
-              case "cnf":
-                var icon = (
-                  <BracesIcon
-                    className={iconViewClassName + " text-green-500"}
-                  />
-                );
-                break;
-              case "old":
-              case "bak":
-                var icon = (
-                  <Clock2 className={iconViewClassName + " text-green-500"} />
-                );
-                break;
-              default:
-                if (entry[0].split(".")[0] == "") {
-                  var icon = (
-                    <BracketsIcon
-                      className={iconViewClassName + " text-neutral-100"}
-                    />
-                  );
-                } else {
-                  var icon = (
-                    <FileIcon
-                      className={iconViewClassName + " text-neutral-100"}
-                    />
-                  );
-                }
+
+            const contextMenuIcon = "inline-block pr-1 h-5 w-5 mb-[-2px]";
+
+            if (entry[1] === "f") {
+              return (
+                <ContextMenu key={"file" + index} modal={false}>
+                  <ContextMenuTrigger>
+                    <span
+                      id={index}
+                      className={viewClassName}
+                      onClick={() =>
+                        window.open(
+                          fetchURLPrefix +
+                            "/api/callFile/" +
+                            encodeURIComponent(currentPath + entry[0]),
+                        )
+                      }
+                    >
+                      {icon} {entry[0]}
+                    </span>
+                  </ContextMenuTrigger>
+                  <ContextMenuContent>
+                    <ContextMenuItem
+                      onClick={(event) => {
+                        requestDeletion(entry[0]);
+                      }}
+                    >
+                      <DeleteIcon className={contextMenuIcon} /> Delete
+                    </ContextMenuItem>
+                    <ContextMenuItem
+                      onClick={(event) => {
+                        requestRename(entry[0]);
+                      }}
+                    >
+                      <PenLineIcon className={contextMenuIcon} /> Rename
+                    </ContextMenuItem>
+                    <ContextMenuItem
+                      onClick={(event) => {
+                        requestBurn(entry[0]);
+                      }}
+                    >
+                      <Flame className={contextMenuIcon} /> Burn
+                    </ContextMenuItem>
+                    <ContextMenuItem
+                      onClick={() =>
+                        window.open(
+                          fetchURLPrefix +
+                            "/api/callFile/" +
+                            encodeURIComponent(currentPath + entry[0]),
+                        )
+                      }
+                    >
+                      <DownloadIcon className={contextMenuIcon} /> Download
+                    </ContextMenuItem>
+                  </ContextMenuContent>
+                </ContextMenu>
+              );
+            } else {
+              return (
+                <ContextMenu key={"folder" + index} modal={false}>
+                  <ContextMenuTrigger>
+                    <span
+                      id={index}
+                      className={viewClassName}
+                      onClick={() => fetchFiles(`${currentPath}${entry[0]}/`)}
+                    >
+                      {icon} {entry[0]}
+                    </span>
+                  </ContextMenuTrigger>
+                  <ContextMenuContent>
+                    <ContextMenuItem
+                      onClick={(event) => {
+                        requestDeletion(entry[0]);
+                        event.preventDefault();
+                      }}
+                    >
+                      <DeleteIcon className={contextMenuIcon} /> Delete
+                    </ContextMenuItem>
+                    <ContextMenuItem
+                      onClick={(event) => {
+                        requestRename(entry[0]);
+                      }}
+                    >
+                      <PenLineIcon className={contextMenuIcon} /> Rename
+                    </ContextMenuItem>
+                  </ContextMenuContent>
+                </ContextMenu>
+              );
             }
-          } else if (entry[1] === "a") {
-            var icon = (
-              <ShieldIcon className={iconViewClassName + " text-neutral-100"} />
-            );
-          }
-
-          const contextMenuIcon = "inline-block pr-1 h-5 w-5 mb-[-2px]";
-
-          if (entry[1] === "f") {
-            return (
-              <ContextMenu key={"file" + index} modal={false}>
-                <ContextMenuTrigger>
-                  <span
-                    id={index}
-                    className={viewClassName}
-                    onClick={() =>
-                      window.open(
-                        fetchURLPrefix +
-                          "/api/callFile/" +
-                          encodeURIComponent(currentPath + entry[0]),
-                      )
-                    }
-                  >
-                    {icon} {entry[0]}
-                  </span>
-                </ContextMenuTrigger>
-                <ContextMenuContent>
-                  <ContextMenuItem
-                    onClick={(event) => {
-                      requestDeletion(entry[0]);
-                    }}
-                  >
-                    <DeleteIcon className={contextMenuIcon} /> Delete
-                  </ContextMenuItem>
-                  <ContextMenuItem
-                    onClick={(event) => {
-                      requestRename(entry[0]);
-                    }}
-                  >
-                    <PenLineIcon className={contextMenuIcon} /> Rename
-                  </ContextMenuItem>
-                  <ContextMenuItem
-                    onClick={(event) => {
-                      requestBurn(entry[0]);
-                    }}
-                  >
-                    <Flame className={contextMenuIcon} /> Burn
-                  </ContextMenuItem>
-                  <ContextMenuItem
-                    onClick={() =>
-                      window.open(
-                        fetchURLPrefix +
-                          "/api/callFile/" +
-                          encodeURIComponent(currentPath + entry[0]),
-                      )
-                    }
-                  >
-                    <DownloadIcon className={contextMenuIcon} /> Download
-                  </ContextMenuItem>
-                </ContextMenuContent>
-              </ContextMenu>
-            );
-          } else {
-            return (
-              <ContextMenu key={"folder" + index} modal={false}>
-                <ContextMenuTrigger>
-                  <span
-                    id={index}
-                    className={viewClassName}
-                    onClick={() => fetchFiles(`${currentPath}${entry[0]}/`)}
-                  >
-                    {icon} {entry[0]}
-                  </span>
-                </ContextMenuTrigger>
-                <ContextMenuContent>
-                  <ContextMenuItem
-                    onClick={(event) => {
-                      requestDeletion(entry[0]);
-                      event.preventDefault();
-                    }}
-                  >
-                    <DeleteIcon className={contextMenuIcon} /> Delete
-                  </ContextMenuItem>
-                  <ContextMenuItem
-                    onClick={(event) => {
-                      requestRename(entry[0]);
-                    }}
-                  >
-                    <PenLineIcon className={contextMenuIcon} /> Rename
-                  </ContextMenuItem>
-                </ContextMenuContent>
-              </ContextMenu>
-            );
-          }
-        })}
+          })}
       </div>
       {entries.length === 0 ? (
         <>
           <span className="block w-full text-center">
-            No files or folders in <br /> {currentPath}
+            <Placeholder>
+              <PlaceholderIcon icon={TelescopeIcon} />
+              <PlaceholderSubtitle>This directory is empty</PlaceholderSubtitle>
+            </Placeholder>
           </span>
         </>
       ) : (

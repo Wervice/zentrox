@@ -7,7 +7,7 @@ import {
 
 import { useState, useEffect } from "react";
 import Page from "@/components/ui/PageWrapper";
-import fetchURLPrefix from "@/lib/fetchPrefix";
+import { fetchURLPrefix } from "@/lib/fetchPrefix";
 import InfoButton from "@/components/ui/InfoButton";
 import localFont from "next/font/local";
 import { toast } from "@/components/ui/use-toast";
@@ -82,6 +82,7 @@ function FancyCounterCaption({ children }) {
 
 export default function Overview() {
   const { deleteNotification, notifications, notify } = useNotification();
+
   async function overviewFetch() {
     var t_a = Date.now();
     setReadyForFetch(false);
@@ -220,237 +221,259 @@ export default function Overview() {
   }
 
   return (
-    <Page name="Overview" className="align-top">
-      <Card title={"Memory usage"} skeleton={deviceInformation.unloaded}>
-        <span
-          className={
-            "text-5xl mb-2 font-semibold inline-block" +
-            (((deviceInformation.memory_total - deviceInformation.memory_free) /
-              deviceInformation.memory_total) *
-              100 <
-            30
-              ? " text-green-500"
-              : ((deviceInformation.memory_total -
-                    deviceInformation.memory_free) /
-                    deviceInformation.memory_total) *
-                    100 <
-                  60
-                ? " text-orange-500"
-                : ((deviceInformation.memory_total -
-                      deviceInformation.memory_free) /
-                      deviceInformation.memory_total) *
-                      100 <
-                    90
-                  ? " text-red-500"
-                  : " text-purple-500")
-          }
-        >
-          {Math.round(
-            ((deviceInformation.memory_total - deviceInformation.memory_free) /
-              deviceInformation.memory_total) *
-              100,
-          )}
-          %
-        </span>
-        <br />
-        {Math.round(
-          (deviceInformation.memory_total - deviceInformation.memory_free) /
-            Math.pow(1000, 3),
-        ) === 0
-          ? "< 1"
-          : Math.round(
+    <Page name="Overview">
+      <span className="flex flex-row flex-wrap justify-center items-center">
+        <span className="w-max">
+          <h1 className="text-5xl text-center font-semibold mb-3 opacity-100 bg-clip-text text-white">
+            Welcome
+          </h1>
+          <h2 className="text-center text-xl opacity-60 mb-2">
+            {deviceInformation.unloaded ? "..." : deviceInformation.hostname}{" "}
+            {deviceInformation.unloaded
+              ? ""
+              : "(" + deviceInformation.os_name + ")"}
+          </h2>
+          <Card title={"Memory usage"} skeleton={deviceInformation.unloaded}>
+            <span
+              className={
+                "text-5xl mb-2 font-semibold inline-block" +
+                (((deviceInformation.memory_total -
+                  deviceInformation.memory_free) /
+                  deviceInformation.memory_total) *
+                  100 <
+                30
+                  ? " text-green-500"
+                  : ((deviceInformation.memory_total -
+                        deviceInformation.memory_free) /
+                        deviceInformation.memory_total) *
+                        100 <
+                      60
+                    ? " text-orange-500"
+                    : ((deviceInformation.memory_total -
+                          deviceInformation.memory_free) /
+                          deviceInformation.memory_total) *
+                          100 <
+                        90
+                      ? " text-red-500"
+                      : " text-purple-500")
+              }
+            >
+              {Math.round(
+                ((deviceInformation.memory_total -
+                  deviceInformation.memory_free) /
+                  deviceInformation.memory_total) *
+                  100,
+              )}
+              %
+            </span>
+            <br />
+            {Math.round(
               (deviceInformation.memory_total - deviceInformation.memory_free) /
                 Math.pow(1000, 3),
-            )}
-        GB / {Math.round(deviceInformation.memory_total / Math.pow(1000, 3))}GB
-      </Card>
+            ) === 0
+              ? "< 1"
+              : Math.round(
+                  (deviceInformation.memory_total -
+                    deviceInformation.memory_free) /
+                    Math.pow(1000, 3),
+                )}
+            GB /{" "}
+            {Math.round(deviceInformation.memory_total / Math.pow(1000, 3))}GB
+          </Card>
 
-      <Card title={"CPU usage"} skeleton={deviceInformation.unloaded === true}>
-        <span
-          className={
-            "text-5xl mb-2 font-semibold inline-block" +
-            (deviceInformation.cpu_usage < 30
-              ? " text-green-500"
-              : deviceInformation.cpu_usage < 60
-                ? " text-orange-500"
-                : deviceInformation.cpu_usage < 90
-                  ? " text-red-500"
-                  : " text-purple-500")
-          }
-        >
-          {Math.round(deviceInformation.cpu_usage) == 0
-            ? "< 1"
-            : Math.round(deviceInformation.cpu_usage)}
-          %
-        </span>
-        <br />
-        {deviceInformation.temperature == -300
-          ? "No temperature"
-          : Math.round(deviceInformation.temperature) + "°C"}
-      </Card>
-
-      <Card
-        title={"Networking"}
-        variant="wide"
-        skeleton={
-          deviceInformation.unloaded ||
-          deviceInformation.net_interface == "MISSING_INTERFACE"
-        }
-      >
-        <span className="inline-block mr-2 mb-2">
-          <strong className="block">Hostname</strong>
-
-          <button
-            className="cursor-pointer active:scale-110 active:text-green-500 transition-all duration-75 bg-transparent border-transparent inline-block"
-            onClick={() => {
-              try {
-                window.navigator.clipboard.writeText(deviceInformation.ip);
-                toast({
-                  title: "Copied hostname to clipboard",
-                });
-              } catch {}
-            }}
+          <Card
+            title={"CPU usage"}
+            skeleton={deviceInformation.unloaded === true}
           >
-            {deviceInformation.hostname}
-          </button>
-        </span>
-        <span className="inline-block mr-2 mb-2">
-          <strong className="block">Private IP</strong>
-          <button
-            className="cursor-pointer active:scale-110 active:text-green-500 transition-all duration-75 bg-transparent border-transparent inline-block"
-            onClick={() => {
-              try {
-                window.navigator.clipboard.writeText(deviceInformation.ip);
-                toast({
-                  title: "Copied private IP to clipboard",
-                });
-              } catch {}
-            }}
-          >
-            {deviceInformation.ip}
-          </button>
-        </span>
-        <br />
-        <span className="inline-block mr-2 mb-2">
-          <strong>Activity on {deviceInformation.net_interface}</strong>{" "}
-          <InfoButton
-            title={"Network statistics"}
-            info={
-              <>
-                Up: Bytes transmitted
-                <br />
-                Down: Bytes received
-                <br />
-                <p>
-                  Network statistics rely on the IP command on your system to
-                  measure transmitted and received bytes. Zentrox measures the
-                  change in bytes in an interval of 1000ms and calculates the
-                  average resulting in B/s.
-                </p>
-              </>
+            <span
+              className={
+                "text-5xl mb-2 font-semibold inline-block" +
+                (deviceInformation.cpu_usage < 30
+                  ? " text-green-500"
+                  : deviceInformation.cpu_usage < 60
+                    ? " text-orange-500"
+                    : deviceInformation.cpu_usage < 90
+                      ? " text-red-500"
+                      : " text-purple-500")
+              }
+            >
+              {Math.round(deviceInformation.cpu_usage) == 0
+                ? "< 1"
+                : Math.round(deviceInformation.cpu_usage)}
+              %
+            </span>
+            <br />
+            {deviceInformation.temperature == -300
+              ? "No temperature"
+              : Math.round(deviceInformation.temperature) + "°C"}
+          </Card>
+
+          <Card
+            title={"Networking"}
+            variant="wide"
+            skeleton={
+              deviceInformation.unloaded ||
+              deviceInformation.net_interface == "MISSING_INTERFACE"
             }
-          />
+          >
+            <span className="inline-block mr-2 mb-2">
+              <strong className="block">Hostname</strong>
+
+              <button
+                className="cursor-pointer active:text-green-500 transition-all duration-75 bg-transparent border-transparent inline-block"
+                onClick={() => {
+                  try {
+                    window.navigator.clipboard.writeText(deviceInformation.ip);
+                    toast({
+                      title: "Copied hostname to clipboard",
+                    });
+                  } catch {}
+                }}
+              >
+                {deviceInformation.hostname}
+              </button>
+            </span>
+            <span className="inline-block mr-2 mb-2">
+              <strong className="block">Private IP</strong>
+              <button
+                className="cursor-pointer active:text-green-500 transition-all duration-75 bg-transparent border-transparent inline-block"
+                onClick={() => {
+                  try {
+                    window.navigator.clipboard.writeText(deviceInformation.ip);
+                    toast({
+                      title: "Copied private IP to clipboard",
+                    });
+                  } catch {}
+                }}
+              >
+                {deviceInformation.ip}
+              </button>
+            </span>
+            <br />
+            <span className="inline-block mr-2 mb-2">
+              <strong>Activity on {deviceInformation.net_interface}</strong>{" "}
+              <InfoButton
+                title={"Network statistics"}
+                info={
+                  <>
+                    Up: Bytes transmitted
+                    <br />
+                    Down: Bytes received
+                    <br />
+                    <p>
+                      Network statistics rely on the IP command on your system
+                      to measure transmitted and received bytes. Zentrox
+                      measures the change in bytes in an interval of 1000ms and
+                      calculates the average resulting in B/s.
+                    </p>
+                  </>
+                }
+              />
+              <br />
+              <ArrowUpIcon className="h-4 w-4 mr-1 inline-block" />
+              {prettyBytes(deviceInformation.net_up)}{" "}
+              <ArrowDownIcon className="h-4 w-4 ml-1 mr-1 inline-block" />
+              {prettyBytes(deviceInformation.net_down)}
+            </span>
+          </Card>
           <br />
-          <ArrowUpIcon className="h-4 w-4 mr-1 inline-block" />
-          {prettyBytes(deviceInformation.net_up)}{" "}
-          <ArrowDownIcon className="h-4 w-4 ml-1 mr-1 inline-block" />
-          {prettyBytes(deviceInformation.net_down)}
-        </span>
-      </Card>
-      <br />
-      <Card
-        title={"Uptime"}
-        variant="square"
-        skeleton={deviceInformation.unloaded}
-      >
-        <FancyCounter>
-          {millisecondsToArray(deviceInformation.uptime).map((e, k) => {
-            return (
-              <span key={k}>
-                {e[0]
-                  .toString()
-                  .split("")
-                  .map((d, dk) => {
-                    return <FancyCounterDigit key={dk}>{d}</FancyCounterDigit>;
-                  })}
+          <Card
+            title={"Uptime"}
+            variant="square"
+            skeleton={deviceInformation.unloaded}
+          >
+            <FancyCounter>
+              {millisecondsToArray(deviceInformation.uptime).map((e, k) => {
+                return (
+                  <span key={k}>
+                    {e[0]
+                      .toString()
+                      .split("")
+                      .map((d, dk) => {
+                        return (
+                          <FancyCounterDigit key={dk}>{d}</FancyCounterDigit>
+                        );
+                      })}
 
-                <FancyCounterCaption>{e[1]}</FancyCounterCaption>
-              </span>
-            );
-          })}
-        </FancyCounter>
-        <strong className="block text-sm">Active since:</strong>
-        <DateWrapper
-          updating={false}
-          seconds={(Date.now() - deviceInformation.uptime) / 1000}
-          className="text-sm"
-        />
-      </Card>
-      <Card
-        title={
-          "Packages" +
-          {
-            "": "",
-            pacman: " using PacMan",
-            apt: " using APT",
-            dnf: " using DNF",
-          }[packageStatistics.packageManager]
-        }
-        variant="wide"
-        skeleton={packageStatistics.unloaded}
-      >
-        <span className="inline-block mr-2 mb-2">
-          <strong className="block">Available packages</strong>
-          {packageStatistics.available}
-        </span>
-
-        {!packageStatistics.canProvideUpdates ? (
-          <span className="block mr-2 mb-2">
-            <strong className="block">Installed packages</strong>
-            {packageStatistics.installed}
-          </span>
-        ) : (
-          <span className="block mr-2 mb-2">
-            <strong className="block">Available updates</strong>
-            {packageStatistics.updates}
-          </span>
-        )}
-      </Card>
-
-      <Card
-        title={"Connectivity"}
-        variant="square"
-        skeleton={
-          deviceInformation.unloaded ||
-          deviceInformation.net_interface == "MISSING_INTERFACE"
-        }
-      >
-        <span
-          title={
-            deviceInformation.net_connected_interfaces +
-            " connected interface" +
-            (deviceInformation.net_connected_interfaces !== 1 ? "s" : "")
-          }
-        >
-          <EthernetPortIcon className="h-4 w-4 mr-1 inline-block" />
-          {deviceInformation.net_connected_interfaces} interface
-          {deviceInformation.net_connected_interfaces !== 1 ? "s" : ""}
-        </span>
-        <br />
-        <span title={"latency between Zentrox frontend and backend"}>
-          <HourglassIcon className="h-4 w-4 mr-1 inline-block" />
-          {Math.round(fetchDuration / 1000) < 1
-            ? "< 1"
-            : Math.round(fetchDuration / 1000)}
-          s latency{" "}
-          <InfoButton
-            title={"Latency measurement"}
-            info={
-              "Zentrox measures the time it takes to complete a request for the current server status. Such a request is only sent every 500ms."
+                    <FancyCounterCaption>{e[1]}</FancyCounterCaption>
+                  </span>
+                );
+              })}
+            </FancyCounter>
+            <strong className="block text-sm">Active since:</strong>
+            <DateWrapper
+              updating={false}
+              seconds={(Date.now() - deviceInformation.uptime) / 1000}
+              className="text-sm"
+            />
+          </Card>
+          <Card
+            title={
+              "Packages" +
+              {
+                "": "",
+                pacman: " using PacMan",
+                apt: " using APT",
+                dnf: " using DNF",
+              }[packageStatistics.packageManager]
             }
-          />
+            variant="wide"
+            skeleton={packageStatistics.unloaded}
+          >
+            <span className="inline-block mr-2 mb-2">
+              <strong className="block">Available packages</strong>
+              {packageStatistics.available}
+            </span>
+
+            {!packageStatistics.canProvideUpdates ? (
+              <span className="block mr-2 mb-2">
+                <strong className="block">Installed packages</strong>
+                {packageStatistics.installed}
+              </span>
+            ) : (
+              <span className="block mr-2 mb-2">
+                <strong className="block">Available updates</strong>
+                {packageStatistics.updates}
+              </span>
+            )}
+          </Card>
+
+          <Card
+            title={"Connectivity"}
+            variant="square"
+            skeleton={
+              deviceInformation.unloaded ||
+              deviceInformation.net_interface == "MISSING_INTERFACE"
+            }
+          >
+            <span
+              title={
+                deviceInformation.net_connected_interfaces +
+                " connected interface" +
+                (deviceInformation.net_connected_interfaces !== 1 ? "s" : "")
+              }
+            >
+              <EthernetPortIcon className="h-4 w-4 mr-1 inline-block" />
+              {deviceInformation.net_connected_interfaces} interface
+              {deviceInformation.net_connected_interfaces !== 1 ? "s" : ""}
+            </span>
+            <br />
+            <span title={"latency between Zentrox frontend and backend"}>
+              <HourglassIcon className="h-4 w-4 mr-1 inline-block" />
+              {Math.round(fetchDuration / 1000) < 1
+                ? "< 1"
+                : Math.round(fetchDuration / 1000)}
+              s latency{" "}
+              <InfoButton
+                title={"Latency measurement"}
+                info={
+                  "Zentrox measures the time it takes to complete a request for the current server status. Such a request is only sent every 500ms."
+                }
+              />
+            </span>
+          </Card>
         </span>
-      </Card>
+      </span>
     </Page>
   );
 }

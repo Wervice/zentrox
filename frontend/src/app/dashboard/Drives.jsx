@@ -1,4 +1,4 @@
-import { Button } from "@/components/ui/button.jsx";
+import { Button } from "@/components/ui/button";
 import {
   HardDriveIcon,
   RepeatIcon,
@@ -27,8 +27,9 @@ import {
 import "./scroll.css";
 import Page from "@/components/ui/PageWrapper";
 
-// const fetchURLPrefix = "";
-const fetchURLPrefix = require("@/lib/fetchPrefix");
+import { v4 as uuid } from "uuid";
+
+import { fetchURLPrefix } from "@/lib/fetchPrefix";
 
 /**
  * @param {string} value to check
@@ -105,12 +106,12 @@ function Drives() {
     var children = <></>;
     if (entry.children != null) {
       children = entry.children.map((entry) => {
-        return <DriveEntry entry={entry} inset={inset + 1} />;
+        return <DriveEntry entry={entry} inset={inset + 1} key={uuid()} />;
       });
     }
 
     return (
-      <span>
+      <span key={uuid()}>
         <span
           className="w-full p-4 bg-transparent border border-neutral-800 border-x-transparent block cursor-default select-none hover:bg-neutral-800 hover:transition-bg hover:duration-400 duration-200 focus:bg-neutral-800 focus:duration-50"
           style={{
@@ -179,30 +180,30 @@ function Drives() {
             <DialogTitle>{currentDrive}</DialogTitle>
           </DialogHeader>
           <DialogDescription className="text-white">
-            <b className="block mb-1">
+            <strong className="block mb-1">
               <TagIcon className="w-4 h-4 inline" /> Model
-            </b>
+            </strong>
             {na(driveInformation.drives.model)}
             <br />
-            <b className="block mb-1">
+            <strong className="block mb-1">
               <MapPinIcon className="w-4 h-4 inline" /> Path
-            </b>
+            </strong>
             {na(driveInformation.drives.path)} <br />
-            <b className="block mb-1">
+            <strong className="block mb-1">
               <WeightIcon className="w-4 h-4 inline" /> Size
-            </b>
+            </strong>
             {na(bytesUnitToOther(driveInformation.drives.size))} <br />
-            <b className="block mb-1">
+            <strong className="block mb-1">
               <UserIcon className="w-4 h-4 inline" /> Owner
-            </b>
+            </strong>
             {na(driveInformation.drives.owner)} <br />
-            <b className="block mb-1">
+            <strong className="block mb-1">
               <MountainIcon className="w-4 h-4 inline" /> Mountpoint
-            </b>
+            </strong>
             {na(driveInformation.drives.mountpoint)}
-            <b className="block mb-1">
+            <strong className="block mb-1">
               <PieChartIcon className="w-4 h-4 inline" /> Usage (Capacity)
-            </b>
+            </strong>
             {na(driveCapacity)}
           </DialogDescription>
           <DialogFooter>
@@ -217,14 +218,9 @@ function Drives() {
           className="rounded-xl m-2 overflow-hidden overflow-y-scroll border-2 border-neutral-800"
           style={{ maxHeight: "calc(100vh - 180px)" }}
         >
-          {drivesList
-            .sort((a) => {
-              if (a.name.includes("loop")) return 1;
-              return -1;
-            })
-            .map((entry, i) => {
-              return <DriveEntry entry={entry} key={i} />;
-            })}
+          {drivesList.map((entry) => {
+            return <DriveEntry entry={entry} key={uuid()} />;
+          })}
         </div>
       </Page>
     </>

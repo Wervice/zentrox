@@ -1,4 +1,4 @@
-import { Button } from "@/components/ui/button.jsx";
+import { Button } from "@/components/ui/button";
 import {
   Clock,
   SkipBackIcon,
@@ -221,9 +221,7 @@ export default function CalendarButton({
                 className="mb-2"
                 onClick={() => {
                   onValueChange(currentSelectedTime);
-                  setCalendarModalStyle({
-                    display: "none",
-                  });
+                  toggleCalendar();
                 }}
               >
                 Confirm

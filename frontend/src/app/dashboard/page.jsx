@@ -1,6 +1,6 @@
 "use client";
 
-import { Button } from "@/components/ui/button.jsx";
+import { Button } from "@/components/ui/button";
 import { useEffect, useState, useRef } from "react";
 import "./table.css";
 import "./scroll.css";
@@ -17,16 +17,6 @@ import {
   DialogFooter,
   DialogClose,
 } from "@/components/ui/dialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import "./scroll.css";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -75,7 +65,9 @@ import {
 } from "lucide-react";
 import { Details } from "@/components/ui/Details";
 import { Switch } from "@/components/ui/switch";
-const fetchURLPrefix = require("@/lib/fetchPrefix");
+import SudoDialog from "@/components/ui/SudoDialog";
+import secondsToFormat from "@/lib/dates";
+import { fetchURLPrefix } from "@/lib/fetchPrefix";
 
 if (fetchURLPrefix.length > 0) {
   console.warn(
@@ -265,11 +257,11 @@ function Account() {
     });
   };
 
-  const handlePowerOffConfirm = useCallback(() => {
+  const handlePowerOffConfirm = useCallback((password) => {
     fetch(fetchURLPrefix + "/api/powerOff", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sudoPassword: sudoPasswordInput.current?.value }),
+      body: JSON.stringify({ sudoPassword: password }),
     }).then((res) => {
       if (!res.ok) {
         notify("Power off failed");
@@ -423,6 +415,7 @@ function Account() {
                     title: "File to big",
                     description: "The file you provided was larger than 1MB",
                   });
+                  return;
                 }
                 var formData = new FormData();
                 formData.append("file", fileForSubmit);
@@ -453,6 +446,9 @@ function Account() {
             >
               Upload profile picture
             </Button>
+            <small className="opacity-75 block p-1">
+              Max. upload size is 1MB
+            </small>
           </div>
           <DialogFooter>
             <DialogClose asChild>
@@ -462,34 +458,13 @@ function Account() {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog
-        open={powerOffDialogOpen}
+      <SudoDialog
+        modalOpen={powerOffDialogOpen}
         onOpenChange={setPowerOffDialogOpen}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Power off</AlertDialogTitle>
-            <AlertDialogDescription>
-              Do you really want to power off your machine? Zentrox cannot
-              reboot it automatically. Please enter your sudo password to do so:
-              <br />
-              <br />
-              <Input
-                type="password"
-                placeholder="Sudo password"
-                className="w-full"
-                ref={sudoPasswordInput}
-              />
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handlePowerOffConfirm}>
-              Power off
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        onFinish={(password) => {
+          handlePowerOffConfirm(password);
+        }}
+      />
 
       <DropdownMenu modal={false}>
         <DropdownMenuTrigger asChild>
@@ -590,9 +565,12 @@ function NotificationBell() {
                 </span>
               )}
 
-              {notifications.map((x) => {
+              {notifications.map((x, k) => {
                 return (
-                  <span className="p-2 m-1 block rounded-lg border-neutral-800 border relative">
+                  <span
+                    key={"notifications_" + k}
+                    className="p-2 m-1 block rounded-lg border-neutral-800 border relative"
+                  >
                     <XIcon
                       className="absolute top-2 right-2 opacity-50 hover:opacity-75 transition-all duration-200 cursor-pointer"
                       onClick={() => {
@@ -601,6 +579,12 @@ function NotificationBell() {
                     />
                     <span className="block max-w-[calc(100%-2rem)]">
                       {x[0]}
+                    </span>
+                    <span className="block opacity-50">
+                      {secondsToFormat(
+                        x[2] / 1000,
+                        localStorage.getItem("dateFormat") || "8601",
+                      )}
                     </span>
                   </span>
                 );

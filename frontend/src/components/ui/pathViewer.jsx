@@ -1,5 +1,5 @@
 const { ArrowUp, HouseIcon, PenIcon } = require("lucide-react");
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import {
   Dialog,
   DialogClose,
@@ -12,7 +12,7 @@ import {
 } from "./dialog";
 import { Input } from "./input";
 import { Button } from "./button";
-import { CopyIcon } from "lucide-react";
+import { CopyIcon, SearchIcon, XIcon } from "lucide-react";
 import { toast } from "./use-toast";
 /**
  * @param {Object} param0
@@ -24,12 +24,15 @@ import { toast } from "./use-toast";
 function PathViewer({
   className,
   onValueChange,
+  onFilter,
   value,
   home,
   hidden,
   children,
 }) {
   var specificLocationInput = useRef();
+  var fileSearchInput = useRef();
+  const [pathChangeOpen, setPathChangeOpen] = useState(false);
 
   function goUp() {
     let path = value;
@@ -37,6 +40,7 @@ function PathViewer({
     segments.pop();
     segments.pop();
     let newPath = segments.join("/");
+    onFilter("");
     onValueChange(newPath + "/");
   }
 
@@ -44,10 +48,20 @@ function PathViewer({
     onValueChange(home);
   }
 
+  const changePath = () => {
+    setPathChangeOpen(false);
+    let newPath = specificLocationInput.current.value;
+    if (newPath.endsWith("/")) {
+      onValueChange(newPath);
+    } else {
+      onValueChange(newPath + "/");
+    }
+  };
+
   return (
     <span
       className={
-        "flex items-center p-1 w-full whitespace-nowrap overflow-hidden max-w-full " +
+        "flex items-end p-1 w-full whitespace-nowrap overflow-hidden max-w-full " +
         className +
         (hidden ? " hidden" : "")
       }
@@ -71,7 +85,7 @@ function PathViewer({
           }}
         />
       </span>
-      <Dialog>
+      <Dialog onOpenChange={setPathChangeOpen} open={pathChangeOpen}>
         <DialogTrigger asChild>
           <span title="Navigate to specific location">
             <PenIcon className="w-4 h-4 transition-all cursor-pointer opacity-75 hover:opacity-100 inline-block align-middle mr-1" />
@@ -88,6 +102,12 @@ function PathViewer({
               ref={specificLocationInput}
               defaultValue={value}
               className="w-full block"
+              placeholder="Absolute target path"
+              onKeyPress={(ev) => {
+                if (ev.key === "Enter") {
+                  changePath();
+                }
+              }}
             />
           </p>
           <DialogFooter>
@@ -95,18 +115,7 @@ function PathViewer({
               <Button variant="outline">Close</Button>
             </DialogClose>
             <DialogClose asChild>
-              <Button
-                onClick={() => {
-                  let newPath = specificLocationInput.current.value;
-                  if (newPath.endsWith("/")) {
-                    onValueChange(newPath);
-                  } else {
-                    onValueChange(newPath + "/");
-                  }
-                }}
-              >
-                Confirm
-              </Button>
+              <Button onClick={changePath}>Confirm</Button>
             </DialogClose>
           </DialogFooter>
         </DialogContent>
@@ -117,7 +126,21 @@ function PathViewer({
           onClick={goUp}
         />
       </span>
-      {value}{" "}
+      {value}
+      <span className="flex items-center ml-auto">
+        <Input
+          className="mr-2 mt-0 h-8"
+          placeholder="Search for file or folder"
+          ref={fileSearchInput}
+          onKeyUp={() => {
+            onFilter(fileSearchInput.current.value);
+          }}
+        />{" "}
+        <XIcon
+          className="mr-2 w-4 h-4 transition-all cursor-pointer opacity-75 hover:opacity-100 inline-block align-middle"
+          onClick={() => onFilter("")}
+        />
+      </span>
     </span>
   );
 }

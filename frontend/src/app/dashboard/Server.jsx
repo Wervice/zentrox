@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect } from "react";
 import Page from "@/components/ui/PageWrapper";
-import InfoButton from "@/components/ui/InfoButton";
-import { Button } from "@/components/ui/button.jsx";
-const fetchURLPrefix = require("@/lib/fetchPrefix");
+import { Button } from "@/components/ui/button";
+import useNotification from "@/lib/notificationState";
+import { fetchURLPrefix } from "@/lib/fetchPrefix";
 
 function Server() {
   var tlsCertFileInput = useRef();
+  const { deleteNotification, notify, notifications } = useNotification();
   const [certNames, setCertNames] = useState("");
   const fetchData = () => {
     fetch(fetchURLPrefix + "/api/certNames").then((res) => {
@@ -27,19 +28,14 @@ function Server() {
         onChange={() => {
           var fileForSubmit = tlsCertFileInput.current.files[0];
           if (fileForSubmit.size >= 1024 * 1024 * 1024 * 1) {
-            toast({
-              title: "File to big",
-              description: "The file you provided was larger than 1GB",
-            });
+            notify("The file you provided was larger than 1GB");
           }
 
           var fileName = tlsCertFileInput.current.files[0].name;
 
           if (fileName.split(".").reverse()[0].toLowerCase() != "pem") {
-            toast({
-              title: "Not a pem file",
-              description: "Zentrox can only use pem certificates.",
-            });
+            notify("Zentrox can only use pem certificates.");
+            return;
           }
 
           var formData = new FormData();
@@ -49,22 +45,17 @@ function Server() {
             body: formData,
           }).then((res) => {
             if (res.ok) {
-              setCertName({
+              setCertNames({
                 tls: fileName,
               });
               tlsCertFileInput.current.value = "";
-              toast({
-                title: "Upload finished",
-                description:
-                  "Zentrox successfully uploaded the new certificate. You need to manually restart Zentrox to start using the new certificate.",
-                duration: 200000,
-              });
+              notify(
+                "Zentrox successfully uploaded the new certificate. You need to manually restart Zentrox to start using the new certificate.",
+              );
             } else {
-              toast({
-                title: "Failed to upload TLS certificate",
-                description:
-                  "Zentrox failed to upload the TLS certificate you provided",
-              });
+              notify(
+                "Zentrox failed to upload the TLS certificate you provided",
+              );
             }
           });
         }}

@@ -1,8 +1,7 @@
 import { useState, useEffect } from "react";
 import Page from "@/components/ui/PageWrapper";
-const fetchURLPrefix = require("@/lib/fetchPrefix");
+import { fetchURLPrefix } from "@/lib/fetchPrefix";
 import { Toaster } from "@/components/ui/toaster";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Link } from "lucide-react";
 import { DataTable } from "@/components/ui/dataTable";

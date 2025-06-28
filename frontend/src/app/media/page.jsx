@@ -2,7 +2,7 @@
 
 import { scan } from "react-scan";
 import { useEffect, useState, useRef } from "react";
-import { Button } from "@/components/ui/button.jsx";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input.jsx";
 import { Slider } from "@/components/ui/slider.jsx";
 import {
@@ -23,9 +23,10 @@ import {
   FullscreenIcon,
   MinimizeIcon,
   XIcon,
-  BoxesIcon,
   DownloadIcon,
   PenIcon,
+  LibraryIcon,
+  PopcornIcon,
 } from "lucide-react";
 import {
   Tooltip,
@@ -43,10 +44,11 @@ import {
 } from "@/components/ui/dialog";
 import { SelectGroup } from "@radix-ui/react-select";
 import { XAlign } from "@/components/ui/align";
-import fetchURLPrefix from "@/lib/fetchPrefix";
+import { fetchURLPrefix } from "@/lib/fetchPrefix.js";
 import { Toaster } from "@/components/ui/toaster";
 import { ToastAction } from "@/components/ui/toast";
 import { toast } from "@/components/ui/use-toast";
+import Label from "@/components/ui/ShortLabel";
 
 const savePersistentVolume = (v) => {
   // Do not pass values greater 1
@@ -115,24 +117,30 @@ function MediaCard({
           </DialogHeader>
 
           <div>
-            <span className="ml-1 mt-1 font-medium block">Name</span>
-            <Input defaultValue={name} ref={metadataNameInput} />
+            <Label>Name</Label>
+            <Input
+              defaultValue={name}
+              ref={metadataNameInput}
+              className="mb-2"
+            />
 
-            <span className="ml-1 mt-1 font-medium block">Artist</span>
+            <Label>Artist</Label>
             <Input
               defaultValue={artist === "UNKNOWN_ARTIST" ? "" : artist}
               ref={metadataArtistInput}
               placeholder="e.g. Singer, Band, Composer,..."
+              className="mb-2"
             />
 
-            <span className="ml-1 mt-1 font-medium block">Genre</span>
+            <Label>Genre</Label>
             <Input
               defaultValue={genre === "UNKNOWN_GENRE" ? "" : genre}
               ref={metadataGenreInput}
               placeholder="e.g. Rock, Pop, Techno,..."
+              className="mb-2"
             />
 
-            <span className="mb-2 ml-1 mt-1 font-medium">Cover</span>
+            <Label>Cover</Label>
             <Input
               defaultValue={
                 cover.includes("/api/cover/music")
@@ -143,11 +151,12 @@ function MediaCard({
               }
               placeholder="Absolute path on the server"
               ref={metadataCoverInput}
+              className="mb-2"
             />
           </div>
           <DialogFooter>
             <DialogClose asChild>
-              <Button variant="secondary">Cancle</Button>
+              <Button variant="outline">Cancle</Button>
             </DialogClose>
             <DialogClose asChild>
               <Button
@@ -212,7 +221,7 @@ function MediaCard({
 function VideoPlayer({ src, name, closePlayer }) {
   var v = useRef();
   const [playing, setPlaying] = useState(false);
-  const [controlsVisible, setControlsVisible] = useState(true);
+  const [controlsVisible, setControlsVisible] = useState(false);
   const [overlayVisible, setOverlayVisible] = useState(true);
   const [notYetStarted, setNotYetStarted] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -304,6 +313,10 @@ function VideoPlayer({ src, name, closePlayer }) {
   }, [notYetStarted, playing, v, isFullscreen]);
 
   useEffect(() => {
+    v.current.volume = volume / 100;
+  }, [volume]);
+
+  useEffect(() => {
     var interval = 0;
     if (typeof v.current != "undefined") {
       interval = setInterval(() => {
@@ -330,6 +343,10 @@ function VideoPlayer({ src, name, closePlayer }) {
   }
 
   function formatSecondsToTime(seconds) {
+    if (seconds === 0 || Number.isNaN(seconds)) {
+      return "00:00";
+    }
+
     seconds = Math.max(0, parseInt(Math.floor(seconds), 10));
 
     const hours = Math.floor(seconds / 3600);
@@ -361,6 +378,7 @@ function VideoPlayer({ src, name, closePlayer }) {
       )}
       <video
         className="w-full h-full block"
+        controls
         src={`${fetchURLPrefix}/api/getMedia/${encodeURIComponent(src)}`}
         ref={v}
         hidden={!playerVisible}
@@ -373,6 +391,9 @@ function VideoPlayer({ src, name, closePlayer }) {
         onEnded={() => {
           setPlaying(false);
         }}
+        onLoadedMetadata={() => {
+          setControlsVisible(true);
+        }}
       />
       <div
         className={
@@ -381,6 +402,11 @@ function VideoPlayer({ src, name, closePlayer }) {
             ? ""
             : " opacity-0 cursor-none")
         }
+        onClick={() => {
+          if (!overlayVisible) {
+            setControlsVisible(!controlsVisible);
+          }
+        }}
       >
         <span className="font-bold fixed top-1/3 left-32">
           <h1
@@ -396,7 +422,7 @@ function VideoPlayer({ src, name, closePlayer }) {
               "mt-5 bg-white/5 hover:bg-white/10" +
               (overlayVisible ? " block" : " hidden")
             }
-            variant="secondary"
+            variant="outline"
             onClick={() => {
               exitPlayer();
             }}
@@ -467,11 +493,13 @@ function VideoPlayer({ src, name, closePlayer }) {
             step={1}
           />
 
-          {formatSecondsToTime(currentTime)}
+          <span className="w-[75px] max-w-[100px] text-center">
+            {formatSecondsToTime(currentTime)}
+          </span>
           <Slider
             value={
               v.current
-                ? [Math.floor((currentTime / v.current.duration) * 100)]
+                ? [Math.round((currentTime / v.current.duration) * 1000) / 10]
                 : [0]
             }
             style={{ width: "calc(100% - 290px)" }}
@@ -480,12 +508,14 @@ function VideoPlayer({ src, name, closePlayer }) {
               setCurrentTime((v.current.duration * e[0]) / 100);
               v.current.currentTime = (v.current.duration * e[0]) / 100;
             }}
-            step={1}
+            step={0.1}
             min={0}
             max={100}
           />
 
-          {v.current ? formatSecondsToTime(v.current.duration) : "00:00"}
+          <span className="w-[75px] max-w-[100px] text-center">
+            {v.current && formatSecondsToTime(v.current.duration)}
+          </span>
         </XAlign>
       </div>
     </span>
@@ -993,55 +1023,55 @@ function Desktop() {
 
       <span className="w-full">
         <Title>Zentrox Media Center</Title>
-        <Select
-          value={selectedGenre}
-          onValueChange={(e) => setSelectedGenre(e)}
-        >
-          <SelectTrigger className="ml-1 w-[180px] inline-flex bg-transparent">
-            Genre
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              {genres.map((e, i) => {
-                return (
-                  <SelectItem key={i} value={e.toLowerCase()}>
-                    {e}
-                  </SelectItem>
-                );
-              })}
-            </SelectGroup>
-          </SelectContent>
-        </Select>{" "}
-        <Input
-          type="text"
-          placeholder="Search by name"
-          className="mt-2 mr-2 inline-block"
-          ref={queryInput}
-          onKeyPress={(e) => {
-            if (e.key === "Enter") {
-              setQueryInputValue(queryInput.current.value);
-            }
-          }}
-        />
-        <Button
-          variant="secondary"
-          className="focus-visible:outline-white focus-visible:outline-2 focus-visible:outline"
-          onClick={() => {
-            setSelectedGenre("");
-            setQueryInputValue("");
-            queryInput.current.value = "";
-          }}
-        >
-          Clear filters
-        </Button>
-        <br />
-        <h2 className="font-semibold p-2">
-          <VideoIcon className="inline-block h-6 w-6 align-middle" /> Videos in
-          your library
+        <span className="flex items-center space-x-1 m-2">
+          <Select
+            value={selectedGenre}
+            onValueChange={(e) => setSelectedGenre(e)}
+          >
+            <SelectTrigger className="w-[180px] inline-flex bg-transparent">
+              Genre
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {genres.map((e, i) => {
+                  return (
+                    <SelectItem key={i} value={e.toLowerCase()}>
+                      {e}
+                    </SelectItem>
+                  );
+                })}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          <Input
+            type="text"
+            placeholder="Search by name"
+            className="inline-block mt-0"
+            ref={queryInput}
+            onKeyPress={(e) => {
+              if (e.key === "Enter") {
+                setQueryInputValue(queryInput.current.value);
+              }
+            }}
+          />
+          <Button
+            variant="outline"
+            className="focus-visible:outline-white focus-visible:outline-2 focus-visible:outline"
+            onClick={() => {
+              setSelectedGenre("");
+              setQueryInputValue("");
+              queryInput.current.value = "";
+            }}
+          >
+            Clear filters
+          </Button>
+        </span>
+        <h2 className="font-semibold flex items-center p-2">
+          <VideoIcon className="h-6 w-6 mr-1" /> Videos in your library
         </h2>
         {videos.length === 0 ? (
-          <span className="opacity-50 m-2">
-            <BoxesIcon className="inline-block" /> No videos here
+          <span className="opacity-50 ml-2 flex items-center">
+            <PopcornIcon className="mr-1" /> Nothing to watch
           </span>
         ) : (
           <></>
@@ -1120,13 +1150,13 @@ function Desktop() {
               />
             );
           })}
-        <h2 className="font-semibold p-2">
-          <MusicIcon className="inline-block h-6 w-6 align-middle" /> Music in
-          your library
+        <h2 className="font-semibold flex items-center p-2">
+          <MusicIcon className="h-6 w-6 mr-1" /> Music in your library
         </h2>
+
         {music.length === 0 ? (
-          <span className="opacity-50 m-2">
-            <BoxesIcon className="inline-block" /> No music here
+          <span className="opacity-50 ml-2 flex items-center">
+            <LibraryIcon className="mr-1" /> Nothing to listen to
           </span>
         ) : (
           <></>
