@@ -21,11 +21,10 @@ use crate::{crypto_utils, AppState};
 pub fn is_admin_state(session: &Session, state: web::Data<AppState>) -> bool {
     let mut vars = std::env::vars();
     let disable_auth_for_development: bool = vars
-        .find(|x| {
-            x == &("ZENTROX_MODE".to_string(), "NO_AUTH".to_string())
-                || x == &("ZENTROX_MODE".to_string(), "DEV".to_string())
-        })
-        .is_some();
+        .any(|x| {
+            x == ("ZENTROX_MODE".to_string(), "NO_AUTH".to_string())
+                || x == ("ZENTROX_MODE".to_string(), "DEV".to_string())
+        });
     if disable_auth_for_development {
         warn!("Authentication has been disabled for development. This is a massive security risk!");
         return true;
@@ -74,9 +73,9 @@ pub fn generate_random_token() -> Vec<u8> {
 }
 
 /// Check if the password provided during login matches with the password stored on the server
-/// side. It uses SHA 512 PBKDF2.
+/// side. It uses Argon2.
 pub fn password_hash(login_password: String, stored_hash: String) -> bool {
-    let hash = hex::encode(&crypto_utils::argon2_derive_key(&login_password).unwrap());
+    let hash = hex::encode(crypto_utils::argon2_derive_key(&login_password).unwrap());
 
     hash == stored_hash
 }

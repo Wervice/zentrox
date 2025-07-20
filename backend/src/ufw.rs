@@ -200,7 +200,7 @@ pub fn new_rule_range<T: ToString>(
 /// `password` - The password to authenticate sudo.
 /// `index` - The index of the rule to delete.
 pub fn delete_rule(password: String, index: u32) -> Result<(), String> {
-    let command = format!("/usr/sbin/ufw --force delete {} ", index);
+    let command = format!("/usr/sbin/ufw --force delete {index}");
 
     match SwitchedUserCommand::new(password, command).spawn() {
         SudoExecutionResult::Success(_) => Ok(()),

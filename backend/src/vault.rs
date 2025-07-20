@@ -253,7 +253,7 @@ pub fn burn_directory(path: String) -> Result<(), String> {
             Ok(())
         }
         Err(e) => {
-            eprintln!("❌ Failed to read directory {}\n{e}", e);
+            eprintln!("❌ Failed to read directory\n{e}");
             Err(e.to_string())
         }
     }

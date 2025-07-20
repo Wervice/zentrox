@@ -10,15 +10,14 @@ pub enum UptimeError {
 
 pub fn get() -> Result<Duration, UptimeError> {
     let read = fs::read_to_string(std::path::Path::new("/proc/uptime"));
-    let d;
-    match read {
-        Ok(v) => d = v,
+    let d = match read {
+        Ok(v) => v,
         Err(_) => return Err(UptimeError::ReadError),
-    }
+    };
 
     let seg: Vec<&str> = d.split(' ').collect();
     if seg.len() < 2 {
-        return Err(UptimeError::BadData);
+        Err(UptimeError::BadData)
     } else {
         let v = seg[0];
         let parsed = v.parse::<f32>();

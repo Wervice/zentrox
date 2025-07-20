@@ -19,8 +19,8 @@ pub fn convert_uid_to_name(uid: usize) -> Result<String, UidConversionError> {
             let lines = v.lines();
             let mut username: String = "".to_string();
             lines.for_each(|x| {
-                if x.split(":").nth(2).unwrap().to_string() == uid.to_string() {
-                    username = x.split(":").nth(0).unwrap().to_string();
+                if x.split(":").nth(2).unwrap() == uid.to_string() {
+                    username = x.split(":").next().unwrap().to_string();
                 }
             });
             if username.is_empty() {

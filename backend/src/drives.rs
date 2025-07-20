@@ -57,7 +57,7 @@ pub fn device_list() -> Option<LsblkOutput> {
     match serde_json::from_str(&json) {
         Ok(v) => v,
         Err(e) => {
-            println!("❌ {}", e);
+            println!("❌ {e}");
             None
         }
     }
@@ -65,6 +65,7 @@ pub fn device_list() -> Option<LsblkOutput> {
 
 /// Return drive statistics about a drive.
 /// * `drive` - The drive name
+/// 
 /// This function returns every entry where the specefied drive name is in the path.
 pub fn drive_statistics(drive: String) -> Option<Vec<(String, u64, u64, u64, f64, String)>> {
     let dfp_output = Command::new("df").arg("-P").output().unwrap().stdout;

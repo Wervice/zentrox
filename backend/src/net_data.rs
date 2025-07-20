@@ -1,6 +1,5 @@
 // Rust shorthands for linux commands to get information about network configuration on the system
 // This library requires CAP_NET_ADMIN using `setcap` or admin permissions.
-use core::{fmt, str};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use std::fmt::Display;
@@ -37,7 +36,7 @@ pub fn private_ip() -> Result<IpAddr, ()> {
                 return Err(());
             }
             let routes: Vec<Route> = serde_json::from_str(&r).unwrap();
-            if routes.len() == 0 {
+            if routes.is_empty() {
                 Err(())
             } else {
                 Ok(routes[0].prefsrc.parse::<IpAddr>().unwrap())
@@ -106,7 +105,7 @@ impl<'de> Deserialize<'de> for OperationalState {
 /// - `ifindex` {i64} - The index of the interface on the host system
 /// - `ifname` {String} - The name of the interface on the host system
 /// - `flags` {Vec<String>} - A vector of all flags the interface was given by the host system.
-///    These include:
+///   These include:
 ///    - `LOOPBACK` - The interface is active, but never connects to anything external
 ///    - `NO_CARRIER` - The interface is active and external, but no data is transmitted
 ///    - `BROADCAST` - The interface is active and external
@@ -166,16 +165,14 @@ pub fn get_network_interfaces() -> Result<Vec<Interface>, std::io::ErrorKind> {
 pub fn enable_interface(sudo_password: String, interface: String) -> SudoExecutionResult {
     let mut c = SwitchedUserCommand::new(sudo_password, "ip");
     c.args(vec!["link", "set", interface.as_str(), "up"]);
-    let x = c.spawn();
-    x
+    c.spawn()
 }
 
 /// Disables an interface by its name
 pub fn disable_interface(sudo_password: String, interface: String) -> SudoExecutionResult {
     let mut c = SwitchedUserCommand::new(sudo_password, "ip");
     c.args(vec!["link", "set", interface.as_str(), "down"]);
-    let x = c.spawn();
-    x
+    c.spawn()
 }
 
 #[derive(Debug)]
@@ -195,9 +192,9 @@ pub struct IpAddrWithSubnet {
 impl Display for IpAddrWithSubnet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.subnet.is_some() {
-            write!(f, "{}/{}", self.address.to_string(), self.subnet.unwrap())
+            write!(f, "{}/{}", self.address, self.subnet.unwrap())
         } else {
-            write!(f, "{}", self.address.to_string())
+            write!(f, "{}", self.address)
         }
     }
 }
@@ -298,7 +295,7 @@ fn is_clean<T: Display>(string: T) -> bool {
             return false;
         }
     }
-    return true;
+    true
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -368,15 +365,13 @@ impl AsArguments for CreationRoute {
         if !is_clean(&self.device) || !is_clean(&self.scope.to_string()) || !is_clean(&self.table) {
             return Err(ArgumentsError::Unsanizized);
         }
+
         let mut result: Vec<String> = Vec::new();
         result.push(self.destination.to_string());
 
-        match self.gateway {
-            Some(v) => {
-                result.push("via".to_string());
-                result.push(v.to_string());
-            }
-            None => {}
+        if let Some(v) = self.gateway {
+            result.push("via".to_string());
+            result.push(v.to_string());
         }
 
         result.push("dev".to_string());
@@ -476,7 +471,7 @@ trait AsArguments {
 #[allow(unused)]
 pub fn get_routes() -> Result<Vec<Route>, RouteError> {
     let mut c = Command::new("ip");
-    c.args(&["-j", "route", "show", "table", "all"]);
+    c.args(["-j", "route", "show", "table", "all"]);
     let x = c.output();
     match x {
         Ok(v) => {
@@ -498,8 +493,7 @@ pub fn get_routes() -> Result<Vec<Route>, RouteError> {
                                     subnet: Some(i32::from_str(dest_split[1]).unwrap_or(0_i32)),
                                 })
                             }
-                        } else {
-                            if dest_split[0] == "default" {
+                        } else if dest_split[0] == "default" {
                                 destination = Destination::Default;
                             } else {
                                 destination = Destination::Prefix(IpAddrWithSubnet {
@@ -508,7 +502,6 @@ pub fn get_routes() -> Result<Vec<Route>, RouteError> {
                                     subnet: None,
                                 })
                             }
-                        }
 
                         let gateway;
                         if e.gateway.is_some() {
@@ -563,12 +556,7 @@ pub fn get_routes() -> Result<Vec<Route>, RouteError> {
                             nexthop: nexthop_res,
                             device: e.device.clone(),
                             protocol: e.protocol.clone(),
-                            preferred_source: match &e.preferred_source {
-                                None => None,
-                                Some(v) => {
-                                    Some(IpAddr::from_str(&v).expect("Failed to parse IP address"))
-                                }
-                            },
+                            preferred_source: e.preferred_source.as_ref().map(|v| IpAddr::from_str(v).expect("Failed to parse IP address")), 
                             scope: Scope::from(e.scope.clone().unwrap_or("global".to_string())),
                             table: e.table.clone(),
                         }

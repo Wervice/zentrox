@@ -1,4 +1,3 @@
-use rand::distributions::{Alphanumeric, DistString};
 use std::fmt::Display;
 use std::io::BufReader;
 use std::io::{Read, Write};
@@ -102,7 +101,7 @@ impl SwitchedUserCommand {
             let mut stderr = command_handle.stderr.take().unwrap();
 
             stdinput
-                .write_all(format!("{}\n", password).as_bytes())
+                .write_all(format!("{password}\n").as_bytes())
                 .expect("Failed to write to stdin (password)");
             std::thread::sleep(std::time::Duration::from_millis(500));
             let after_password = &mut [0; 64];
@@ -168,7 +167,7 @@ impl SwitchedUserCommand {
                 .expect("Failed to capture stderr");
 
             let _ = thread::spawn(move || {
-                writeln!(stdin, "{}", password).expect("Failed to write password to stdin");
+                writeln!(stdin, "{password}").expect("Failed to write password to stdin");
                 stdin.flush().expect("Failed to flush stdin");
             });
 
@@ -211,7 +210,7 @@ impl SwitchedUserCommand {
 
 pub fn verify_password(password: String) -> bool {
     let mut c = Command::new("sudo");
-    c.args(&["-S", "-k", "-v"]);
+    c.args(["-S", "-k", "-v"]);
     c.stdin(Stdio::piped());
     c.stdout(Stdio::piped());
     c.stderr(Stdio::piped());
@@ -219,7 +218,7 @@ pub fn verify_password(password: String) -> bool {
     let mut stdin = h.stdin.take().unwrap();
     let stderr = h.stderr.take().unwrap();
     let _ = thread::spawn(move || {
-        writeln!(stdin, "{}", password).expect("Failed to write password to stdin");
+        writeln!(stdin, "{password}").expect("Failed to write password to stdin");
         stdin.flush().expect("Failed to flush stdin");
     });
     let mut e_reader = BufReader::new(stderr);
@@ -227,8 +226,7 @@ pub fn verify_password(password: String) -> bool {
     e_reader
         .read_to_string(&mut stderr_content)
         .expect("Failed to read stdout");
-    return !(stderr_content.contains("incorrect password attempt")
-        || stderr_content.contains("Sorry, try again."));
+    !(stderr_content.contains("incorrect password attempt") || stderr_content.contains("Sorry, try again."))
 }
 
 #[cfg(test)]
