@@ -13,6 +13,8 @@ use actix_web::{
 };
 use core::panic;
 use futures::FutureExt;
+use rand::distributions::Alphanumeric;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::ffi::OsString;
 use std::net::IpAddr;
@@ -34,9 +36,9 @@ use sysinfo::{Components, MemoryRefreshKind, Pid, ProcessRefreshKind, RefreshKin
 use uuid::Uuid;
 extern crate inflector;
 use actix_governor::{self, Governor, GovernorConfigBuilder};
-use database::InsertValue;
+use diesel::prelude::*;
 use inflector::Inflector;
-use log::{debug, error, warn};
+use log::{debug, error, warn, info};
 
 mod cron;
 mod crypto_utils;
@@ -45,9 +47,11 @@ mod drives;
 mod is_admin;
 mod logs;
 mod mime;
+mod models;
 mod net_data;
 mod otp;
 mod packages;
+mod schema;
 mod setup;
 mod sudo;
 mod ufw;
@@ -55,13 +59,19 @@ mod uptime;
 mod url_decode;
 mod users;
 mod vault;
-mod video;
 mod visit_dirs;
 
 use is_admin::is_admin_state;
+use models::{AdminAccount, Secret};
 use net_data::private_ip;
 use users::convert_uid_to_name;
 use visit_dirs::visit_dirs;
+
+use crate::crypto_utils::argon2_derive_key;
+use crate::database::{
+    establish_connection, get_administrator_account, get_secret_by_name, get_setting_by_name,
+};
+use crate::models::MediaSource;
 
 use self::cron::{
     delete_interval_cronjob, delete_specific_cronjob, IntervalCronJob, SpecificCronJob, User,
@@ -138,8 +148,7 @@ impl AppState {
             devices_b.iter().map(|d| (d.ifname.clone(), d)).collect();
         let mut result: Vec<MeasuredInterface> = Vec::new();
         for device in devices_a {
-            match devices_b_hashmap.get(&device.ifname) {
-                Some(v) => {
+            if let Some(v) = devices_b_hashmap.get(&device.ifname) {
                     let a_up = device.stats64.get("tx").unwrap().bytes;
                     let a_down = device.stats64.get("rx").unwrap().bytes;
                     let b_up = v.stats64.get("tx").unwrap().bytes;
@@ -160,11 +169,8 @@ impl AppState {
                         group: device.group,
                         link_type: device.link_type,
                         txqlen: device.txqlen,
-                    });
-                }
-                None => {}
-            }
-        }
+                    })
+        }}
         *self.network_interfaces.lock().unwrap() = result;
     }
 
@@ -230,7 +236,7 @@ async fn media(session: Session, state: Data<AppState>) -> HttpResponse {
     // is_admin session value is != true (None or false), the user is served the media screen
     // otherwise, the user is redirected to /
     if is_admin_state(&session, state) {
-        if database::read_kv("Settings", "media_enabled").unwrap() == database::ST_BOOL_FALSE {
+        if get_setting_by_name("media_enabled").unwrap() == database::ST_BOOL_FALSE {
             return HttpResponse::Forbidden().body("Media center has been disabled");
         }
         HttpResponse::build(StatusCode::OK)
@@ -313,38 +319,45 @@ struct Login {
 /// than 5 times in 10 seconds, they are automatically being rejected for the next 10 seconds, even
 /// if the credentials are correct.
 async fn login(session: Session, json: web::Json<Login>, state: Data<AppState>) -> HttpResponse {
-    let username = &json.username;
-    let password = &json.password;
-    let otp_code = &json.userOtp;
+    let request_username = &json.username;
+    let request_password = &json.password;
+    let request_otp_code = &json.userOtp;
 
-    if &database::read_cols::<&str, (String,)>("Admin", &["username"]).unwrap()[0].0 == username {
-        let stored_password = database::read_kv("Secrets", "admin_password").unwrap();
+    let database_admin_entry = get_administrator_account();
+
+    if &database_admin_entry.username == request_username {
+        let stored_password: String = get_secret_by_name("admin_password").unwrap();
         let hashes_correct =
-            is_admin::password_hash(password.to_string(), stored_password.to_string());
+            is_admin::password_hash(request_password.to_string(), stored_password.to_string());
+
         if hashes_correct {
             let login_token: Vec<u8> = is_admin::generate_random_token();
-            if database::read_cols::<&str, (bool,)>("Admin", &["use_otp"]).unwrap()[0].0 {
-                let otp_secret = database::read_kv("Secrets", "otp_secret").unwrap();
-                if otp::calculate_current_otp(&otp_secret) == *otp_code {
+            if database_admin_entry.use_otp {
+                let stored_otp_secret = get_secret_by_name("otp_secret").unwrap();
+
+                if otp::calculate_current_otp(&stored_otp_secret) == *request_otp_code {
                     // User has logged in successfully using password and 2FA
                     let _ = session.insert("login_token", hex::encode(&login_token).to_string());
 
                     *state.login_token.lock().unwrap() = hex::encode(&login_token).to_string();
-                    *state.username.lock().unwrap() = username.to_string();
+                    *state.username.lock().unwrap() = database_admin_entry.username;
                     let state_copy = state.clone();
                     std::thread::spawn(move || {
                         state_copy.update_network_statistics();
                         state_copy.update_cpu_statistics();
                     });
 
-                    return HttpResponse::build(StatusCode::OK).json(web::Json(EmptyJson {}));
+                    HttpResponse::build(StatusCode::OK).json(web::Json(EmptyJson {}))
+                } else {
+                    debug!("A login with a wrong OTP code will be denied.");
+                    return HttpResponse::build(StatusCode::FORBIDDEN).body("Missing permissions")
                 }
             } else {
                 // User has logged in successfully using password
                 let _ = session.insert("login_token", hex::encode(&login_token).to_string());
 
                 *state.login_token.lock().unwrap() = hex::encode(&login_token).to_string();
-                *state.username.lock().unwrap() = username.to_string();
+                *state.username.lock().unwrap() = database_admin_entry.username;
 
                 let state_copy = state.clone();
                 std::thread::spawn(move || {
@@ -355,12 +368,13 @@ async fn login(session: Session, json: web::Json<Login>, state: Data<AppState>) 
                 return HttpResponse::build(StatusCode::OK).json(web::Json(EmptyJson {}));
             }
         } else {
+            debug!("A login with a wrong password will be denied.");
             return HttpResponse::build(StatusCode::FORBIDDEN).body("Missing permissions");
         }
     } else {
-        return HttpResponse::build(StatusCode::FORBIDDEN).body("Missing permissions");
+        debug!("A login with a wrong username will be denied.");
+        HttpResponse::build(StatusCode::FORBIDDEN).body("Missing permissions")
     }
-    HttpResponse::build(StatusCode::FORBIDDEN).body("Missing permissions")
 }
 
 /// Log out a user.
@@ -389,27 +403,40 @@ async fn logout(session: Session, state: Data<AppState>) -> HttpResponse {
 ///
 /// This function will only return the users OTP secret when the web page is viewed for the first
 /// time. To keep track of this status, a key knows_otp_secret is used.
+
+#[derive(Serialize)]
+struct OtpSecretJsonResponse {
+    secret: String,
+}
 #[get("/api/otpSecret")]
 async fn otp_secret_request(state: Data<AppState>, session: Session) -> HttpResponse {
-    #[derive(Serialize)]
-    struct SecretJsonResponse {
-        secret: String,
-    }
+    use schema::Admin::dsl::*;
+    use schema::Secrets::dsl::*;
 
-    if (!database::read_cols::<&str, (bool,)>("Admin", &["knows_otp"]).unwrap()[0].0
-        && database::read_cols::<&str, (bool,)>("Admin", &["use_otp"]).unwrap()[0].0)
+    let connection = &mut database::establish_connection();
+
+    let database_admin_entry = Admin
+        .select(AdminAccount::as_select())
+        .first(connection)
+        .unwrap();
+
+    if (!database_admin_entry.knows_otp && database_admin_entry.use_otp)
         || is_admin_state(&session, state.clone())
     {
-        let _u = database::update_where(
-            "Admin",
-            &["knows_otp"],
-            &[database::InsertValue::Bool(true)],
-            "key",
-            "0",
-        );
-        HttpResponse::build(StatusCode::OK).json(SecretJsonResponse {
-            secret: database::read_kv("Secrets", "otp_secret")
-                .unwrap_or("Secret not found".to_string()),
+        diesel::update(Admin)
+            .set(knows_otp.eq(true))
+            .execute(connection);
+
+        let current_otp_secret = Secrets
+            .select(Secret::as_select())
+            .filter(name.eq("otp_secret"))
+            .first(connection)
+            .unwrap()
+            .value
+            .unwrap();
+
+        HttpResponse::build(StatusCode::OK).json(OtpSecretJsonResponse {
+            secret: current_otp_secret,
         })
     } else {
         HttpResponse::Forbidden().body("You can not access this value anymore.")
@@ -422,60 +449,52 @@ async fn update_otp_status(
     session: Session,
     path: Path<bool>,
 ) -> HttpResponse {
+    use schema::Admin::dsl::*;
+    use schema::Secrets::dsl::*;
+
     if !is_admin_state(&session, state.clone()) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     };
 
-    if path.into_inner() {
-        let _a = database::write(
-            "Admin",
-            &["use_otp"],
-            &[InsertValue::Bool(true)],
-            "key",
-            "0",
-        );
+    let connection = &mut database::establish_connection();
+
+    let status: bool = path.into_inner();
+
+    diesel::update(Admin)
+        .set(use_otp.eq(status))
+        .execute(connection);
+
+    diesel::update(Admin)
+        .set(knows_otp.eq(status))
+        .execute(connection);
+
+    if status {
         let secret = otp::generate_otp_secret();
-        let _b = database::write_kv("Secrets", "otp_secret", InsertValue::Text(secret.clone()));
-        let _ = database::write(
-            "Admin",
-            &["knows_otp"],
-            &[InsertValue::Bool(true)],
-            "key",
-            "0",
-        );
-        return HttpResponse::Ok().body(secret);
+
+        diesel::insert_into(Secrets)
+            .values((name.eq("otp_secret"), value.eq(&secret)))
+            .execute(connection);
+        HttpResponse::Ok().body(secret)
     } else {
-        let _a = database::write(
-            "Admin",
-            &["use_otp"],
-            &[InsertValue::Bool(false)],
-            "key",
-            "0",
-        );
-        let _b = database::delete_row("Secrets", "name", "otp_secret");
-        let _ = database::write(
-            "Admin",
-            &["knows_otp"],
-            &[InsertValue::Bool(false)],
-            "key",
-            "0",
-        );
-        return HttpResponse::Ok().body("OTP secret has been updated");
+        diesel::delete(Secrets)
+            .filter(name.eq("otp_secret"))
+            .execute(connection);
+        HttpResponse::Ok().body("OTP secret has been updated")
     }
 }
 
 /// Check if the users uses OTP.
 ///
 /// This function returns a boolean depending on the user using OTP or not.
+
+#[derive(Serialize)]
+struct JsonResponse {
+    used: bool,
+}
 #[post("/api/useOtp")]
 async fn use_otp(_state: Data<AppState>) -> HttpResponse {
-    #[derive(Serialize)]
-    struct JsonResponse {
-        used: bool,
-    }
-
     HttpResponse::Ok().json(JsonResponse {
-        used: database::read_cols::<&str, (bool,)>("Admin", &["use_otp"]).unwrap()[0].0,
+        used: get_administrator_account().use_otp,
     })
 }
 
@@ -569,7 +588,7 @@ async fn device_information(session: Session, state: Data<AppState>) -> HttpResp
         net_down = u.down;
         net_up = u.up;
     } else if interfaces.len() > 0 {
-        let u = interfaces.iter().nth(0).unwrap().clone();
+        let u = interfaces[0].clone();
         net_interface_name = u.ifname;
         net_down = u.down;
         net_up = u.up;
@@ -577,15 +596,12 @@ async fn device_information(session: Session, state: Data<AppState>) -> HttpResp
 
     let os_release = fs::read_to_string("/etc/os-release");
     let mut os_name = String::new();
-    match os_release {
-        Ok(s) => {
+    if let Ok(s) = os_release {
             s.lines().for_each(|l| {
                 if l.starts_with("PRETTY_NAME") {
                     os_name = l.split("=").nth(1).unwrap_or("").replace("\"", "");
                 }
             });
-        }
-        Err(_) => {}
     }
 
     HttpResponse::Ok().json(JsonResponse {
@@ -619,7 +635,7 @@ struct PackageResponseJson {
     packageManager: String,
     canProvideUpdates: bool,
     updates: Vec<String>,
-    lastDatabaseUpdate: u64,
+    lastDatabaseUpdate: i32,
 }
 
 #[derive(Serialize)]
@@ -631,7 +647,7 @@ struct PackageResponseJsonCounts {
     packageManager: String,
     canProvideUpdates: bool,
     updates: usize,
-    lastDatabaseUpdate: u64,
+    lastDatabaseUpdate: i32,
 }
 
 /// Return the current package database.
@@ -648,14 +664,17 @@ async fn package_database(
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    let query =
-        database::read_cols::<&str, (u64,)>("PackageActions", &["last_database_update"]).unwrap();
-    let last_database_update;
-    if query.len() != 1 {
-        last_database_update = 0
-    } else {
-        last_database_update = query[0].0
-    }
+    use models::PackageAction;
+    use schema::PackageActions::dsl::*;
+    let connection = &mut establish_connection();
+
+    let stored_last_database_update = match PackageActions
+        .select(PackageAction::as_select())
+        .first(connection)
+    {
+        Ok(v) => v.last_database_update.unwrap_or(0),
+        Err(_) => 0,
+    };
 
     if path.into_inner() {
         let installed = match packages::list_installed_packages() {
@@ -683,7 +702,7 @@ async fn package_database(
             packageManager: packages::get_package_manager().unwrap_or("".to_string()),
             canProvideUpdates: can_provide_updates,
             updates,
-            lastDatabaseUpdate: last_database_update,
+            lastDatabaseUpdate: stored_last_database_update,
         })
     } else {
         let installed = match packages::list_installed_packages() {
@@ -711,7 +730,7 @@ async fn package_database(
             packageManager: packages::get_package_manager().unwrap_or("".to_string()),
             canProvideUpdates: can_provide_updates,
             updates,
-            lastDatabaseUpdate: last_database_update,
+            lastDatabaseUpdate: stored_last_database_update,
         })
     }
 }
@@ -742,6 +761,9 @@ async fn update_package_database(
     state: Data<AppState>,
     json: web::Json<SudoPasswordOnlyRequest>,
 ) -> HttpResponse {
+    use models::PackageAction;
+    use schema::PackageActions::dsl::*;
+
     if !is_admin_state(&session, state.clone()) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
@@ -754,38 +776,30 @@ async fn update_package_database(
         .unwrap()
         .insert(job_id, BackgroundTaskState::Pending);
 
-    let _ = actix_web::web::block(move || {
+    drop(actix_web::web::block(move || {
+        let connection = &mut establish_connection();
         match packages::update_database(json.into_inner().sudoPassword) {
             Ok(_) => {
-                let x = database::write(
-                    "PackageActions",
-                    &["last_database_update", "key"],
-                    &[
-                        InsertValue::UnsignedInt64(
-                            std::time::SystemTime::now()
-                                .duration_since(UNIX_EPOCH)
-                                .unwrap()
-                                .as_secs(),
-                        ),
-                        InsertValue::UnsignedInt64(0_u64),
-                    ],
-                    "key",
-                    "0",
-                );
-                if x.is_ok() {
-                    state
-                        .background_jobs
-                        .lock()
+                let updated_new_database_update = Some(
+                    std::time::SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
                         .unwrap()
-                        .insert(job_id, BackgroundTaskState::Success)
-                } else {
-                    state.background_jobs.lock().unwrap().insert(
-                        job_id,
-                        BackgroundTaskState::FailOutput(
-                            "Zentrox was unable to update package actions database".to_string(),
-                        ),
-                    )
-                }
+                        .as_secs() as i32,
+                );
+                diesel::insert_into(PackageActions)
+                    .values(PackageAction {
+                        last_database_update: updated_new_database_update,
+                        key: 0_i32,
+                    })
+                    .on_conflict(key)
+                    .do_update()
+                    .set(last_database_update.eq(updated_new_database_update))
+                    .execute(connection);
+                state
+                    .background_jobs
+                    .lock()
+                    .unwrap()
+                    .insert(job_id, BackgroundTaskState::Success)
             }
             Err(_) => state
                 .background_jobs
@@ -793,7 +807,7 @@ async fn update_package_database(
                 .unwrap()
                 .insert(job_id, BackgroundTaskState::Fail),
         }
-    });
+    }));
 
     HttpResponse::Ok().body(job_id.to_string())
 }
@@ -821,7 +835,7 @@ async fn install_package(
 
     let job_id = Uuid::new_v4();
 
-    let _ = actix_web::web::block(move || {
+    drop(actix_web::web::block(move || {
         match packages::install_package(json.packageName.to_string(), json.sudoPassword.to_string())
         {
             Ok(_) => state
@@ -835,7 +849,7 @@ async fn install_package(
                 .unwrap()
                 .insert(job_id, BackgroundTaskState::Fail),
         }
-    });
+    }));
 
     HttpResponse::Ok().body(job_id.to_string())
 }
@@ -856,7 +870,7 @@ async fn remove_package(
 
     let job_id = Uuid::new_v4();
 
-    let _ = actix_web::web::block(move || {
+    drop(actix_web::web::block(move || {
         match packages::remove_package(json.packageName.to_string(), json.sudoPassword.to_string())
         {
             Ok(_) => state
@@ -870,7 +884,7 @@ async fn remove_package(
                 .unwrap()
                 .insert(job_id, BackgroundTaskState::Fail),
         }
-    });
+    }));
 
     HttpResponse::Ok().body(job_id.to_string())
 }
@@ -891,7 +905,7 @@ async fn update_package(
 
     let job_id = Uuid::new_v4();
 
-    let _ = actix_web::web::block(move || {
+    drop(actix_web::web::block(move || {
         match packages::update_package(json.packageName.to_string(), json.sudoPassword.to_string())
         {
             Ok(_) => state
@@ -905,7 +919,7 @@ async fn update_package(
                 .unwrap()
                 .insert(job_id, BackgroundTaskState::Fail),
         }
-    });
+    }));
 
     HttpResponse::Ok().body(job_id.to_string())
 }
@@ -933,7 +947,7 @@ async fn update_all_packages(
         .unwrap()
         .insert(job_id, BackgroundTaskState::Pending);
 
-    let _ = actix_web::web::block(move || {
+    drop(actix_web::web::block(move || {
         match packages::update_all_packages(sudo_password.to_string()) {
             Ok(_) => state
                 .background_jobs
@@ -946,7 +960,7 @@ async fn update_all_packages(
                 .unwrap()
                 .insert(job_id, BackgroundTaskState::Fail),
         }
-    });
+    }));
 
     HttpResponse::Ok().body(job_id.to_string())
 }
@@ -999,7 +1013,7 @@ async fn remove_orphaned_packages(
         .unwrap()
         .insert(job_id, BackgroundTaskState::Pending);
 
-    let _ = actix_web::web::block(move || {
+    drop(actix_web::web::block(move || {
         match packages::remove_orphaned_packages(sudo_password.to_string()) {
             Ok(_) => state
                 .background_jobs
@@ -1012,7 +1026,7 @@ async fn remove_orphaned_packages(
                 .unwrap()
                 .insert(job_id, BackgroundTaskState::Fail),
         }
-    });
+    }));
 
     return HttpResponse::Ok().body(job_id.to_string());
 }
@@ -1172,14 +1186,14 @@ async fn new_firewall_rule(
 
     let decoded_sender_adress = url_decode::url_decode(sender_adress);
 
-    if mode == "p" {
-        let destination_parsed: u64;
+    if mode == "p" { // "p" is short for port, thus used for single port rules
+        let destination_parsed: u64 = 
         match destination.parse::<u64>() {
-            Ok(d) => destination_parsed = d,
+            Ok(d) => d,
             Err(_) => return HttpResponse::BadRequest().body("Malformed port"),
         };
         let x = ufw::new_rule_port(
-            &password,
+            password,
             {
                 if protocol == "tcp" {
                     ufw::NetworkProtocol::Tcp(destination_parsed)
@@ -1209,27 +1223,25 @@ async fn new_firewall_rule(
             Ok(_) => HttpResponse::Ok().body("Added new rule"),
             Err(_e) => HttpResponse::InternalServerError().body("Failed to create new rule"),
         }
-    } else if mode == "r" {
+    } else if mode == "r" { // r is short for range, thus used for port range rules (i.e. 8000-8100)
         let lr: Vec<&str> = destination.split(":").collect();
-        let range_left: u64;
-        let range_right: u64;
 
         if lr.len() != 2 {
             return HttpResponse::BadRequest().body("Malformed port range");
         }
 
-        match lr[0].parse::<u64>() {
-            Ok(v) => range_left = v,
+        let range_left = match lr[0].parse::<u64>() {
+            Ok(v) => v,
             Err(_) => return HttpResponse::BadRequest().body("Malformed left side port"),
-        }
+        };
 
-        match lr[1].parse::<u64>() {
-            Ok(v) => range_right = v,
+        let range_right = match lr[1].parse::<u64>() {
+            Ok(v) => v,
             Err(_) => return HttpResponse::BadRequest().body("Malformed right side port"),
-        }
+        };
 
         let x = ufw::new_rule_range(
-            &password,
+            password,
             {
                 if protocol == "tcp" {
                     ufw::PortRange::Tcp(range_left, range_right)
@@ -1411,11 +1423,11 @@ async fn delete_file(
     }
 }
 
-#[get("/api/renameFile/{old_path}/{new_path}")]
+#[get("/api/movePath/{old_path}/{new_path}")]
 /// Rename/move a file or folder on the machines file system.
 /// This does not work with files that can not be written/read by the current user.
 /// The paths provided in the URL have to be url encoded.
-async fn rename_file(
+async fn move_path(
     session: Session,
     state: Data<AppState>,
     path: web::Path<(String, String)>,
@@ -1510,25 +1522,21 @@ struct GetMetadataResponseJson {
 
 fn recursive_size_of_directory(path: &PathBuf) -> u64 {
     let mut size = 0_u64;
-    match fs::read_dir(path) {
-        Ok(contents) => {
+    if let Ok(contents) = fs::read_dir(path) {
             contents.for_each(|f| {
-                if f.is_err() { return; }
-                match f.as_ref().unwrap().metadata() {
-                    Ok(metadata) => {
-                if metadata.is_symlink() || metadata.is_file() {
-                    size += metadata.size();
-                } else {
-                    size += recursive_size_of_directory(&f.unwrap().path());
+                if f.is_err() {
+                    return;
                 }
-                    },
-                    _ => {}
+                if let Ok(metadata) = f.as_ref().unwrap().metadata() {
+                        if metadata.is_symlink() || metadata.is_file() {
+                            size += metadata.size();
+                        } else {
+                            size += recursive_size_of_directory(&f.unwrap().path());
+                        }
                 }
             });
-        }
-        Err(_) => {}
     }
-    return size;
+    size
 }
 
 #[get("/api/getMetadata/{path}")]
@@ -1543,11 +1551,14 @@ async fn get_metadata(
 
     let from_url_path = url_decode::url_decode(&path);
     let constructed_path = std::path::PathBuf::from(from_url_path);
+    if !constructed_path.exists() {
+        return HttpResponse::BadRequest().body("Path does not exist");
+    }
     let metadata =
         fs::metadata(constructed_path.clone()).expect("Failed to retrieve metadata for file");
 
     let permissions = metadata.permissions().mode() & 0o777;
-    let permissions_octal_string = format!("{:o}", permissions);
+    let permissions_octal_string = format!("{permissions:o}");
     let permissions_octal: i32 = permissions_octal_string.parse().unwrap();
 
     // UNIX timestamp in seconds at which this file was created
@@ -1570,25 +1581,24 @@ async fn get_metadata(
         Err(_) => None,
     };
 
-    let size;
     let is_file = metadata.is_file();
     let is_dir = metadata.is_dir();
     let is_symlink = metadata.is_symlink();
 
-    if is_file || is_symlink {
-        size = metadata.size();
+    let size = if is_file || is_symlink {
+        metadata.size()
     } else {
-        size = recursive_size_of_directory(&constructed_path)
-    }
+        recursive_size_of_directory(&constructed_path)
+    };
 
     let owner_uid = metadata.uid();
     let owner_username =
         convert_uid_to_name(owner_uid as usize).unwrap_or("Unknown owner username".to_string());
     let owner_gid = metadata.gid();
 
-    return HttpResponse::Ok().json(GetMetadataResponseJson {
+    HttpResponse::Ok().json(GetMetadataResponseJson {
         permissions: permissions_octal,
-        size: size,
+        size,
         owner_uid,
         owner_gid,
         owner_username,
@@ -1612,7 +1622,7 @@ async fn get_metadata(
             .to_str()
             .unwrap()
             .to_string(),
-    });
+    })
 }
 
 #[derive(Debug, MultipartForm)]
@@ -1633,9 +1643,8 @@ async fn upload_file(
     }
 
     let intended_path = PathBuf::from(form.path.to_string());
-    let filename: String;
-    match form.file.file_name {
-        Some(v) => filename = v,
+    let filename = match form.file.file_name {
+        Some(v) => v,
         None => {
             return HttpResponse::BadRequest().body("No filename specified");
         }
@@ -1645,12 +1654,12 @@ async fn upload_file(
     let cpy = fs::copy(temp_path, &intended_path);
     let unk = fs::remove_file(temp_path);
 
-    if !cpy.is_ok() {
+    if cpy.is_err() {
         HttpResponse::InternalServerError()
             .body("Unable to copy temporary file to intended destination");
     }
 
-    if !unk.is_ok() {
+    if unk.is_err() {
         HttpResponse::InternalServerError().body("Unable to delete temporary file");
     }
 
@@ -1743,6 +1752,8 @@ async fn vault_configure(
     state: Data<AppState>,
     json: web::Json<VaultConfigurationJson>,
 ) -> HttpResponse {
+    use schema::Settings::dsl::*;
+
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
@@ -1753,9 +1764,11 @@ async fn vault_configure(
         .join("zentrox")
         .join("vault_directory");
 
-    if database::read_kv("Settings", "vault_enabled").unwrap() == *database::ST_BOOL_FALSE
-        && !vault_path.exists()
-    {
+    let connection = &mut establish_connection();
+
+    let vault_enabled = get_setting_by_name("vault_enabled").unwrap();
+
+    if vault_enabled == *database::ST_BOOL_FALSE && !vault_path.exists() {
         if json.key.is_none() {
             return HttpResponse::BadRequest().body("This request is malformed");
         }
@@ -1786,17 +1799,17 @@ async fn vault_configure(
         match fs::write(vault_path.join(".vault"), vault_file_contents) {
             Ok(_) => {}
             Err(e) => {
-                eprintln!("Failed to write vault file.\n{}", e);
+                eprintln!("Failed to write vault file.\n{e}");
                 return HttpResponse::InternalServerError().body(e.to_string());
             }
         }
 
         vault::encrypt_file(vault_path.join(".vault").to_string_lossy().to_string(), key);
-        let _ = database::write_kv(
-            "Settings",
-            "vault_enabled",
-            database::InsertValue::Text(database::ST_BOOL_TRUE.into()),
-        );
+
+        diesel::update(Settings)
+            .filter(name.eq("vault_enabled"))
+            .set(value.eq(Some(database::ST_BOOL_TRUE.to_string())))
+            .execute(connection);
     } else if json.oldKey.is_some() && json.newKey.is_some() {
         let old_key = json.oldKey.clone().unwrap();
         let new_key = json.newKey.clone().unwrap();
@@ -1875,7 +1888,7 @@ async fn is_vault_configured(session: Session, state: Data<AppState>) -> HttpRes
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    if database::read_kv("Settings", "vault_enabled").unwrap() == database::ST_BOOL_TRUE {
+    if get_setting_by_name("vault_enabled").unwrap() == database::ST_BOOL_TRUE {
         return HttpResponse::Ok().body("1");
     } else {
         return HttpResponse::Ok().body("0");
@@ -1977,7 +1990,7 @@ async fn vault_tree(
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
-    if database::read_kv("Settings", "vault_enabled").unwrap() == database::ST_BOOL_TRUE {
+    if get_setting_by_name("vault_enabled").unwrap() == database::ST_BOOL_TRUE {
         let key = &json.key;
 
         match vault::decrypt_file(
@@ -2056,7 +2069,7 @@ async fn delete_vault_file(
         .unwrap()
         .insert(uuid, BackgroundTaskState::Pending);
 
-    let _ = actix_web::web::block(move || {
+    drop(actix_web::web::block(move || {
         let sent_path = &json.deletePath;
         if sent_path == ".vault" {
             error!(".vault file may never be deleted.");
@@ -2124,7 +2137,7 @@ async fn delete_vault_file(
             .lock()
             .unwrap()
             .insert(uuid, BackgroundTaskState::Success);
-    });
+    }));
 
     HttpResponse::Ok().body(uuid.to_string())
 }
@@ -2222,7 +2235,6 @@ async fn upload_vault(
 
     let encrypted_path = form
         .path
-        .to_string()
         .split('/')
         .filter(|x| !x.is_empty()) // Filter out empty path entries
         .map(|x| vault::encrypt_string_hash(x.to_string(), key).unwrap())
@@ -2244,7 +2256,7 @@ async fn upload_vault(
 
     println!("{:?}", &tmp_file_path);
 
-    let _ = actix_web::web::block(|| {
+    drop(actix_web::web::block(|| {
         let _ = tokio::fs::metadata(&tmp_file_path.clone()).then(async move |v| {
             let file_size = v.unwrap().len();
             let mut i = 0;
@@ -2257,7 +2269,7 @@ async fn upload_vault(
             }
             let _ = tokio::fs::remove_file(&tmp_file_path);
         });
-    });
+    }));
 
     vault::encrypt_file(in_vault_path.to_string_lossy().to_string(), key);
 
@@ -2387,16 +2399,16 @@ async fn vault_file_download(
         .to_string_lossy()
         .to_string();
 
-    let _ = fs::copy(&path, format!("{}.dec", path).to_string());
+    let _ = fs::copy(&path, format!("{path}.dec").to_string());
 
-    vault::decrypt_file(format!("{}.dec", path).to_string(), key);
-    if path::Path::new(&format!("{}.dec", path).to_string()).exists() {
-        let f = fs::read(format!("{}.dec", path).to_string());
+    vault::decrypt_file(format!("{path}.dec").to_string(), key);
+    if path::Path::new(&format!("{path}.dec").to_string()).exists() {
+        let f = fs::read(format!("{path}.dec").to_string());
         match f {
             Ok(fh) => {
                 let data = fh.bytes().map(|x| x.unwrap_or(0_u8)).collect::<Vec<u8>>();
-                let _ = vault::burn_file(format!("{}.dec", path).to_string());
-                let _ = fs::remove_file(format!("{}.dec", path).to_string());
+                let _ = vault::burn_file(format!("{path}.dec").to_string());
+                let _ = fs::remove_file(format!("{path}.dec").to_string());
                 HttpResponse::Ok().body(data)
             }
             Err(_) => HttpResponse::InternalServerError()
@@ -2434,6 +2446,8 @@ async fn upload_tls(
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
+    use schema::Settings::dsl::*;
+
     let file_name = form
         .file
         .file_name
@@ -2447,11 +2461,10 @@ async fn upload_tls(
         .join("zentrox")
         .join(&file_name);
 
-    let _ = database::write_kv(
-        "Settings",
-        "tls_cert",
-        database::InsertValue::Text(file_name.to_string()),
-    );
+    diesel::update(Settings)
+        .filter(name.eq("tls_cert"))
+        .set(value.eq(&file_name))
+        .execute(&mut establish_connection());
 
     let tmp_file_path = form.file.file.path().to_owned();
     let _ = fs::copy(&tmp_file_path, &base_path);
@@ -2479,7 +2492,7 @@ async fn cert_names(session: Session, state: Data<AppState>) -> HttpResponse {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    let tls = database::read_kv("Settings", "tls_cert").unwrap();
+    let tls = get_setting_by_name("tls_cert").unwrap();
 
     HttpResponse::Ok().json(CertNamesJson { tls })
 }
@@ -2542,9 +2555,14 @@ async fn update_account_details(
     state: Data<AppState>,
     json: web::Json<UpdateAccountJson>,
 ) -> HttpResponse {
+    use schema::Admin::dsl::*;
+    use schema::Secrets::dsl::*;
+
     if !is_admin_state(&session, state.clone()) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
+
+    let connection = &mut establish_connection();
 
     let password = &json.password;
     let new_username = &json.username;
@@ -2553,27 +2571,22 @@ async fn update_account_details(
         let hashed_password =
             hex::encode(crypto_utils::argon2_derive_key(password).unwrap()).to_string();
 
-        let a = database::write_kv(
-            "Secrets",
-            "admin_password",
-            database::InsertValue::Text(hashed_password),
-        );
+        let password_execution = diesel::update(Secrets)
+            .filter(name.eq("admin_password"))
+            .set(value.eq(hashed_password))
+            .execute(connection);
 
-        if a.is_err() {
+        if password_execution.is_err() {
             return HttpResponse::InternalServerError().body("Failed to update admin_password.");
         }
     }
 
     if !new_username.is_empty() {
-        let b = database::update_where(
-            "Admin",
-            &["username"],
-            &[database::InsertValue::from(new_username)],
-            "key",
-            "0",
-        );
+        let username_execution = diesel::update(Admin)
+            .set(username.eq(new_username))
+            .execute(connection);
 
-        if b.is_err() {
+        if username_execution.is_err() {
             return HttpResponse::InternalServerError().body("Failed to update username.");
         }
     }
@@ -2665,15 +2678,15 @@ async fn logs_request(
         let messages = logs::log_messages(json.sudoPassword.clone(), since / 1000, until / 1000);
 
         match messages {
-            Ok(v) => return HttpResponse::Ok().json(MessagesLog { logs: v }),
+            Ok(v) => HttpResponse::Ok().json(MessagesLog { logs: v }),
             Err(e) => {
                 eprintln!("Failed to fetch for logs");
-                return HttpResponse::InternalServerError()
-                    .body(format!("Failed to get message logs {}", e));
+                HttpResponse::InternalServerError()
+                    .body(format!("Failed to get message logs {e}"))
             }
         }
     } else {
-        return HttpResponse::NotFound().body("The requested logs do not exist");
+        HttpResponse::NotFound().body("The requested logs do not exist")
     }
 }
 
@@ -2685,7 +2698,7 @@ fn parse_range(range: actix_web::http::header::HeaderValue) -> (usize, Option<us
     let range_separated: Vec<&str> = range_separated_clear.split('-').collect(); // Split the range
 
     // Parse the start and end values safely
-    let start = range_separated.get(0).unwrap().parse::<usize>().unwrap();
+    let start = range_separated.first().unwrap().parse::<usize>().unwrap();
 
     (
         start,
@@ -2702,10 +2715,21 @@ fn parse_range(range: actix_web::http::header::HeaderValue) -> (usize, Option<us
     )
 }
 
-fn is_whitelisted(l: Vec<(bool, PathBuf)>, p: PathBuf) -> bool {
+/// Checks if a given path can be accessed using any enabled media source.
+fn is_media_path_whitelisted(l: Vec<MediaSource>, p: PathBuf) -> bool {
     let mut r = false;
+
+    if !p.exists() {
+        return false;
+    }
+
     l.iter().for_each(|le| {
-        if !r && p.starts_with(&le.1) && le.0 {
+        if !r
+            && p.canonicalize()
+                .unwrap()
+                .starts_with(PathBuf::from(&le.folderpath).canonicalize().unwrap())
+            && le.enabled
+        {
             r = true
         }
     });
@@ -2719,11 +2743,16 @@ async fn media_request(
     path: web::Path<String>,
     req: HttpRequest,
 ) -> HttpResponse {
+    use models::MediaSource;
+    use schema::MediaSources::dsl::*;
+
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    if database::read_kv("Settings", "media_enabled").unwrap() == database::ST_BOOL_FALSE {
+    let connection = &mut establish_connection();
+
+    if get_setting_by_name("media_enabled").unwrap() == database::ST_BOOL_FALSE {
         return HttpResponse::Forbidden().body("Media center has been disabled");
     }
 
@@ -2739,14 +2768,12 @@ async fn media_request(
     let mime = mime::guess_mime(file_path.to_path_buf());
 
     if file_path.exists() {
-        let whitelist_vector: Vec<(bool, PathBuf)> =
-            database::read_cols::<&str, (bool, String)>("MediaSources", &["enabled", "folderpath"])
-                .unwrap()
-                .into_iter()
-                .map(|e| (e.0, PathBuf::from(e.1)))
-                .collect();
+        let whitelist_vector: Vec<MediaSource> = MediaSources
+            .select(MediaSource::as_select())
+            .get_results(connection)
+            .unwrap();
 
-        if !is_whitelisted(
+        if !is_media_path_whitelisted(
             whitelist_vector,
             fs::canonicalize(file_path.clone()).unwrap(),
         ) {
@@ -2793,7 +2820,7 @@ async fn media_request(
                 let mut buf = vec![0; buffer_length]; // A buffer with the length buffer_length
                 reader.read_exact(&mut buf).unwrap();
 
-                return HttpResponse::PartialContent()
+                HttpResponse::PartialContent()
                     .insert_header(header::ContentEncoding::Identity)
                     .insert_header((header::ACCEPT_RANGES, "bytes"))
                     .insert_header((
@@ -2821,11 +2848,11 @@ async fn media_request(
                         header::CONTENT_TYPE,
                         mime.unwrap_or("application/octet-stream".to_string()),
                     ))
-                    .body(buf);
+                    .body(buf)
             }
         }
     } else {
-        return HttpResponse::NotFound().body("The requested audio file is not on the server.");
+        HttpResponse::NotFound().body("The requested audio file is not on the server.")
     }
 }
 
@@ -2840,40 +2867,41 @@ async fn update_video_source_list(
     state: Data<AppState>,
     json: web::Json<VideoSourceJson>,
 ) -> HttpResponse {
+    use models::MediaSource;
+    use schema::MediaSources::dsl::*;
+
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
+
+    let connection = &mut establish_connection();
 
     let locations = &json.locations;
 
     // The frontend only sends an updated array of all resources.
     // It is easier to truncate the entire table and then rewrite its' contents.
 
-    if let Err(_e) = database::truncate_table("MediaSources") {
+    if let Err(_e) = diesel::delete(MediaSources).execute(connection) {
         return HttpResponse::InternalServerError().body("Failed to truncate sources table.");
     }
 
-    for l in locations {
-        if l.0.exists() {
-            let clean_path = fs::canonicalize(l.0.clone())
-                .unwrap()
-                .to_string_lossy()
-                .to_string();
+    let deserialized_locations: Vec<MediaSource> = locations
+        .iter()
+        .filter(|e| e.0.exists())
+        .map(|e| MediaSource {
+            folderpath: e.0.canonicalize().unwrap().to_string_lossy().to_string(),
+            alias: e.1.clone(),
+            enabled: e.2,
+        })
+        .collect();
 
-            let s = database::insert(
-                "MediaSources",
-                &["folderpath", "alias", "enabled"],
-                &[
-                    InsertValue::from(clean_path),
-                    InsertValue::from(l.1.to_string()),
-                    InsertValue::from(l.2),
-                ],
-            );
-
-            if let Err(_e) = s {
-                return HttpResponse::InternalServerError().body("Failed to write source entry.");
-            }
-        }
+    for location in deserialized_locations {
+        diesel::insert_into(MediaSources)
+            .values(&location)
+            .on_conflict(folderpath)
+            .do_update()
+            .set(&location)
+            .execute(connection);
     }
 
     HttpResponse::Ok().body("Updated video sources.")
@@ -2886,18 +2914,21 @@ struct VideoSourcesListResponseJson {
 
 #[get("/api/getVideoSourceList")]
 async fn get_video_source_list(session: Session, state: Data<AppState>) -> HttpResponse {
+    use models::MediaSource;
+    use schema::MediaSources::dsl::*;
+
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    let rows = database::read_cols::<&str, (String, String, bool)>(
-        "MediaSources",
-        &["folderpath", "alias", "enabled"],
-    )
-    .unwrap();
+    let rows: Vec<MediaSource> = MediaSources
+        .select(MediaSource::as_select())
+        .get_results(&mut establish_connection())
+        .unwrap();
+
     let mut s = Vec::new();
     for r in rows {
-        s.push((r.0.clone(), r.1.clone(), r.2));
+        s.push((r.folderpath, r.alias, r.enabled));
     }
 
     HttpResponse::Ok().json(VideoSourcesListResponseJson { locations: s })
@@ -2918,17 +2949,25 @@ async fn get_media_list(session: Session, state: Data<AppState>) -> HttpResponse
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    if database::read_kv("Settings", "media_enabled").unwrap() == database::ST_BOOL_FALSE {
+    use schema::Media::dsl::*;
+    use schema::MediaSources::dsl::*;
+
+    use models::MediaEntry;
+
+    let connection = &mut establish_connection();
+
+    if get_setting_by_name("media_enabled").unwrap() == database::ST_BOOL_FALSE {
         return HttpResponse::Forbidden().body("Media center has been disabled");
     }
 
-    let sources: Vec<PathBuf> =
-        database::read_cols::<&str, (String, bool)>("MediaSources", &["folderpath", "enabled"])
-            .unwrap()
-            .into_iter()
-            .filter(|e| e.1)
-            .map(|e| PathBuf::from(e.0.clone()))
-            .collect();
+    let sources: Vec<PathBuf> = MediaSources
+        .select(MediaSource::as_select())
+        .get_results(connection)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.enabled)
+        .map(|x| PathBuf::from(x.folderpath))
+        .collect();
 
     let media_files_vector: Vec<Vec<PathBuf>> = sources
         .clone()
@@ -2969,34 +3008,27 @@ async fn get_media_list(session: Session, state: Data<AppState>) -> HttpResponse
     // - artist: The name of the artist
     // These segments are separated using semicolons.
 
-    let metadata_rows = database::read_cols::<&str, (String, String, String, String, String)>(
-        "Media",
-        &["filepath", "genre", "name", "artist", "cover"],
-    )
-    .unwrap();
+    let metadata_rows = Media
+        .select(MediaEntry::as_select())
+        .get_results(connection)
+        .unwrap();
 
     for row in metadata_rows {
-        let filepath = PathBuf::from(row.0.clone());
-        if !filepath.exists() {
-            let x = database::delete_row(
-                "Media",
-                "filepath",
-                filepath
-                    .to_str()
-                    .unwrap_or(filepath.to_string_lossy().to_string().as_str()),
-            );
+        let entry_filepath = std::path::Path::new(&row.filepath);
 
-            if let Err(_e) = x {
-                return HttpResponse::InternalServerError()
-                    .body("Failed to delete row of removed video file.");
-            }
+        if !entry_filepath.exists() {
+            diesel::delete(Media)
+                .filter(filepath.eq(row.filepath))
+                .execute(connection);
         } else {
+            let entry_filepath_canonicalized = entry_filepath.canonicalize().unwrap();
+
             let mut a = false;
             for path in &sources {
                 if a {
                     continue;
                 }
-                if filepath.starts_with(path) {
+                if entry_filepath_canonicalized.starts_with(path) {
                     a = true;
                 }
             }
@@ -3006,8 +3038,13 @@ async fn get_media_list(session: Session, state: Data<AppState>) -> HttpResponse
             }
 
             media_info_hashmap.insert(
-                filepath,
-                (row.2.clone(), row.4.clone(), row.1.clone(), row.3.clone()),
+                entry_filepath_canonicalized,
+                (
+                    row.name.unwrap(),
+                    row.cover.unwrap(),
+                    row.genre.unwrap(),
+                    row.artist.unwrap(),
+                ),
             );
         }
     }
@@ -3017,13 +3054,12 @@ async fn get_media_list(session: Session, state: Data<AppState>) -> HttpResponse
 
     for f in all_media_files {
         if !media_info_hashmap.contains_key(&f) {
-            let name = f
+            let entry_title = f
                 .file_name()
                 .unwrap()
                 .to_string_lossy()
-                .to_string()
                 .split(".")
-                .nth(0)
+                .next()
                 .unwrap_or("")
                 .to_string()
                 .replace("_", " ")
@@ -3034,13 +3070,13 @@ async fn get_media_list(session: Session, state: Data<AppState>) -> HttpResponse
             // Automatically generates a name
 
             media_info_hashmap.insert(
-                f.clone().into(),
+                f.into(),
                 // Using playceholders.
                 // The cover can not actually exist in that way, so no user could accidentally
                 // create this cover name. The genre is possible, but it will not really do
                 // anything except be ignored on the frontend side.
                 (
-                    name,
+                    entry_title,
                     "UNKNOWN_COVER".to_string(),
                     "UNKNOWN_GENRE".to_string(),
                     "UNKNOWN_ARTIST".to_string(),
@@ -3049,10 +3085,10 @@ async fn get_media_list(session: Session, state: Data<AppState>) -> HttpResponse
         }
     }
 
-    return HttpResponse::Ok().json(MediaListResponseJson {
+    HttpResponse::Ok().json(MediaListResponseJson {
         media: media_info_hashmap,
         // The frontend is passed a hashmap with the percise path, name, cover and genre.
-    });
+    })
 }
 
 #[get("/api/cover/{cover_uri}")]
@@ -3065,15 +3101,17 @@ async fn get_cover(
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    if database::read_kv("Settings", "media_enabled").unwrap()
-        == database::ST_BOOL_FALSE.to_string()
-    {
+    use models::MediaSource;
+    use schema::MediaSources::dsl::*;
+
+    if get_setting_by_name("media_enabled").unwrap() == database::ST_BOOL_FALSE {
         return HttpResponse::Forbidden().body("Media center has been disabled");
     }
 
-    let sources: Vec<(String, bool)> =
-        database::read_cols::<&str, (String, bool)>("MediaSources", &["folderpath", "enabled"])
-            .unwrap();
+    let sources: Vec<MediaSource> = MediaSources
+        .select(MediaSource::as_select())
+        .get_results(&mut establish_connection())
+        .unwrap();
 
     let cover_uri = &url_decode::url_decode(&path);
 
@@ -3096,8 +3134,16 @@ async fn get_cover(
         let cover_path = PathBuf::from(cover_uri)
             .canonicalize()
             .unwrap_or(PathBuf::from(cover_uri));
-        let parent = cover_path.parent();
-        if !sources.contains(&(parent.unwrap().to_string_lossy().to_string(), true)) {
+
+        let allowed_cover_file_extensions = ["png", "jpg", "jpeg", "webp", "gif", "tiff"];
+        if !allowed_cover_file_extensions
+            .contains(&cover_path.extension().unwrap_or_default().to_str().unwrap())
+        {
+            return HttpResponse::Forbidden()
+                .body("The extension of the cover file is not allowed.");
+        }
+
+        if !is_media_path_whitelisted(sources, cover_uri.into()) {
             HttpResponse::Forbidden().body("This cover is not in a source folder.")
         } else {
             let fh = fs::read(cover_path).unwrap_or("".into());
@@ -3117,9 +3163,9 @@ async fn get_enable_media(session: Session, state: Data<AppState>) -> HttpRespon
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    return HttpResponse::Ok().json(MediaEnabledResponseJson {
-        enabled: database::read_kv("Settings", "media_enabled").unwrap() == database::ST_BOOL_TRUE,
-    });
+    HttpResponse::Ok().json(MediaEnabledResponseJson {
+        enabled: get_setting_by_name("media_enabled").unwrap() == database::ST_BOOL_TRUE,
+    })
 }
 
 #[get("/api/setEnableMedia/{value}")]
@@ -3128,22 +3174,26 @@ async fn set_enable_media(
     state: Data<AppState>,
     e: web::Path<bool>,
 ) -> HttpResponse {
+    use schema::Settings::dsl::*;
+
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
+    // TODO: Simplify this if condition
+
+    let connection = &mut establish_connection();
+
     if e.into_inner() {
-        let _ = database::write_kv(
-            "Settings",
-            "media_enabled",
-            database::InsertValue::Text(database::ST_BOOL_TRUE.to_string()),
-        );
+        diesel::update(Settings)
+            .filter(name.eq("media_enabled"))
+            .set(value.eq(database::ST_BOOL_TRUE))
+            .execute(connection);
     } else {
-        let _ = database::write_kv(
-            "Settings",
-            "media_enabled",
-            database::InsertValue::Text(database::ST_BOOL_FALSE.to_string()),
-        );
+        diesel::update(Settings)
+            .filter(name.eq("media_enabled"))
+            .set(value.eq(database::ST_BOOL_FALSE))
+            .execute(connection);
     }
 
     return HttpResponse::Ok().body("Updated media center status");
@@ -3155,13 +3205,16 @@ async fn remember_music(
     state: Data<AppState>,
     e: web::Path<String>,
 ) -> HttpResponse {
+    use models::RecommendedMediaEntry;
+    use schema::RecommendedMedia::dsl::*;
+
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    if database::read_kv("Settings", "media_enabled").unwrap()
-        == database::ST_BOOL_FALSE.to_string()
-    {
+    let connection = &mut establish_connection();
+
+    if get_setting_by_name("media_enabled").unwrap() == database::ST_BOOL_FALSE.to_string() {
         return HttpResponse::Forbidden().body("Media center has been disabled");
     }
 
@@ -3169,35 +3222,34 @@ async fn remember_music(
         .duration_since(std::time::UNIX_EPOCH)
         .expect("Time does not appear to be correct. Is your system's time configuration correct?");
 
-    let fp = &e.into_inner();
+    let fp = e.into_inner();
 
-    let x = database::write(
-        "RecommendedMedia",
-        &["filepath", "lastview", "category"],
-        &[
-            database::InsertValue::from(fp),
-            database::InsertValue::from(current_ts.as_millis()),
-            database::InsertValue::from("music"),
-        ],
-        "filepath",
-        fp,
-    );
+    diesel::insert_into(RecommendedMedia)
+        .values(RecommendedMediaEntry {
+            filepath: fp,
+            lastview: current_ts.as_millis() as i32,
+            category: String::from("music"),
+        })
+        .on_conflict(filepath)
+        .do_update()
+        .set(lastview.eq(current_ts.as_millis() as i32))
+        .execute(connection);
 
-    database::read_cols::<&str, (String,)>("RecommendedMedia", &["filepath"])
-        .unwrap()
-        .into_iter()
-        .for_each(|e| {
-            let pb = PathBuf::from(&e.0);
+    let recommendations = RecommendedMedia
+        .select(RecommendedMediaEntry::as_select())
+        .get_results(connection)
+        .unwrap();
 
-            if !pb.exists() {
-                let _x = database::delete_row("RecommendedMedia", "filepath", e.0.as_str());
-            }
-        });
+    recommendations.into_iter().for_each(|e| {
+        let path = PathBuf::from(&e.filepath);
+        if !path.exists() {
+            diesel::delete(RecommendedMedia)
+                .filter(filepath.eq(e.filepath))
+                .execute(connection);
+        }
+    });
 
-    match x {
-        Ok(_) => HttpResponse::Ok().finish(),
-        Err(_e) => HttpResponse::InternalServerError().body("Failed to write database."),
-    }
+    HttpResponse::Ok().body("Stored music to be remembered")
 }
 
 #[get("/api/rememberVideo/{videoPath}")]
@@ -3206,13 +3258,16 @@ async fn remember_video(
     state: Data<AppState>,
     e: web::Path<String>,
 ) -> HttpResponse {
+    use models::RecommendedMediaEntry;
+    use schema::RecommendedMedia::dsl::*;
+
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    if database::read_kv("Settings", "media_enabled").unwrap()
-        == database::ST_BOOL_FALSE.to_string()
-    {
+    let connection = &mut establish_connection();
+
+    if get_setting_by_name("media_enabled").unwrap() == database::ST_BOOL_FALSE {
         return HttpResponse::Forbidden().body("Media center has been disabled");
     }
 
@@ -3220,88 +3275,103 @@ async fn remember_video(
         .duration_since(std::time::UNIX_EPOCH)
         .expect("Time does not appear to be correct. Is your system's time configuration correct?");
 
-    let fp = &e.into_inner();
+    let fp = e.into_inner();
 
-    let x = database::write(
-        "RecommendedMedia",
-        &["filepath", "lastview", "category"],
-        &[
-            database::InsertValue::from(fp),
-            database::InsertValue::from(current_ts.as_millis()),
-            database::InsertValue::from("video"),
-        ],
-        "filepath",
-        fp,
-    );
+    diesel::insert_into(RecommendedMedia)
+        .values(RecommendedMediaEntry {
+            filepath: fp,
+            lastview: current_ts.as_millis() as i32,
+            category: String::from("music"),
+        })
+        .on_conflict(filepath)
+        .do_update()
+        .set(lastview.eq(current_ts.as_millis() as i32))
+        .execute(connection);
 
-    database::read_cols::<&str, (String,)>("RecommendedMedia", &["filepath"])
-        .unwrap()
-        .into_iter()
-        .for_each(|e| {
-            let pb = PathBuf::from(&e.0);
+    let recommendations = RecommendedMedia
+        .select(RecommendedMediaEntry::as_select())
+        .get_results(connection)
+        .unwrap();
 
-            if !pb.exists() {
-                let _x = database::delete_row("RecommendedMedia", "filepath", e.0.as_str());
-            }
-        });
+    recommendations.into_iter().for_each(|e| {
+        let path = PathBuf::from(&e.filepath);
+        if !path.exists() {
+            diesel::delete(RecommendedMedia)
+                .filter(filepath.eq(e.filepath))
+                .execute(connection);
+        }
+    });
 
-    match x {
-        Ok(_) => HttpResponse::Ok().finish(),
-        Err(_e) => HttpResponse::InternalServerError().body("Failed to write database."),
-    }
+    HttpResponse::Ok().body("Stored video to be remembered")
 }
 
 #[derive(Serialize)]
 struct Recommendations {
-    rec: Vec<(String, i64)>,
+    rec: Vec<(String, i32)>,
 }
 
 #[get("/api/recommendedMusic")]
 async fn get_recomended_music(session: Session, state: Data<AppState>) -> HttpResponse {
+    use models::RecommendedMediaEntry;
+    use schema::RecommendedMedia::dsl::*;
+
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    if database::read_kv("Settings", "media_enabled").unwrap() == *database::ST_BOOL_FALSE {
+    if get_setting_by_name("media_enabled").unwrap() == database::ST_BOOL_FALSE {
         return HttpResponse::Forbidden().body("Media center has been disabled");
     }
 
-    let entries: Vec<(String, i64)> = database::read_cols::<&str, (String, i64, String)>(
-        "RecommendedMedia",
-        &["filepath", "lastview", "category"],
-    )
-    .unwrap()
-    .into_iter()
-    .filter(|e| e.2 == "music")
-    .filter(|e| PathBuf::from(&e.0).exists())
-    .map(|e| (e.0, e.1))
-    .collect();
+    let connection = &mut establish_connection();
 
-    return HttpResponse::Ok().json(Recommendations { rec: entries });
+    let queried_entries = RecommendedMedia
+        .select(RecommendedMediaEntry::as_select())
+        .filter(category.eq("music"))
+        .get_results(connection)
+        .unwrap();
+
+    let filtered_entries: Vec<(String, i32)> = queried_entries
+        .into_iter()
+        .filter(|e| PathBuf::from(&e.filepath).exists())
+        .map(|e| (e.filepath, e.lastview))
+        .collect();
+
+    return HttpResponse::Ok().json(Recommendations {
+        rec: filtered_entries,
+    });
 }
 
 #[get("/api/recommendedVideos")]
 async fn get_recomended_videos(session: Session, state: Data<AppState>) -> HttpResponse {
+    use models::RecommendedMediaEntry;
+    use schema::RecommendedMedia::dsl::*;
+
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    if database::read_kv("Settings", "media_enabled").unwrap() == *database::ST_BOOL_FALSE {
+    if get_setting_by_name("media_enabled").unwrap() == database::ST_BOOL_FALSE {
         return HttpResponse::Forbidden().body("Media center has been disabled");
     }
 
-    let entries: Vec<(String, i64)> = database::read_cols::<&str, (String, i64, String)>(
-        "RecommendedMedia",
-        &["filepath", "lastview", "category"],
-    )
-    .unwrap()
-    .into_iter()
-    .filter(|e| e.2 == "video")
-    .filter(|e| PathBuf::from(&e.0).exists())
-    .map(|e| (e.0, e.1))
-    .collect();
+    let connection = &mut establish_connection();
 
-    return HttpResponse::Ok().json(Recommendations { rec: entries });
+    let queried_entries = RecommendedMedia
+        .select(RecommendedMediaEntry::as_select())
+        .filter(category.eq("video"))
+        .get_results(connection)
+        .unwrap();
+
+    let filtered_entries: Vec<(String, i32)> = queried_entries
+        .into_iter()
+        .filter(|e| PathBuf::from(&e.filepath).exists())
+        .map(|e| (e.filepath, e.lastview))
+        .collect();
+
+    return HttpResponse::Ok().json(Recommendations {
+        rec: filtered_entries,
+    });
 }
 
 #[derive(Deserialize)]
@@ -3319,58 +3389,63 @@ async fn update_metadata(
     state: Data<AppState>,
     data: web::Json<MetadataJson>,
 ) -> HttpResponse {
+    use models::MediaEntry;
+    use schema::Media::dsl::*;
+
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    let wx = database::write(
-        "Media",
-        &["filepath", "name", "genre", "cover", "artist"],
-        &[
-            InsertValue::from(&data.filename),
-            InsertValue::from({
-                let name = &data.name;
-                if name.is_empty() {
-                    "UNKNOWN_NAME"
-                } else {
-                    name
-                }
-            }),
-            InsertValue::from({
-                let genre = &data.genre;
-                if genre.is_empty() {
-                    "UNKNOWN_GENRE"
-                } else {
-                    genre
-                }
-            }),
-            InsertValue::from({
-                let cover = &data.cover;
-                if cover.is_empty() {
-                    "UNKNOWN_COVER"
-                } else {
-                    cover
-                }
-            }),
-            InsertValue::from({
-                let artist = &data.artist;
-                if artist.is_empty() {
-                    "UNKNOWN_ARTIST"
-                } else {
-                    artist
-                }
-            }),
-        ],
-        "filepath",
-        &data.filename,
-    );
+    let new_media_entry = MediaEntry {
+        filepath: data.filename.clone(),
+        genre: {
+            let v = data.genre.clone();
+            if v.is_empty() {
+                Some("UNKNOWN_GENRE".to_string())
+            } else {
+                Some(v.to_string())
+            }
+        },
+        name: {
+            let v = data.name.clone();
+            if v.is_empty() {
+                Some("UNKNOWN_NAME".to_string())
+            } else {
+                Some(v.to_string())
+            }
+        },
+        artist: {
+            let v = data.artist.clone();
+            if v.is_empty() {
+                Some("UNKNOWN_ARIST".to_string())
+            } else {
+                Some(v.to_string())
+            }
+        },
+        cover: {
+            let v = data.cover.clone();
+            if v.is_empty() {
+                Some("UNKNOWN_COVER".to_string())
+            } else {
+                Some(v.to_string())
+            }
+        },
+    };
 
-    if let Err(_e) = wx {
-        return HttpResponse::InternalServerError()
-            .body("Failed to write to database.".to_string());
-    } else {
-        return HttpResponse::Ok().body("Wrote data.");
+    let connection = &mut establish_connection();
+
+    let wx = diesel::insert_into(Media)
+        .values(&new_media_entry)
+        .on_conflict(filepath)
+        .do_update()
+        .set(&new_media_entry)
+        .execute(connection);
+
+    if wx.is_err() {
+        return HttpResponse::InternalServerError().body("Failed to write to database");
     }
+
+    return HttpResponse::Ok().body("Wrote data.");
 }
 
 // Networking
@@ -3534,26 +3609,21 @@ async fn list_processes(session: Session, state: Data<AppState>) -> HttpResponse
         let memory_usage_bytes = x.1.memory();
         let cpu_usage = x.1.cpu_usage();
 
-        let executable_path: Option<String>;
-        match x.1.exe() {
+        let executable_path = match x.1.exe() {
             Some(v) => {
-                executable_path = Some(v.to_str().unwrap().to_string());
+                 Some(v.to_str().unwrap().to_string())
             }
-            None => executable_path = None,
-        }
+            None => None,
+        };
 
         let mut username: Option<String> = None;
         let mut uid_true: Option<u32> = None;
-        let uid = x.1.user_id();
-        match uid {
-            Some(uid) => {
+        if let Some(uid) = x.1.user_id() {
                 username = Some(
                     convert_uid_to_name(uid.div(1) as usize)
                         .unwrap_or(format!("Missing username ({})", uid.div(1)).to_string()),
                 );
                 uid_true = Some(uid.div(1));
-            }
-            None => {}
         }
 
         let pid = x.1.pid().as_u32();
@@ -3926,6 +3996,119 @@ async fn create_cronjob(
     }
 }
 
+#[derive(Deserialize)]
+struct FileSharingJson {
+    file_path: PathBuf,
+    password: Option<String>,
+}
+
+#[post("/api/shareFile")]
+async fn share_file(
+    session: Session,
+    state: Data<AppState>,
+    json: web::Json<FileSharingJson>,
+) -> HttpResponse {
+    use models::SharedFile;
+    use schema::FileSharing;
+
+    if !is_admin_state(&session, state.clone()) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    let code: String = rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(64)
+        .map(char::from)
+        .collect();
+
+    let file_path = &json.file_path.clone();
+    let password = &json.password.clone();
+
+    if !file_path.exists() {
+        return HttpResponse::BadRequest()
+            .body("The requested file path does not exist on this file system.");
+    }
+
+    let password_insert_value = match password {
+        Some(v) => {
+            let hashed_password = argon2_derive_key(v).unwrap();
+            Some(hex::encode(hashed_password))
+        }
+        None => None,
+    };
+
+    let new_shared_file = SharedFile {
+        code: code.clone(),
+        file_path: file_path.to_str().unwrap().to_string(),
+        use_password: password.is_some(),
+        password: password_insert_value,
+    };
+
+    diesel::insert_into(FileSharing::dsl::FileSharing)
+        .values(&new_shared_file)
+        .on_conflict(FileSharing::dsl::code)
+        .do_update()
+        .set(&new_shared_file)
+        .execute(&mut establish_connection());
+
+    return HttpResponse::Ok().body(code);
+}
+
+#[derive(Deserialize)]
+struct SharedFileRequestJson {
+    code: String,
+    password: Option<String>,
+}
+
+#[post("/api/getSharedFile")]
+async fn get_shared_file(json: web::Json<SharedFileRequestJson>) -> HttpResponse {
+    use models::SharedFile;
+    use schema::FileSharing;
+
+    let request_password = &json.password;
+
+    let connection = &mut establish_connection();
+
+    let shared_files: Vec<SharedFile> = FileSharing::dsl::FileSharing
+        .select(SharedFile::as_select())
+        .get_results(connection)
+        .unwrap();
+
+    let file_with_code = shared_files.into_iter().find(|e| e.code == json.code);
+
+    // Check if the requested code even exists
+    if file_with_code.is_some() {
+        let e_unwrap = file_with_code.unwrap();
+        let password_checking = e_unwrap.use_password;
+        let database_hash = e_unwrap.password.clone();
+
+        if password_checking && request_password.is_none() {
+            return HttpResponse::Forbidden().body("Missing password");
+        }
+
+        let file_path = e_unwrap.file_path.clone();
+        let file_contents = fs::read(file_path).unwrap();
+
+        if password_checking {
+            let hashed_request_password =
+                argon2_derive_key(&request_password.clone().unwrap()).unwrap();
+            if hex::encode(hashed_request_password)
+                == database_hash.expect(
+                    "A file sharing password hash could not be found, even though it has to exist.",
+                )
+            {
+                return HttpResponse::Ok().body(file_contents);
+            } else {
+                warn!("User entered wrong file sharing password.");
+                return HttpResponse::Forbidden().body("Wrong password");
+            }
+        }
+
+        return HttpResponse::Ok().body(file_contents);
+    }
+    return HttpResponse::BadRequest().body("Invalid code");
+}
+
 // ======================================================================
 // Blocks (Used to prevent users from accessing certain static resources)
 
@@ -3952,12 +4135,16 @@ fn configure_multipart(cfg: &mut web::ServiceConfig) {
 #[actix_web::main]
 /// Prepares Zentrox and starts the server.
 async fn main() -> std::io::Result<()> {
+    use models::AdminAccount;
+    use schema::Admin;
+    use schema::Secrets;
+
     if !env::current_dir().unwrap().join("static").exists() {
         let _ = env::set_current_dir(dirs::home_dir().unwrap().join("zentrox"));
     }
 
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
-
+                                                                                  
     if !dirs::home_dir()
         .unwrap()
         .join(".local")
@@ -3975,24 +4162,39 @@ async fn main() -> std::io::Result<()> {
     app_state.clone().start_interval_tasks();
     debug!("Started interval tasks");
 
-    if !database::exists("Secrets", "name", "otp_secret").unwrap()
-        && database::read_cols::<&str, (bool,)>("Admin", &["use_otp"]).unwrap()[0].0
+    let connection = &mut establish_connection();
+
+    if Secrets::dsl::Secrets
+        .select(Secret::as_select())
+        .filter(Secrets::dsl::name.eq("otp_secret"))
+        .get_results(connection)
+        .unwrap()
+        .len()
+        == 1
+        && Admin::dsl::Admin
+            .select(AdminAccount::as_select())
+            .first(connection)
+            .unwrap()
+            .use_otp
     {
         let new_otp_secret = otp::generate_otp_secret();
-        if let Err(e) = database::write_kv(
-            "Secrets",
-            "otp_secret",
-            database::InsertValue::from(&new_otp_secret),
-        ) {
-            eprintln!("Failed to write OTP secret: {}", e.to_string());
-        }
+
+        diesel::insert_into(Secrets::dsl::Secrets)
+            .values(Secret {
+                name: "otp_secret".to_string(),
+                value: Some(new_otp_secret.to_string()),
+            })
+            .execute(connection);
+
         println!(
             "{}",
             include_str!("../notes/otp_note.txt").replace("SECRET", &new_otp_secret)
         );
     }
 
-    if database::read_kv("Settings", "tls_cert").unwrap() == "selfsigned.pem" {
+    let tls_cert_filename = get_setting_by_name("tls_cert").unwrap();
+
+    if tls_cert_filename == "selfsigned.pem" {
         warn!("Using a self singed certificate");
     }
 
@@ -4007,30 +4209,19 @@ async fn main() -> std::io::Result<()> {
         .join("zentrox");
 
     let mut certs_file = BufReader::new(
-        File::open(
-            data_path
-                .join("certificates")
-                .join(database::read_kv("Settings", "tls_cert").unwrap()),
-        )
-        .unwrap(),
+        File::open(data_path.join("certificates").join(&tls_cert_filename)).unwrap(),
     );
     debug!(
         "Using certificate file from {}",
         data_path
             .join("certificates")
-            .join(database::read_kv("Settings", "tls_cert").unwrap())
+            .join(&tls_cert_filename)
             .to_str()
             .unwrap()
     );
 
-    let mut key_file = BufReader::new(
-        File::open(
-            data_path
-                .join("certificates")
-                .join(database::read_kv("Settings", "tls_cert").unwrap()),
-        )
-        .unwrap(),
-    );
+    let mut key_file =
+        BufReader::new(File::open(data_path.join("certificates").join(tls_cert_filename)).unwrap());
 
     // load TLS certs and key
     // to create a self-signed temporary cert for testing:
@@ -4072,7 +4263,7 @@ async fn main() -> std::io::Result<()> {
 
     let harsh_governor_conf = if governor_strict {
         GovernorConfigBuilder::default()
-            .requests_per_minute(5)
+            .requests_per_minute(2)
             .finish()
             .unwrap()
     } else {
@@ -4082,8 +4273,8 @@ async fn main() -> std::io::Result<()> {
             .finish()
             .unwrap()
     };
-
-    println!("🚀 Serving Zentrox on Port 8080");
+    
+    info!("Zentrox is being serverd on port 8080");
 
     HttpServer::new(move || {
         let mut cors_vars = std::env::vars();
@@ -4159,7 +4350,7 @@ async fn main() -> std::io::Result<()> {
             .service(call_file)
             .service(files_list)
             .service(delete_file)
-            .service(rename_file)
+            .service(move_path)
             .service(burn_file)
             .service(upload_file)
             .service(get_metadata)
@@ -4214,6 +4405,9 @@ async fn main() -> std::io::Result<()> {
             .service(delete_cronjob)
             .service(run_cronjob_command)
             .service(create_cronjob)
+            // File sharing
+            .service(share_file)
+            .service(get_shared_file)
             // General services and blocks
             .service(dashboard_asset_block)
             .service(robots_txt)

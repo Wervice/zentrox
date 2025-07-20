@@ -49,6 +49,7 @@ env_logger = "0.11.8"
 sysinfo = "0.34.2"
 log = "0.4.27"
 futures-util = "0.3.31"
+diesel = { version = "2.2.12", features = ["sqlite", "returning_clauses_for_sqlite_3_35"] }
 
 [profile.release]
 opt-level = 3

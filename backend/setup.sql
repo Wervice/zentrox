@@ -24,15 +24,15 @@ CREATE TABLE RecommendedMedia (
 	PRIMARY KEY	(filepath)
 );
 CREATE TABLE Settings (
-	name varchar(255),
+	name varchar(255) NOT NULL,
 	value varchar(2047),
 	PRIMARY KEY (name)
 );
 CREATE TABLE Admin (
-	key int,
-	username varchar(1047),
-	use_otp boolean,
-	knows_otp boolean,
+	key int NOT NULL,
+	username varchar(1047) NOT NULL,
+	use_otp boolean NOT NULL,
+	knows_otp boolean NOT NULL,
 	PRIMARY KEY (key)
 );
 CREATE TABLE VaultNames (
@@ -40,26 +40,14 @@ CREATE TABLE VaultNames (
 	name varchar(16383)
 );
 CREATE TABLE PackageActions (
-	key integer,
+	key integer NOT NULL,
 	last_database_update integer,
 	PRIMARY KEY (key)
 );
-CREATE TABLE FileSharingCollection (
-	id varchar(40) NOT NULL,
-	real_name varchar(1047) NOT NULL,
-	time_limit integer NOT NULL,
-	password_protection boolean NOT NULL,
-	download_counter integer NOT NULL,
-	added_timestamp integer NOT NULL,
-	PRIMARY KEY (id)
-);
-CREATE TABLE FileSharingPasswordAttempts (
-	ip varchar(128) NOT NULL,
-	id varchar(40) NOT NULL,
-	attempts int NOT NULL,
-	PRIMARY KEY (ip)
-);
-CREATE TABLE FileSharingLocationAttempts (
-	ip varchar(128) NOT NULL,
-	attempts int NOT NULL
+CREATE TABLE FileSharing (
+	code varchar(65) NOT NULL,
+	file_path varchar(2048) NOT NULL,
+	use_password int NOT NULL,
+	password varchar(129),
+	PRIMARY KEY (code)
 );

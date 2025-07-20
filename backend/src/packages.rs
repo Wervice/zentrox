@@ -66,7 +66,6 @@ pub fn get_package_manager() -> Option<String> {
 /// If the function is called on a system that does not use one of the descriped
 /// package managers, an Err is returned.
 /// * `password` - Password used to run sudo
-
 pub fn remove_orphaned_packages(password: String) -> Result<(), PackageManagerError> {
     let package_mamager = get_package_manager().unwrap();
 
@@ -92,7 +91,7 @@ pub fn remove_orphaned_packages(password: String) -> Result<(), PackageManagerEr
         .replace("\n", " ");
 
         packages = packages.trim().to_string();
-        command = format!("pacman --noconfirm -Rc {}", packages);
+        command = format!("pacman --noconfirm -Rc {packages}");
     } else {
         return Err(PackageManagerError::UnknownPackageManager);
     }
@@ -118,11 +117,11 @@ pub fn install_package(name: String, password: String) -> Result<(), PackageMana
     let command;
 
     if package_manager == "apt" {
-        command = format!("apt install {} -y -q", name);
+        command = format!("apt install {name} -y -q");
     } else if package_manager == "dnf" {
-        command = format!("dnf install {} -y -q", name);
+        command = format!("dnf install {name} -y -q");
     } else if package_manager == "pacman" {
-        command = format!("pacman --noconfirm -Sy {}", name);
+        command = format!("pacman --noconfirm -Sy {name}");
     } else {
         return Err(PackageManagerError::UnknownPackageManager);
     }
@@ -149,11 +148,11 @@ pub fn remove_package(name: String, password: String) -> Result<(), PackageManag
     let command;
 
     if package_manager == "apt" {
-        command = format!("apt remove {} -y -q", name);
+        command = format!("apt remove {name} -y -q");
     } else if package_manager == "dnf" {
-        command = format!("dnf remove {} -y -q", name);
+        command = format!("dnf remove {name} -y -q");
     } else if package_manager == "pacman" {
-        command = format!("pacman --noconfirm -R {}", name)
+        command = format!("pacman --noconfirm -R {name}")
     } else {
         return Err(PackageManagerError::UnknownPackageManager);
     }
@@ -180,11 +179,11 @@ pub fn update_package(name: String, password: String) -> Result<(), PackageManag
     let command;
 
     if package_manager == "apt" {
-        command = format!("apt --only-upgrade install {} -y -q", name);
+        command = format!("apt --only-upgrade install {name} -y -q");
     } else if package_manager == "dnf" {
-        command = format!("dnf update {} -y -q", name);
+        command = format!("dnf update {name} -y -q");
     } else if package_manager == "pacman" {
-        command = format!("pacman --noconfirm -S {}", name)
+        command = format!("pacman --noconfirm -S {name}")
     } else {
         return Err(PackageManagerError::UnknownPackageManager);
     }
@@ -202,11 +201,11 @@ pub fn update_all_packages(password: String) -> Result<(), PackageManagerError> 
 
     let command;
     if package_manager == "apt" {
-        command = format!("apt upgrade -y -q");
+        command = "apt upgrade -y -q";
     } else if package_manager == "dnf" {
-        command = format!("dnf update -y -q");
+        command = "dnf update -y -q";
     } else if package_manager == "pacman" {
-        command = format!("pacman --noconfirm -Su")
+        command = "pacman --noconfirm -Su"
     } else {
         return Err(PackageManagerError::UnknownPackageManager);
     }
@@ -423,7 +422,7 @@ pub fn list_updates() -> Result<Vec<String>, PackageManagerError> {
         let output = String::from_utf8_lossy(&command.stdout).to_string();
         let vector = &output
             .lines()
-            .map(|e| e.split(" ").nth(0).unwrap_or(e).to_string())
+            .map(|e| e.split(" ").next().unwrap_or(e).to_string())
             .collect::<Vec<String>>();
 
         Ok(vector.to_vec())
@@ -610,11 +609,7 @@ pub fn list_orphaned_packages() -> Result<Vec<String>, PackageManagerError> {
                 let split = entry.split(".");
                 let collection = split.collect::<Vec<&str>>();
                 if collection.len() != 2 {
-                    if entry.contains(&String::from("Autoremove Packages")) {
-                        None
-                    } else {
-                        None
-                    }
+                    None
                 } else {
                     Some(collection[0].to_string())
                 }

@@ -1,14 +1,13 @@
 use crate::crypto_utils::argon2_derive_key;
-use crate::database;
-use crate::database::InsertValue as SQLInsertValue;
+use crate::database::{self, establish_connection};
+use crate::otp;
 use crate::sudo::{SudoExecutionResult, SwitchedUserCommand};
+use diesel::RunQueryDsl;
 use dirs::{self, home_dir};
-use rand::distributions::DistString;
 use rcgen::{generate_simple_self_signed, CertifiedKey};
 use rpassword::prompt_password;
-use sha2::{Digest, Sha512};
 use std::io::{self, BufRead, Write};
-use std::{fs, path};
+use std::fs;
 
 fn f() {
     let _ = io::stdout().flush();
@@ -24,21 +23,25 @@ fn read() -> String {
 }
 
 fn prompt(msg: &str) -> String {
-    print!("{}", msg);
+    print!("{msg}");
     f();
     read().replace("\n", "")
 }
 
 fn hostname() -> Option<String> {
     let r = fs::read_to_string("/etc/hostname");
-
-    match r {
-        Ok(v) => return Some(v),
-        Err(_e) => return None,
-    }
+    
+    r.ok()
 }
 
 pub fn run_setup() -> Result<(), String> {
+    use crate::models::AdminAccount;
+    use crate::models::Secret;
+    use crate::models::Setting;
+    use crate::schema::Admin::dsl::*;
+    use crate::schema::Secrets::dsl::*;
+    use crate::schema::Settings::dsl::*;
+
     let _installation_path = home_dir()
         .unwrap()
         .join(".local")
@@ -51,41 +54,19 @@ pub fn run_setup() -> Result<(), String> {
         .join("zentrox");
 
     let _ = fs::create_dir_all(&data_path);
-    let _ = fs::write(&data_path.join("zentrox_store.toml"), "");
-    let hd = home_dir().unwrap();
-    let mut vd: Option<path::PathBuf> = None;
-    let options = ["Video", "video", "Videos", "videos", "Movie", "Movies"].into_iter(); // Guess vid dir
-    options.for_each(|o| {
-        if hd.join(o).exists() {
-            vd = Some(hd.join(o));
-        }
-    });
-    let _ = fs::write(
-        &data_path.join("zentrox_media_locations.txt"),
-        if vd.is_some() {
-            format!(
-                "{};Video Directory;true",
-                vd.unwrap().to_string_lossy().to_string()
-            )
-            .to_string()
-        } else {
-            "".to_string()
-        },
-    );
 
     let _system_username = whoami::username_os().to_string_lossy().to_string();
     println!("Installing Zentrox...");
-    println!("");
     println!("Configuring admin account: ");
-    let username = prompt(" | Username: ");
-    let password = prompt_password(" | Password: ");
+    let input_username = prompt(" | Username: ");
+    let input_password = prompt_password(" | Password: ");
     let enable_otp: bool = {
         let p = prompt(" | Use with OTP [y/n]: ");
         p.to_lowercase() == "y"
     };
     let servername = prompt(" | Server Name: ");
     println!("Setting up zentrox backend database");
-    let setup_database = database::setup_database();
+    let setup_database = database::base_database_setup();
     match setup_database {
         Ok(_) => {
             println!("Table structure configured")
@@ -95,108 +76,63 @@ pub fn run_setup() -> Result<(), String> {
         }
     };
 
-    fn random_string() -> String {
-        rand::distributions::Alphanumeric.sample_string(&mut rand::thread_rng(), 8)
-    }
+    let connection = &mut establish_connection();
 
-    let set_a = database::write_kv("Settings", "server_name", SQLInsertValue::from(servername));
-    let set_b = database::write_kv(
-        "Settings",
-        "media_enabled",
-        SQLInsertValue::from(database::ST_BOOL_FALSE.to_string()),
-    );
-    let set_c = database::write_kv(
-        "Settings",
-        "vault_enabled",
-        SQLInsertValue::Text(database::ST_BOOL_FALSE.to_string()),
-    );
-    let set_d = database::insert(
-        "Ftp",
-        &["key", "running", "pid", "username", "local_root"],
-        &[
-            SQLInsertValue::Int32(0),
-            SQLInsertValue::from(false),
-            SQLInsertValue::Null(),
-            SQLInsertValue::from(random_string()),
-            SQLInsertValue::from(
-                dirs::home_dir()
-                    .unwrap_or(std::path::PathBuf::from("/home"))
-                    .to_string_lossy()
-                    .to_string(),
-            ),
-        ],
-    );
+    diesel::insert_into(Settings)
+        .values(Setting {
+            name: "server_name".to_string(),
+            value: Some(servername),
+        })
+        .execute(connection);
 
-    let password_hash = argon2_derive_key(&password.unwrap());
+    diesel::insert_into(Settings)
+        .values(Setting {
+            name: "media_enabled".to_string(),
+            value: Some(database::ST_BOOL_FALSE.to_string()),
+        })
+        .execute(connection);
+
+    diesel::insert_into(Settings)
+        .values(Setting {
+            name: "vault_enabled".to_string(),
+            value: Some(database::ST_BOOL_FALSE.to_string()),
+        })
+        .execute(connection);
+
+    diesel::insert_into(Settings)
+        .values(Setting {
+            name: "tls_cert".to_string(),
+            value: Some("selfsigned.pem".to_string()),
+        })
+        .execute(connection);
+
+    let password_hash = argon2_derive_key(&input_password.unwrap());
     let password_hash_hex = hex::encode(password_hash.unwrap()).to_string();
 
-    let set_e = database::write_kv(
-        "Settings",
-        "tls_cert",
-        SQLInsertValue::Text("selfsigned.pem".to_string()),
-    );
+    diesel::insert_into(Secrets)
+        .values(Secret {
+            name: "admin_password".to_string(),
+            value: Some(password_hash_hex.to_string()),
+        })
+        .execute(connection);
 
-    let set_f = database::write_kv(
-        "Secrets",
-        "admin_password",
-        SQLInsertValue::from(password_hash_hex),
-    );
-    let set_g = database::write_kv(
-        "Secrets",
-        "ftp_password",
-        SQLInsertValue::from({
-            let mut hasher = Sha512::new();
-            sha2::Digest::update(&mut hasher, b"CHANGE_ME");
-            let result = hasher.finalize();
-            hex::encode(&result).to_string()
-        }),
-    );
-    let set_h = database::insert(
-        "Admin",
-        &["key", "username", "use_otp", "knows_otp"],
-        &[
-            SQLInsertValue::Int32(0),
-            SQLInsertValue::from(username),
-            SQLInsertValue::from(enable_otp),
-            SQLInsertValue::from(false),
-        ],
-    );
+    diesel::insert_into(Admin)
+        .values(AdminAccount {
+            username: input_username,
+            use_otp: enable_otp,
+            knows_otp: false,
+            key: 0_i32,
+        })
+        .execute(connection);
 
-    if set_a.is_ok()
-        && set_b.is_ok()
-        && set_c.is_ok()
-        && set_d.is_ok()
-        && set_e.is_ok()
-        && set_f.is_ok()
-        && set_g.is_ok()
-        && set_h.is_ok()
-    {
-        println!("Database settings written")
-    } else {
-        println!("Failed to write to database")
+    if enable_otp {
+        diesel::insert_into(Secrets)
+            .values(Secret {
+                name: "otp_secret".to_string(),
+                value: Some(otp::generate_otp_secret()),
+            })
+            .execute(connection);
     }
-
-    // let _ = config_file::write("media_enabled", "0"); // Media center is disabled by default
-    // let _ = config_file::write("ftp_pid", ""); // No ftp PID is set
-    // let _ = config_file::write("ftp_running", "0"); // FTP is not running
-    // let _ = config_file::write(
-    //    "ftp_username",
-    //    (0..16)
-    //        .map(|_| (rand::random::<u8>() * (90 - 65) + 65) as char)
-    //        .collect::<String>()
-    //        .as_str(),
-    // );
-
-    //let _ = config_file::write("knows_otp_secret", "0");
-    //let _ = config_file::write("tls_cert", "selfsigned.pem");
-    //let _ = config_file::write("vault_enabled", "0");
-    //let _ = config_file::write("use_otp", {
-    //    if enable_otp {
-    //        "1"
-    //    } else {
-    //        "0"
-    //    }
-    //});
 
     let subject_alt_names = vec![
         "localhost".to_string(),
