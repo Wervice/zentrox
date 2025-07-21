@@ -8,13 +8,12 @@ import {
 } from "@/components/ui/input-otp";
 import { Toaster } from "@/components/ui/toaster";
 import { useToast } from "@/components/ui/use-toast";
-import { ToastAction } from "@/components/ui/toast.jsx";
 
 import Label from "@/components/ui/ShortLabel.jsx";
 import Caption from "@/components/ui/Caption.jsx";
 import Image from "@/components/ui/Image.jsx";
 import { useEffect, useRef, useState } from "react";
-import { ClipboardIcon, KeyIcon, LockKeyholeIcon, User } from "lucide-react";
+import { KeyIcon, LockKeyholeIcon, User } from "lucide-react";
 import { fetchURLPrefix } from "@/lib/fetchPrefix";
 
 if (fetchURLPrefix.length > 0) {
@@ -26,7 +25,7 @@ function OTPInputField({ value, onChange, hidden }) {
     return (
       <>
         <Label>
-          <LockKeyholeIcon className="inline-block pr-1" /> OPT Key
+          <LockKeyholeIcon className="inline-block pr-1" /> OTP code
         </Label>
         <InputOTP maxLength={6} value={value} onChange={onChange}>
           <InputOTPGroup>
@@ -95,7 +94,7 @@ export default function Login() {
             toast({
               title: "You're rate-limited",
               description:
-                "You have been rate-limited by sending more than 5 login requests per minute.",
+                "You have been rate-limited by sending more than 2 login requests per minute.",
             });
           } else {
             toast({
@@ -133,45 +132,6 @@ export default function Login() {
     usernameInput.current.click();
   }, []);
 
-  useEffect(() => {
-    fetch(fetchURLPrefix + "/api/otpSecret", {
-      method: "POST",
-    })
-      .catch(() => {
-        toast({
-          title: "Request failed",
-          description:
-            "Your login request failed due to an unknown error. Please try again in two minutes.",
-        });
-      })
-      .then((res) => {
-        if (res.ok) {
-          res.json().then((json) => {
-            if (json.secret != "Secret not found") {
-              toast({
-                title: "OTP Secret",
-                description: (
-                  <>
-                    Your OTP secret is: <code>{json["secret"]}</code>
-                    <ToastAction
-                      altText="Copy"
-                      onClick={() => {
-                        navigator.clipboard.writeText(json["secret"]);
-                      }}
-                    >
-                      <ClipboardIcon className="w-4 h-4 inline-block mr-1 mt-[2px]" />{" "}
-                      Copy
-                    </ToastAction>
-                  </>
-                ),
-                duration: 200000,
-              });
-            }
-          });
-        }
-      });
-  }, []);
-
   return (
     <>
       <Toaster />
@@ -193,7 +153,7 @@ export default function Login() {
             <User className="inline-block" /> Username
           </Label>
           <Input
-            className="mb-2"
+            className="mb-2 w-full"
             type="text"
             ref={usernameInput}
             onChange={(event) => {
@@ -204,7 +164,7 @@ export default function Login() {
             <KeyIcon className="inline-block" /> Password
           </Label>
           <Input
-            className="mb-2"
+            className="mb-2 w-full"
             type="password"
             onChange={(event) => {
               changePassword(event.target.value);

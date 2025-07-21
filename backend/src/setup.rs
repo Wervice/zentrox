@@ -120,16 +120,19 @@ pub fn run_setup() -> Result<(), String> {
         .values(AdminAccount {
             username: input_username,
             use_otp: enable_otp,
-            knows_otp: false,
+            knows_otp: enable_otp,
             key: 0_i32,
         })
         .execute(connection);
 
     if enable_otp {
+        let secret = otp::generate_otp_secret();
+        println!("Your OTP secret is: {secret}\nStore it in a secure location, ideally a 2FA App and keep it to yourself. You can not view this secret again.");
+
         diesel::insert_into(Secrets)
             .values(Secret {
                 name: "otp_secret".to_string(),
-                value: Some(otp::generate_otp_secret()),
+                value: Some(secret),
             })
             .execute(connection);
     }

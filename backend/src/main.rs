@@ -4135,10 +4135,6 @@ fn configure_multipart(cfg: &mut web::ServiceConfig) {
 #[actix_web::main]
 /// Prepares Zentrox and starts the server.
 async fn main() -> std::io::Result<()> {
-    use models::AdminAccount;
-    use schema::Admin;
-    use schema::Secrets;
-
     if !env::current_dir().unwrap().join("static").exists() {
         let _ = env::set_current_dir(dirs::home_dir().unwrap().join("zentrox"));
     }
@@ -4161,36 +4157,6 @@ async fn main() -> std::io::Result<()> {
     let app_state = AppState::new();
     app_state.clone().start_interval_tasks();
     debug!("Started interval tasks");
-
-    let connection = &mut establish_connection();
-
-    if Secrets::dsl::Secrets
-        .select(Secret::as_select())
-        .filter(Secrets::dsl::name.eq("otp_secret"))
-        .get_results(connection)
-        .unwrap()
-        .len()
-        == 1
-        && Admin::dsl::Admin
-            .select(AdminAccount::as_select())
-            .first(connection)
-            .unwrap()
-            .use_otp
-    {
-        let new_otp_secret = otp::generate_otp_secret();
-
-        diesel::insert_into(Secrets::dsl::Secrets)
-            .values(Secret {
-                name: "otp_secret".to_string(),
-                value: Some(new_otp_secret.to_string()),
-            })
-            .execute(connection);
-
-        println!(
-            "{}",
-            include_str!("../notes/otp_note.txt").replace("SECRET", &new_otp_secret)
-        );
-    }
 
     let tls_cert_filename = get_setting_by_name("tls_cert").unwrap();
 
