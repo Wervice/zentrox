@@ -27,7 +27,7 @@ function OTPInputField({ value, onChange, hidden }) {
         <Label>
           <LockKeyholeIcon className="inline-block pr-1" /> OTP code
         </Label>
-        <InputOTP maxLength={6} value={value} onChange={onChange}>
+        <InputOTP maxLength={6} value={value} autoSubmit onChange={onChange}>
           <InputOTPGroup>
             <InputOTPSlot index={0} />
             <InputOTPSlot index={1} />
@@ -46,20 +46,19 @@ function OTPInputField({ value, onChange, hidden }) {
 }
 
 export default function Login() {
-  const [username, changeUsername] = useState("");
-  const [password, changePassword] = useState("");
   const [otpKey, changeOtpKey] = useState("");
   const { toast } = useToast();
   const [otpVisible, setOtpVisible] = useState(null);
   const [formMoveOut, setFormMoveOut] = useState(false);
   const [formHidden, setFormHidden] = useState(false);
   let usernameInput = useRef();
+  let passwordInput = useRef();
   function redirectDashboard() {
     setFormMoveOut(true);
     setTimeout(() => {
       setFormHidden(true);
       location.href = "/dashboard";
-    }, 500);
+    }, 400);
   }
 
   function verifyLogin() {
@@ -69,8 +68,8 @@ export default function Login() {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        username: username,
-        password: password,
+        username: usernameInput.current.value,
+        password: passwordInput.current.value,
         userOtp: otpKey,
       }),
     })
@@ -83,7 +82,7 @@ export default function Login() {
       })
       .then((res) => {
         if (res.ok) {
-          location.href = "/dashboard";
+          redirectDashboard()
         } else {
           if (res.status === 403) {
             toast({
@@ -143,8 +142,8 @@ export default function Login() {
       >
         <div
           className={
-            "p-5 rounded-lg bg-neutral-900/10 border border-neutral-700/30 duration-500 absolute" +
-            (formMoveOut ? " animate-fadeout" : " animate-fadeup")
+            "p-5 rounded-lg bg-neutral-900/10 border border-neutral-700/30 duration-500 absolute transition-all mb-0 " +
+            (formMoveOut ? " animate-fadeout mb-20" : " animate-fadeup")
           }
         >
           <Image src="zentrox_dark_emblem.svg" />
@@ -156,9 +155,6 @@ export default function Login() {
             className="mb-2 w-full"
             type="text"
             ref={usernameInput}
-            onChange={(event) => {
-              changeUsername(event.target.value);
-            }}
           />
           <Label>
             <KeyIcon className="inline-block" /> Password
@@ -166,9 +162,7 @@ export default function Login() {
           <Input
             className="mb-2 w-full"
             type="password"
-            onChange={(event) => {
-              changePassword(event.target.value);
-            }}
+            ref={passwordInput}
             onKeyPress={(event) => {
               if (event.key == "Enter") {
                 verifyLogin();
