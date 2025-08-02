@@ -82,7 +82,7 @@ export default function Login() {
       })
       .then((res) => {
         if (res.ok) {
-          redirectDashboard()
+          redirectDashboard();
         } else {
           if (res.status === 403) {
             toast({
@@ -151,11 +151,7 @@ export default function Login() {
           <Label>
             <User className="inline-block" /> Username
           </Label>
-          <Input
-            className="mb-2 w-full"
-            type="text"
-            ref={usernameInput}
-          />
+          <Input className="mb-2 w-full" type="text" ref={usernameInput} />
           <Label>
             <KeyIcon className="inline-block" /> Password
           </Label>
