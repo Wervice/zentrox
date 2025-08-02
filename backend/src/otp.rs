@@ -11,7 +11,7 @@ pub fn generate_otp_secret() -> String {
     let secret_bytes: Vec<u8> = (0..16).map(|_| random_number_generator.gen()).collect();
 
     debug!("OTP secret with the bytes {secret_bytes:?} has been generated.");
-    
+
     base32::encode(base32::Alphabet::Rfc4648 { padding: false }, &secret_bytes)
 }
 
@@ -30,7 +30,10 @@ pub fn calculate_current_otp(otp_secret: &String) -> String {
     .unwrap();
 
     debug!("The OTP secret is {otp_secret}.");
-    debug!("The current calculated OTP code for {validator:?} is {}.", validator.generate_current().unwrap());
+    debug!(
+        "The current calculated OTP code for {validator:?} is {}.",
+        validator.generate_current().unwrap()
+    );
 
     validator.generate_current().unwrap()
 }

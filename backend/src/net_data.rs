@@ -494,14 +494,14 @@ pub fn get_routes() -> Result<Vec<Route>, RouteError> {
                                 })
                             }
                         } else if dest_split[0] == "default" {
-                                destination = Destination::Default;
-                            } else {
-                                destination = Destination::Prefix(IpAddrWithSubnet {
-                                    address: IpAddr::from_str(dest_split[0])
-                                        .expect("Failed to parse IP address"),
-                                    subnet: None,
-                                })
-                            }
+                            destination = Destination::Default;
+                        } else {
+                            destination = Destination::Prefix(IpAddrWithSubnet {
+                                address: IpAddr::from_str(dest_split[0])
+                                    .expect("Failed to parse IP address"),
+                                subnet: None,
+                            })
+                        }
 
                         let gateway;
                         if e.gateway.is_some() {
@@ -556,7 +556,10 @@ pub fn get_routes() -> Result<Vec<Route>, RouteError> {
                             nexthop: nexthop_res,
                             device: e.device.clone(),
                             protocol: e.protocol.clone(),
-                            preferred_source: e.preferred_source.as_ref().map(|v| IpAddr::from_str(v).expect("Failed to parse IP address")), 
+                            preferred_source: e
+                                .preferred_source
+                                .as_ref()
+                                .map(|v| IpAddr::from_str(v).expect("Failed to parse IP address")),
                             scope: Scope::from(e.scope.clone().unwrap_or("global".to_string())),
                             table: e.table.clone(),
                         }

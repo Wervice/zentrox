@@ -262,12 +262,7 @@ pub fn create_new_specific_cronjob(
 ) -> Result<String, CronCreationError> {
     let prompt = format!(
         "{} {} {} {} {} {}",
-        job.minute,
-        job.hour,
-        job.day_of_month,
-        job.month,
-        job.day_of_week,
-        job.command,
+        job.minute, job.hour, job.day_of_month, job.month, job.day_of_week, job.command,
     );
 
     if crontab_exists(user.clone()) {
@@ -534,7 +529,7 @@ pub fn delete_specific_cronjob(target_index: u32, user: User) -> Result<(), Cron
     let mut current_index = 0;
     let mut file_line_index = 0;
     let re = Regex::new(r"\s+").unwrap();
-    
+
     for l in lines.clone() {
         let segments = re.split(l.trim()).collect::<Vec<&str>>();
 
@@ -601,5 +596,5 @@ pub fn delete_interval_cronjob(target_index: u32, user: User) -> Result<(), Cron
 
     let _ = write_cronfile(s, user);
 
-   Ok(())
+    Ok(())
 }

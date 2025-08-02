@@ -226,7 +226,8 @@ pub fn verify_password(password: String) -> bool {
     e_reader
         .read_to_string(&mut stderr_content)
         .expect("Failed to read stdout");
-    !(stderr_content.contains("incorrect password attempt") || stderr_content.contains("Sorry, try again."))
+    !(stderr_content.contains("incorrect password attempt")
+        || stderr_content.contains("Sorry, try again."))
 }
 
 #[cfg(test)]

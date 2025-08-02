@@ -6,8 +6,8 @@ use diesel::RunQueryDsl;
 use dirs::{self, home_dir};
 use rcgen::{generate_simple_self_signed, CertifiedKey};
 use rpassword::prompt_password;
-use std::io::{self, BufRead, Write};
 use std::fs;
+use std::io::{self, BufRead, Write};
 
 fn f() {
     let _ = io::stdout().flush();
@@ -30,7 +30,7 @@ fn prompt(msg: &str) -> String {
 
 fn hostname() -> Option<String> {
     let r = fs::read_to_string("/etc/hostname");
-    
+
     r.ok()
 }
 

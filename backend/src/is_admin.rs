@@ -20,11 +20,10 @@ use crate::{crypto_utils, AppState};
 /// nothing is shown.
 pub fn is_admin_state(session: &Session, state: web::Data<AppState>) -> bool {
     let mut vars = std::env::vars();
-    let disable_auth_for_development: bool = vars
-        .any(|x| {
-            x == ("ZENTROX_MODE".to_string(), "NO_AUTH".to_string())
-                || x == ("ZENTROX_MODE".to_string(), "DEV".to_string())
-        });
+    let disable_auth_for_development: bool = vars.any(|x| {
+        x == ("ZENTROX_MODE".to_string(), "NO_AUTH".to_string())
+            || x == ("ZENTROX_MODE".to_string(), "DEV".to_string())
+    });
     if disable_auth_for_development {
         warn!("Authentication has been disabled for development. This is a massive security risk!");
         return true;
