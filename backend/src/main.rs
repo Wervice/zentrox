@@ -38,7 +38,7 @@ extern crate inflector;
 use actix_governor::{self, Governor, GovernorConfigBuilder};
 use diesel::prelude::*;
 use inflector::Inflector;
-use log::{debug, error, warn, info};
+use log::{debug, error, info, warn};
 
 mod cron;
 mod crypto_utils;
@@ -71,7 +71,7 @@ use crate::crypto_utils::argon2_derive_key;
 use crate::database::{
     establish_connection, get_administrator_account, get_secret_by_name, get_setting_by_name,
 };
-use crate::models::MediaSource;
+use crate::models::{MediaSource, SharedFile};
 
 use self::cron::{
     delete_interval_cronjob, delete_specific_cronjob, IntervalCronJob, SpecificCronJob, User,
@@ -149,28 +149,29 @@ impl AppState {
         let mut result: Vec<MeasuredInterface> = Vec::new();
         for device in devices_a {
             if let Some(v) = devices_b_hashmap.get(&device.ifname) {
-                    let a_up = device.stats64.get("tx").unwrap().bytes;
-                    let a_down = device.stats64.get("rx").unwrap().bytes;
-                    let b_up = v.stats64.get("tx").unwrap().bytes;
-                    let b_down = v.stats64.get("rx").unwrap().bytes;
-                    result.push(MeasuredInterface {
-                        ifname: device.ifname,
-                        ifindex: device.ifindex,
-                        flags: device.flags,
-                        mtu: device.mtu,
-                        qdisc: device.qdisc,
-                        operstate: device.operstate,
-                        linkmode: device.linkmode,
-                        address: device.address,
-                        altnames: device.altnames,
-                        broadcast: device.broadcast,
-                        down: (b_down - a_down) / 5_f64,
-                        up: (b_up - a_up) / 5_f64,
-                        group: device.group,
-                        link_type: device.link_type,
-                        txqlen: device.txqlen,
-                    })
-        }}
+                let a_up = device.stats64.get("tx").unwrap().bytes;
+                let a_down = device.stats64.get("rx").unwrap().bytes;
+                let b_up = v.stats64.get("tx").unwrap().bytes;
+                let b_down = v.stats64.get("rx").unwrap().bytes;
+                result.push(MeasuredInterface {
+                    ifname: device.ifname,
+                    ifindex: device.ifindex,
+                    flags: device.flags,
+                    mtu: device.mtu,
+                    qdisc: device.qdisc,
+                    operstate: device.operstate,
+                    linkmode: device.linkmode,
+                    address: device.address,
+                    altnames: device.altnames,
+                    broadcast: device.broadcast,
+                    down: (b_down - a_down) / 5_f64,
+                    up: (b_up - a_up) / 5_f64,
+                    group: device.group,
+                    link_type: device.link_type,
+                    txqlen: device.txqlen,
+                })
+            }
+        }
         *self.network_interfaces.lock().unwrap() = result;
     }
 
@@ -217,7 +218,7 @@ async fn index(session: Session, state: Data<AppState>) -> HttpResponse {
 }
 
 #[get("/alerts")]
-async fn alerts(session: Session, state: Data<AppState>) -> HttpResponse {
+async fn alerts_page(session: Session, state: Data<AppState>) -> HttpResponse {
     // is_admin session value is != true (None or false), the user is served the alerts screen
     // otherwise, the user is redirected to /
     if is_admin_state(&session, state) {
@@ -232,7 +233,7 @@ async fn alerts(session: Session, state: Data<AppState>) -> HttpResponse {
 }
 
 #[get("/media")]
-async fn media(session: Session, state: Data<AppState>) -> HttpResponse {
+async fn media_page(session: Session, state: Data<AppState>) -> HttpResponse {
     // is_admin session value is != true (None or false), the user is served the media screen
     // otherwise, the user is redirected to /
     if is_admin_state(&session, state) {
@@ -246,6 +247,11 @@ async fn media(session: Session, state: Data<AppState>) -> HttpResponse {
             .append_header(("Location", "/"))
             .body("You will soon be redirected")
     }
+}
+
+async fn shared_page() -> HttpResponse {
+    HttpResponse::build(StatusCode::OK)
+        .body(std::fs::read_to_string("static/shared.html").expect("Failed to read shared page"))
 }
 
 #[get("/alerts/manifest.json")]
@@ -350,7 +356,7 @@ async fn login(session: Session, json: web::Json<Login>, state: Data<AppState>) 
                     HttpResponse::build(StatusCode::OK).json(web::Json(EmptyJson {}))
                 } else {
                     debug!("A login with a wrong OTP code will be denied.");
-                    return HttpResponse::build(StatusCode::FORBIDDEN).body("Missing permissions")
+                    return HttpResponse::build(StatusCode::FORBIDDEN).body("Missing permissions");
                 }
             } else {
                 // User has logged in successfully using password
@@ -597,11 +603,11 @@ async fn device_information(session: Session, state: Data<AppState>) -> HttpResp
     let os_release = fs::read_to_string("/etc/os-release");
     let mut os_name = String::new();
     if let Ok(s) = os_release {
-            s.lines().for_each(|l| {
-                if l.starts_with("PRETTY_NAME") {
-                    os_name = l.split("=").nth(1).unwrap_or("").replace("\"", "");
-                }
-            });
+        s.lines().for_each(|l| {
+            if l.starts_with("PRETTY_NAME") {
+                os_name = l.split("=").nth(1).unwrap_or("").replace("\"", "");
+            }
+        });
     }
 
     HttpResponse::Ok().json(JsonResponse {
@@ -835,9 +841,11 @@ async fn install_package(
 
     let job_id = Uuid::new_v4();
 
-    drop(actix_web::web::block(move || {
-        match packages::install_package(json.packageName.to_string(), json.sudoPassword.to_string())
-        {
+    drop(actix_web::web::block(
+        move || match packages::install_package(
+            json.packageName.to_string(),
+            json.sudoPassword.to_string(),
+        ) {
             Ok(_) => state
                 .background_jobs
                 .lock()
@@ -848,8 +856,8 @@ async fn install_package(
                 .lock()
                 .unwrap()
                 .insert(job_id, BackgroundTaskState::Fail),
-        }
-    }));
+        },
+    ));
 
     HttpResponse::Ok().body(job_id.to_string())
 }
@@ -870,9 +878,11 @@ async fn remove_package(
 
     let job_id = Uuid::new_v4();
 
-    drop(actix_web::web::block(move || {
-        match packages::remove_package(json.packageName.to_string(), json.sudoPassword.to_string())
-        {
+    drop(actix_web::web::block(
+        move || match packages::remove_package(
+            json.packageName.to_string(),
+            json.sudoPassword.to_string(),
+        ) {
             Ok(_) => state
                 .background_jobs
                 .lock()
@@ -883,8 +893,8 @@ async fn remove_package(
                 .lock()
                 .unwrap()
                 .insert(job_id, BackgroundTaskState::Fail),
-        }
-    }));
+        },
+    ));
 
     HttpResponse::Ok().body(job_id.to_string())
 }
@@ -905,9 +915,11 @@ async fn update_package(
 
     let job_id = Uuid::new_v4();
 
-    drop(actix_web::web::block(move || {
-        match packages::update_package(json.packageName.to_string(), json.sudoPassword.to_string())
-        {
+    drop(actix_web::web::block(
+        move || match packages::update_package(
+            json.packageName.to_string(),
+            json.sudoPassword.to_string(),
+        ) {
             Ok(_) => state
                 .background_jobs
                 .lock()
@@ -918,8 +930,8 @@ async fn update_package(
                 .lock()
                 .unwrap()
                 .insert(job_id, BackgroundTaskState::Fail),
-        }
-    }));
+        },
+    ));
 
     HttpResponse::Ok().body(job_id.to_string())
 }
@@ -947,8 +959,8 @@ async fn update_all_packages(
         .unwrap()
         .insert(job_id, BackgroundTaskState::Pending);
 
-    drop(actix_web::web::block(move || {
-        match packages::update_all_packages(sudo_password.to_string()) {
+    drop(actix_web::web::block(
+        move || match packages::update_all_packages(sudo_password.to_string()) {
             Ok(_) => state
                 .background_jobs
                 .lock()
@@ -959,8 +971,8 @@ async fn update_all_packages(
                 .lock()
                 .unwrap()
                 .insert(job_id, BackgroundTaskState::Fail),
-        }
-    }));
+        },
+    ));
 
     HttpResponse::Ok().body(job_id.to_string())
 }
@@ -1013,8 +1025,8 @@ async fn remove_orphaned_packages(
         .unwrap()
         .insert(job_id, BackgroundTaskState::Pending);
 
-    drop(actix_web::web::block(move || {
-        match packages::remove_orphaned_packages(sudo_password.to_string()) {
+    drop(actix_web::web::block(
+        move || match packages::remove_orphaned_packages(sudo_password.to_string()) {
             Ok(_) => state
                 .background_jobs
                 .lock()
@@ -1025,8 +1037,8 @@ async fn remove_orphaned_packages(
                 .lock()
                 .unwrap()
                 .insert(job_id, BackgroundTaskState::Fail),
-        }
-    }));
+        },
+    ));
 
     return HttpResponse::Ok().body(job_id.to_string());
 }
@@ -1186,9 +1198,9 @@ async fn new_firewall_rule(
 
     let decoded_sender_adress = url_decode::url_decode(sender_adress);
 
-    if mode == "p" { // "p" is short for port, thus used for single port rules
-        let destination_parsed: u64 = 
-        match destination.parse::<u64>() {
+    if mode == "p" {
+        // "p" is short for port, thus used for single port rules
+        let destination_parsed: u64 = match destination.parse::<u64>() {
             Ok(d) => d,
             Err(_) => return HttpResponse::BadRequest().body("Malformed port"),
         };
@@ -1223,7 +1235,8 @@ async fn new_firewall_rule(
             Ok(_) => HttpResponse::Ok().body("Added new rule"),
             Err(_e) => HttpResponse::InternalServerError().body("Failed to create new rule"),
         }
-    } else if mode == "r" { // r is short for range, thus used for port range rules (i.e. 8000-8100)
+    } else if mode == "r" {
+        // r is short for range, thus used for port range rules (i.e. 8000-8100)
         let lr: Vec<&str> = destination.split(":").collect();
 
         if lr.len() != 2 {
@@ -1523,18 +1536,18 @@ struct GetMetadataResponseJson {
 fn recursive_size_of_directory(path: &PathBuf) -> u64 {
     let mut size = 0_u64;
     if let Ok(contents) = fs::read_dir(path) {
-            contents.for_each(|f| {
-                if f.is_err() {
-                    return;
+        contents.for_each(|f| {
+            if f.is_err() {
+                return;
+            }
+            if let Ok(metadata) = f.as_ref().unwrap().metadata() {
+                if metadata.is_symlink() || metadata.is_file() {
+                    size += metadata.size();
+                } else {
+                    size += recursive_size_of_directory(&f.unwrap().path());
                 }
-                if let Ok(metadata) = f.as_ref().unwrap().metadata() {
-                        if metadata.is_symlink() || metadata.is_file() {
-                            size += metadata.size();
-                        } else {
-                            size += recursive_size_of_directory(&f.unwrap().path());
-                        }
-                }
-            });
+            }
+        });
     }
     size
 }
@@ -2681,8 +2694,7 @@ async fn logs_request(
             Ok(v) => HttpResponse::Ok().json(MessagesLog { logs: v }),
             Err(e) => {
                 eprintln!("Failed to fetch for logs");
-                HttpResponse::InternalServerError()
-                    .body(format!("Failed to get message logs {e}"))
+                HttpResponse::InternalServerError().body(format!("Failed to get message logs {e}"))
             }
         }
     } else {
@@ -3610,20 +3622,18 @@ async fn list_processes(session: Session, state: Data<AppState>) -> HttpResponse
         let cpu_usage = x.1.cpu_usage();
 
         let executable_path = match x.1.exe() {
-            Some(v) => {
-                 Some(v.to_str().unwrap().to_string())
-            }
+            Some(v) => Some(v.to_str().unwrap().to_string()),
             None => None,
         };
 
         let mut username: Option<String> = None;
         let mut uid_true: Option<u32> = None;
         if let Some(uid) = x.1.user_id() {
-                username = Some(
-                    convert_uid_to_name(uid.div(1) as usize)
-                        .unwrap_or(format!("Missing username ({})", uid.div(1)).to_string()),
-                );
-                uid_true = Some(uid.div(1));
+            username = Some(
+                convert_uid_to_name(uid.div(1) as usize)
+                    .unwrap_or(format!("Missing username ({})", uid.div(1)).to_string()),
+            );
+            uid_true = Some(uid.div(1));
         }
 
         let pid = x.1.pid().as_u32();
@@ -4042,6 +4052,10 @@ async fn share_file(
         file_path: file_path.to_str().unwrap().to_string(),
         use_password: password.is_some(),
         password: password_insert_value,
+        shared_since: std::time::SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i32,
     };
 
     diesel::insert_into(FileSharing::dsl::FileSharing)
@@ -4054,13 +4068,34 @@ async fn share_file(
     return HttpResponse::Ok().body(code);
 }
 
+#[derive(Serialize)]
+struct SharedFilesListResponseJson {
+    files: Vec<SharedFile>,
+}
+
+#[get("/api/getSharedFilesList")]
+async fn get_shared_files_list(session: Session, state: Data<AppState>) -> HttpResponse {
+    use models::SharedFile;
+    use schema::FileSharing::dsl::*;
+
+    if !is_admin_state(&session, state.clone()) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    let files: Vec<SharedFile> = FileSharing
+        .select(SharedFile::as_select())
+        .get_results(&mut establish_connection())
+        .unwrap();
+
+    return HttpResponse::Ok().json(SharedFilesListResponseJson { files });
+}
+
 #[derive(Deserialize)]
 struct SharedFileRequestJson {
     code: String,
     password: Option<String>,
 }
 
-#[post("/api/getSharedFile")]
 async fn get_shared_file(json: web::Json<SharedFileRequestJson>) -> HttpResponse {
     use models::SharedFile;
     use schema::FileSharing;
@@ -4109,6 +4144,61 @@ async fn get_shared_file(json: web::Json<SharedFileRequestJson>) -> HttpResponse
     return HttpResponse::BadRequest().body("Invalid code");
 }
 
+#[derive(Serialize)]
+struct SharedFileMetadataResponseJson {
+    filepath: String,
+    use_password: bool,
+    size: u32,
+}
+
+async fn get_shared_file_metadata(json: web::Json<SharedFileRequestJson>) -> HttpResponse {
+    use models::SharedFile;
+    use schema::FileSharing::dsl::*;
+
+    let f: Vec<SharedFile> = FileSharing
+        .select(SharedFile::as_select())
+        .filter(code.eq(&json.code))
+        .get_results(&mut establish_connection())
+        .unwrap();
+
+    if f.is_empty() {
+        return HttpResponse::BadRequest().body("Invalid code");
+    }
+
+    let p = PathBuf::from(f[0].file_path.clone());
+
+    if !p.exists() {
+        return HttpResponse::BadRequest().body("Invalid code");
+    }
+
+    let size = p.metadata().unwrap().len();
+
+    return HttpResponse::Ok().json(SharedFileMetadataResponseJson {
+        filepath: f[0].file_path.clone(),
+        use_password: f[0].use_password,
+        size: size as u32,
+    });
+}
+
+#[get("/api/unshareFile/{code}")]
+async fn unshare_file(
+    request_code: web::Path<String>,
+    session: Session,
+    state: Data<AppState>,
+) -> HttpResponse {
+    use schema::FileSharing::dsl::*;
+
+    if !is_admin_state(&session, state.clone()) {
+        return HttpResponse::Forbidden().body("This resource is blocked.");
+    }
+
+    diesel::delete(FileSharing)
+        .filter(code.eq(request_code.into_inner()))
+        .execute(&mut establish_connection());
+
+    return HttpResponse::Ok().body("Unshared file");
+}
+
 // ======================================================================
 // Blocks (Used to prevent users from accessing certain static resources)
 
@@ -4140,7 +4230,7 @@ async fn main() -> std::io::Result<()> {
     }
 
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
-                                                                                  
+
     if !dirs::home_dir()
         .unwrap()
         .join(".local")
@@ -4239,7 +4329,20 @@ async fn main() -> std::io::Result<()> {
             .finish()
             .unwrap()
     };
-    
+
+    let shared_files_governor_conf = if governor_strict {
+        GovernorConfigBuilder::default()
+            .requests_per_minute(9) // ~3 downloads / minute
+            .finish()
+            .unwrap()
+    } else {
+        warn!("Using permissive governor configuration");
+        GovernorConfigBuilder::default()
+            .permissive(true)
+            .finish()
+            .unwrap()
+    };
+
     info!("Zentrox is being serverd on port 8080");
 
     HttpServer::new(move || {
@@ -4280,7 +4383,7 @@ async fn main() -> std::io::Result<()> {
             // Landing
             .service(dashboard)
             .service(index)
-            .service(alerts)
+            .service(alerts_page)
             .service(alerts_manifest)
             // Login, OTP and Logout
             .service(
@@ -4345,7 +4448,7 @@ async fn main() -> std::io::Result<()> {
             // Logs
             .service(logs_request)
             // Video
-            .service(media)
+            .service(media_page)
             .service(media_request)
             .service(get_enable_media)
             .service(set_enable_media)
@@ -4372,8 +4475,17 @@ async fn main() -> std::io::Result<()> {
             .service(run_cronjob_command)
             .service(create_cronjob)
             // File sharing
+            // TODO Order of services matters! Thats bad
+            .service(
+                web::scope("/shared")
+                    .wrap(Governor::new(&shared_files_governor_conf))
+                    .route("", web::get().to(shared_page))
+                    .route("/get", web::post().to(get_shared_file))
+                    .route("/getMetadata", web::post().to(get_shared_file_metadata)),
+            )
             .service(share_file)
-            .service(get_shared_file)
+            .service(get_shared_files_list)
+            .service(unshare_file)
             // General services and blocks
             .service(dashboard_asset_block)
             .service(robots_txt)

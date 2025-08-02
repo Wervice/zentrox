@@ -13,6 +13,7 @@ diesel::table! {
         file_path -> Text,
         use_password -> Bool,
         password -> Nullable<Text>,
+        shared_since -> Integer,
     }
 }
 

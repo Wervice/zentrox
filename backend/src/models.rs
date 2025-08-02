@@ -63,7 +63,7 @@ pub struct RecommendedMediaEntry {
     pub category: String,
 }
 
-#[derive(Queryable, Selectable, Insertable, AsChangeset)]
+#[derive(Queryable, Selectable, Insertable, AsChangeset, serde::Serialize)]
 #[diesel(table_name = crate::schema::FileSharing)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct SharedFile {
@@ -71,4 +71,5 @@ pub struct SharedFile {
     pub file_path: String,
     pub use_password: bool,
     pub password: Option<String>,
+    pub shared_since: i32,
 }

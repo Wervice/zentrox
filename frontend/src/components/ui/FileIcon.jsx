@@ -1,4 +1,9 @@
-import { FileTextIcon } from "lucide-react";
+import {
+  AppWindowIcon,
+  FileTextIcon,
+  PresentationIcon,
+  TableIcon,
+} from "lucide-react";
 import { ArchiveIcon } from "lucide-react";
 import { VideotapeIcon } from "lucide-react";
 import { FileCodeIcon } from "lucide-react";
@@ -39,6 +44,14 @@ export default function FileIcon({ filename, className = "" }) {
     case "dot":
     case "docm":
       return <FileTextIcon className={className} />;
+    case "csv":
+    case "xlsx":
+    case "ods":
+      return <TableIcon className={className} />;
+    case "ppt":
+    case "pptx":
+    case "odp":
+      return <PresentationIcon className={className} />;
     case "py":
     case "js":
     case "c":
@@ -67,6 +80,13 @@ export default function FileIcon({ filename, className = "" }) {
     case "apk":
     case "tar":
       return <ArchiveIcon className={className} />;
+    case "exe":
+    case "dll":
+    case "elf":
+    case "app":
+    case "scr":
+    case "msi":
+      return <AppWindowIcon className={className} />;
     default:
       return <File className={className} />;
   }

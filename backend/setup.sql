@@ -49,5 +49,6 @@ CREATE TABLE FileSharing (
 	file_path varchar(2048) NOT NULL,
 	use_password int NOT NULL,
 	password varchar(129),
+	shared_since int NOT NULL,
 	PRIMARY KEY (code)
 );
