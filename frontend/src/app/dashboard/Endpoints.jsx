@@ -278,7 +278,7 @@ export default function Endpoints() {
 
   return (
     <>
-      <Page name="Endpoints">
+      <Page name="Endpoints" className="overflow-y-scroll">
         <Details
           rememberState
           name="endpointsInterfaces"
