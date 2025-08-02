@@ -1,6 +1,7 @@
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
+import { toast } from "./use-toast";
 
 function DataTable({
   entries = [], // Set a default structure for entries
@@ -10,19 +11,28 @@ function DataTable({
   children = <></>,
   key,
 }) {
+  // NOTE In the following, an entry is an array structured as follows:
+  // [ path_on_the_server, alias,     is_source_enabled ]
+  //   ^ String          | ^ String  | ^ Boolean
+
   const deleteEntry = (index) => {
     onEntriesChange(
       entries.filter((_e, i) => i !== index), // Return only entries that don't match the index
     );
   };
 
-  const handleInputChange = (index, key, value) => {
-    // Update the entries based on index and key (0 or 1)
+  const handleInputChange = (row, column, value) => {
+    // Update the entries based on row and column
     const updatedEntries = entries.map((entry, i) =>
-      i === index
-        ? [key === 0 ? value : entry[0], key === 1 ? value : entry[1], entry[2]]
+      i === row
+        ? [
+            column === 0 ? value : entry[0],
+            column === 1 ? value : entry[1],
+            entry[2],
+          ]
         : entry,
     );
+    console.log(updatedEntries);
     onEntriesChange(updatedEntries);
   };
 
@@ -72,7 +82,9 @@ function DataTable({
                 className="inline-block mr-1"
                 value={text1}
                 disabled={!isChecked}
-                onChange={(e) => handleInputChange(index, 0, e.target.value)}
+                onChange={(e) => {
+                  handleInputChange(index, 0, e.target.value);
+                }}
                 placeholder="Source path"
               />
               <Input
@@ -80,7 +92,9 @@ function DataTable({
                 className="inline-block mr-2"
                 value={text2}
                 disabled={!isChecked}
-                onChange={(e) => handleInputChange(index, 1, e.target.value)}
+                onChange={(e) => {
+                  handleInputChange(index, 1, e.target.value);
+                }}
                 placeholder="Source alias"
               />
               <Button
