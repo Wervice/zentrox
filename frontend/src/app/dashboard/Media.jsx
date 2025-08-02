@@ -42,6 +42,25 @@ function Media() {
   }, [mediaEnabled]);
 
   const updateList = () => {
+    // The following code deduplicates the locations by their path
+    // The code has ~ O(n^2)
+    for (var loc of locations) {
+      if (
+        locations.length -
+          locations.filter((e) => {
+            return e[0] !== loc[0];
+          }).length >
+        1
+      ) {
+        toast({
+          title: "Invalid media sources",
+          description:
+            "There may never be two media source with the same source path. Please remove any duplicates. The source list was not updated.",
+        });
+        return;
+      }
+    }
+
     fetch(`${fetchURLPrefix}/api/updateVideoSourceList`, {
       method: "POST",
       headers: {
