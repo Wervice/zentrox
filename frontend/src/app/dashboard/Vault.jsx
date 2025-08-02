@@ -202,12 +202,14 @@ function Vault() {
             <DialogTitle>Unlock Vault</DialogTitle>
             <DialogDescription>Please enter your vault key.</DialogDescription>
           </DialogHeader>
-          <Input
-            type="password"
-            placeholder="Vault key"
-            className="w-full"
-            ref={vaultKeyDecryptModal}
-          />
+          <p>
+            <Input
+              type="password"
+              placeholder="Vault key"
+              className="w-full"
+              ref={vaultKeyDecryptModal}
+            />
+          </p>
           <DialogFooter>
             <DialogClose asChild>
               <Button variant="outline">Cancel</Button>
@@ -242,7 +244,7 @@ function Vault() {
               id="vaultEncryptionKey"
               ref={vaultEncryptionKey}
               placeholder="Key"
-              className="block w-full"
+              className="w-full"
             />
           </p>
 
@@ -654,7 +656,7 @@ function Vault() {
                               requestDeletion(entry);
                             }}
                           >
-                            <DeleteIcon className="w-4 h-4 inline-block mr-1" />{" "}
+                            <DeleteIcon className="w-4 h-4 inline-block mr-1 text-white" />{" "}
                             Delete
                           </ContextMenuItem>
                           <ContextMenuItem
@@ -663,7 +665,7 @@ function Vault() {
                               requestRename(entry);
                             }}
                           >
-                            <PenLineIcon className="w-4 h-4 inline-block mr-1" />{" "}
+                            <PenLineIcon className="w-4 h-4 inline-block mr-1 text-white" />{" "}
                             Rename
                           </ContextMenuItem>
                         </ContextMenuContent>
