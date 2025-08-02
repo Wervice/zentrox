@@ -12,7 +12,8 @@ import { cn } from "@/lib/utils";
 import { Url } from "next/dist/shared/lib/router/router";
 import concatPath from "@/lib/concatPath";
 import { fetchURLPrefix } from "@/lib/fetchPrefix";
-import InformationHighlight from "./InformationHighlight";
+import { toast } from "./use-toast";
+import getParentPath from "@/lib/paths";
 
 enum DirectoryListingEntry {
   File,
@@ -109,17 +110,21 @@ function FileSelection({
   >([]);
 
   // Fetch a list of files for the current directory from the server
-  async function fetchFiles(path: string) {
+  async function fetchFiles(requestedPath: string) {
     const url: Url =
-      fetchURLPrefix + "/api/filesList/" + encodeURIComponent(path);
+      fetchURLPrefix + "/api/filesList/" + encodeURIComponent(requestedPath);
+
+    const oldPath = path;
 
     const res: Response = await fetch(url);
-    if (!res.ok) throw new Error("Directory contents are empty");
+    if (!res.ok) throw new Error("Failed to get directory details");
     const json: DirectoryListingSerialized = await res.json();
     if (typeof json.content === "undefined") return;
 
     const parsedEntries = json.content.map(serializeFileList);
-    setCurrentFiles(parsedEntries);
+    if (oldPath === path) {
+      setCurrentFiles(parsedEntries);
+    }
   }
 
   function entryClick(name: string, variant: DirectoryListingEntry) {
@@ -131,9 +136,31 @@ function FileSelection({
       onInsufficientPermissionPerformed(concatPath(path, name));
     }
   }
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchFiles(path).catch((e) => {
+        toast({
+          title: "Failed to get directory contents",
+          description:
+            "This could be due to a lack of permissions or because the directory does not exist.",
+        });
+        console.error(e);
+      });
+    }, 750);
+
+    return () => clearInterval(interval);
+  }, [currentFiles, currentFilesSorted]);
 
   useEffect(() => {
-    fetchFiles(path);
+    fetchFiles(path).catch((e) => {
+      toast({
+        title: "Failed to get directory contents",
+        description:
+          "This could be due to a lack of permissions or because the directory does not exist.",
+      });
+      onDirectoryClick(getParentPath(path));
+      console.error(e);
+    });
   }, [path]);
 
   useEffect(() => {
