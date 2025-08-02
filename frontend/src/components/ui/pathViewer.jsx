@@ -12,7 +12,7 @@ import {
 } from "./dialog";
 import { Input } from "./input";
 import { Button } from "./button";
-import { CopyIcon, SearchIcon, XIcon } from "lucide-react";
+import { CopyIcon, XIcon } from "lucide-react";
 import { toast } from "./use-toast";
 /**
  * @param {Object} param0
@@ -138,7 +138,10 @@ function PathViewer({
         />{" "}
         <XIcon
           className="mr-2 w-4 h-4 transition-all cursor-pointer opacity-75 hover:opacity-100 inline-block align-middle"
-          onClick={() => onFilter("")}
+          onClick={() => {
+            onFilter("");
+            fileSearchInput.current.value = "";
+          }}
         />
       </span>
     </span>
