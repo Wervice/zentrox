@@ -13,7 +13,7 @@ import { saveAs } from "file-saver";
 export default function Shared() {
   const [downloadButtonDisabled, setDownloadButtonDisabled] = useState(false);
   const [usePassword, setUsePassword] = useState(true);
-  const [filename, setFilename] = useState("text.pptx");
+  const [filename, setFilename] = useState("");
   const [metadataLoaded, setMetadataLoaded] = useState(false);
   const [invalidCode, setInvalidCode] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -134,7 +134,7 @@ export default function Shared() {
             </h2>
             <Input
               type="password"
-              className={"w-[150px] mb-3 " + (!usePassword && "hidden")}
+              className={"w-full mb-3 " + (!usePassword && "hidden")}
               placeholder="Password"
               onKeyUp={onPasswordInput}
               ref={passwordInput}
