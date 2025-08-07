@@ -3,7 +3,6 @@ import { useEffect, useState, useRef } from "react";
 import "./table.css";
 import "./scroll.css";
 import { Input } from "@/components/ui/input";
-import { Toaster } from "@/components/ui/toaster";
 import {
   LockIcon,
   FolderIcon,
@@ -192,7 +191,6 @@ function Vault() {
       name="Vault"
       titleAbsolute={vaultState == "unconfigured" || vaultState == "locked"}
     >
-      <Toaster />
       <Dialog
         open={decryptKeyModalVisible}
         onOpenChange={setDecryptKeyModalVisibility}
