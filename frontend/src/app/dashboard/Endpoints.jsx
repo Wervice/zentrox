@@ -126,7 +126,7 @@ function InterfaceCard({
             </DialogDescription>
           </DialogHeader>
           <p>
-            <Input type="password" className="w-full" ref={sudoPasswordInput} />
+            <Input type="password" placeholder="Sudo password" className="w-full" ref={sudoPasswordInput} />
           </p>
           <DialogFooter>
             <DialogClose asChild>
