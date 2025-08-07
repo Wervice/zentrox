@@ -1,6 +1,6 @@
 use crate::crypto_utils::argon2_derive_key;
 use crate::database::{self, establish_connection};
-use crate::otp;
+use crate::otp::generate_otp_secret;
 use crate::sudo::{SudoExecutionResult, SwitchedUserCommand};
 use diesel::RunQueryDsl;
 use dirs::{self, home_dir};
@@ -8,6 +8,7 @@ use rcgen::{generate_simple_self_signed, CertifiedKey};
 use rpassword::prompt_password;
 use std::fs;
 use std::io::{self, BufRead, Write};
+use std::time::UNIX_EPOCH;
 
 fn f() {
     let _ = io::stdout().flush();
@@ -36,11 +37,9 @@ fn hostname() -> Option<String> {
 
 pub fn run_setup() -> Result<(), String> {
     use crate::models::AdminAccount;
-    use crate::models::Secret;
-    use crate::models::Setting;
+    use crate::models::Configurations;
     use crate::schema::Admin::dsl::*;
-    use crate::schema::Secrets::dsl::*;
-    use crate::schema::Settings::dsl::*;
+    use crate::schema::Configuration::dsl::*;
 
     let _installation_path = home_dir()
         .unwrap()
@@ -78,64 +77,46 @@ pub fn run_setup() -> Result<(), String> {
 
     let connection = &mut establish_connection();
 
-    diesel::insert_into(Settings)
-        .values(Setting {
-            name: "server_name".to_string(),
-            value: Some(servername),
+    diesel::insert_into(Configuration)
+        .values(Configurations {
+            media_enabled: false,
+            vault_enabled: false,
+            server_name: servername,
+            tls_cert: "selfsigned.pem".to_string(),
+            id: 0,
         })
         .execute(connection);
 
-    diesel::insert_into(Settings)
-        .values(Setting {
-            name: "media_enabled".to_string(),
-            value: Some(database::ST_BOOL_FALSE.to_string()),
-        })
-        .execute(connection);
+    let new_password_hash = argon2_derive_key(&input_password.unwrap());
+    let new_password_hash_hex = hex::encode(new_password_hash.unwrap()).to_string();
 
-    diesel::insert_into(Settings)
-        .values(Setting {
-            name: "vault_enabled".to_string(),
-            value: Some(database::ST_BOOL_FALSE.to_string()),
-        })
-        .execute(connection);
+    let generated_otp_secret = generate_otp_secret();
 
-    diesel::insert_into(Settings)
-        .values(Setting {
-            name: "tls_cert".to_string(),
-            value: Some("selfsigned.pem".to_string()),
-        })
-        .execute(connection);
-
-    let password_hash = argon2_derive_key(&input_password.unwrap());
-    let password_hash_hex = hex::encode(password_hash.unwrap()).to_string();
-
-    diesel::insert_into(Secrets)
-        .values(Secret {
-            name: "admin_password".to_string(),
-            value: Some(password_hash_hex.to_string()),
-        })
-        .execute(connection);
+    let current_ts = std::time::SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
 
     diesel::insert_into(Admin)
         .values(AdminAccount {
             username: input_username,
             use_otp: enable_otp,
             knows_otp: enable_otp,
-            key: 0_i32,
+            otp_secret: {
+                if enable_otp {
+                    Some(generated_otp_secret.clone())
+                } else {
+                    None
+                }
+            },
+            password_hash: new_password_hash_hex.to_string(),
+            created_at: current_ts,
+            updated_at: current_ts,
+            id: 0_i32,
         })
         .execute(connection);
 
-    if enable_otp {
-        let secret = otp::generate_otp_secret();
-        println!("Your OTP secret is: {secret}\nStore it in a secure location, ideally a 2FA App and keep it to yourself. You can not view this secret again.");
-
-        diesel::insert_into(Secrets)
-            .values(Secret {
-                name: "otp_secret".to_string(),
-                value: Some(secret),
-            })
-            .execute(connection);
-    }
+    println!("Your OTP secret is: {generated_otp_secret}\nStore it in a secure location, ideally a 2FA App and keep it to yourself. You can not view this secret again.");
 
     let subject_alt_names = vec![
         "localhost".to_string(),

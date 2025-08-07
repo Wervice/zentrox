@@ -1,43 +1,35 @@
-use crate::schema::Secrets::dsl::*;
-use crate::{database::establish_connection, models::Secret};
+use crate::schema::Encryption::dsl::*;
+use crate::{database::establish_connection, models::Secrets};
 use argon2::{
     password_hash::{rand_core::OsRng, SaltString},
     Argon2,
 };
+use diesel::dsl::insert_into;
+use diesel::prelude::*;
 use diesel::{self, RunQueryDsl};
-
-use crate::database::get_secret_by_name;
 
 /// Derive a key using Argon2. The keylength is set to 32 bytes.
 /// It uses the salt stored in the config file under a2_salt.
 pub fn argon2_derive_key(password: &str) -> Option<[u8; 32]> {
     let salt: SaltString;
-    if get_secret_by_name("a2_salt").unwrap_or_default().is_empty() {
+
+    let connection = &mut establish_connection();
+
+    let secrets_query = Encryption
+        .select(Secrets::as_select())
+        .get_results(connection)
+        .unwrap();
+
+    if secrets_query.is_empty() {
         salt = SaltString::generate(&mut OsRng);
-        let new_secret = Secret {
-            name: "a2_salt".to_string(),
-            value: Some(salt.as_ref().to_string()),
-        };
-
-        let connection = &mut establish_connection();
-
-        let w = diesel::insert_into(Secrets)
-            .values(&new_secret)
-            .on_conflict(name)
-            .do_update()
-            .set(&new_secret)
+        insert_into(Encryption)
+            .values(Secrets {
+                argon2_salt: salt.to_string(),
+                id: 0_i32,
+            })
             .execute(connection);
-
-        match w {
-            Ok(_) => {}
-            Err(e) => {
-                eprintln!("{e}");
-                return None;
-            }
-        }
     } else {
-        salt = SaltString::from_b64(get_secret_by_name("a2_salt").unwrap_or_default().as_ref())
-            .unwrap();
+        salt = SaltString::from_b64(&secrets_query.get(0).unwrap().argon2_salt).unwrap();
     }
 
     let params = argon2::Params::new(4096, 3, 1, Some(32)).unwrap();

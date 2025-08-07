@@ -4,33 +4,32 @@ use diesel::prelude::*;
 #[diesel(table_name = crate::schema::Admin)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct AdminAccount {
-    pub key: i32,
+    pub id: i32,
     pub username: String,
     pub use_otp: bool,
     pub knows_otp: bool,
-}
-
-#[derive(Queryable, Selectable, Insertable, AsChangeset)]
-#[diesel(table_name = crate::schema::Secrets)]
-#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct Secret {
-    pub name: String,
-    pub value: Option<String>,
+    pub otp_secret: Option<String>,
+    pub password_hash: String,
+    pub created_at: i64,
+    pub updated_at: i64
 }
 
 #[derive(Queryable, Selectable, Insertable)]
-#[diesel(table_name = crate::schema::Settings)]
+#[diesel(table_name = crate::schema::Configuration)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct Setting {
-    pub name: String,
-    pub value: Option<String>,
+pub struct Configurations {
+    pub server_name: String,
+    pub media_enabled: bool,
+    pub vault_enabled: bool,
+    pub tls_cert: String,
+    pub id: i32,
 }
 
 #[derive(Queryable, Selectable, Insertable)]
 #[diesel(table_name = crate::schema::PackageActions)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct PackageAction {
-    pub last_database_update: Option<i32>,
+    pub last_database_update: Option<i64>,
     pub key: i32,
 }
 
@@ -38,16 +37,16 @@ pub struct PackageAction {
 #[diesel(table_name = crate::schema::MediaSources)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct MediaSource {
-    pub folderpath: String,
+    pub directory_path: String,
     pub alias: String,
     pub enabled: bool,
 }
 
-#[derive(Queryable, Selectable, Insertable, AsChangeset)]
+#[derive(Queryable, Selectable, Insertable, AsChangeset, Debug)]
 #[diesel(table_name = crate::schema::Media)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct MediaEntry {
-    pub filepath: String,
+    pub file_path: String,
     pub genre: Option<String>,
     pub name: Option<String>,
     pub artist: Option<String>,
@@ -58,9 +57,9 @@ pub struct MediaEntry {
 #[diesel(table_name = crate::schema::RecommendedMedia)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct RecommendedMediaEntry {
-    pub filepath: String,
-    pub lastview: i32,
+    pub file_path: String,
     pub category: String,
+    pub last_view: i64,
 }
 
 #[derive(Queryable, Selectable, Insertable, AsChangeset, serde::Serialize)]
@@ -71,5 +70,13 @@ pub struct SharedFile {
     pub file_path: String,
     pub use_password: bool,
     pub password: Option<String>,
-    pub shared_since: i32,
+    pub shared_since: i64,
+}
+
+#[derive(Queryable, Selectable, Insertable, AsChangeset, serde::Serialize, Debug)]
+#[diesel(table_name = crate::schema::Encryption)]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct Secrets {
+    pub argon2_salt: String,
+    pub id: i32
 }

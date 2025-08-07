@@ -49,6 +49,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { ToastAction } from "@/components/ui/toast";
 import { toast } from "@/components/ui/use-toast";
 import Label from "@/components/ui/ShortLabel";
+import { DialogDescription } from "@radix-ui/react-dialog";
 
 const savePersistentVolume = (v) => {
   // Do not pass values greater 1
@@ -83,6 +84,10 @@ function Title({ children }) {
   );
 }
 
+function coverToUrl(cover) {
+  return fetchURLPrefix + "/api/cover/" + (cover === null ? "music" : encodeURIComponent(cover))
+}
+
 /** @param {Object} param0
  * @param {string} param0.name
  * @param {string} param0.cover
@@ -112,8 +117,11 @@ function MediaCard({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              Metadata for {name.length > 20 ? name.slice(0, 17) + "..." : name}
+              Metadata for {name !== null ? name.length > 20 ? name.slice(0, 17) + "..." : name : "an unnamed song"}
             </DialogTitle>
+            <DialogDescription>
+              Edit the metadata for<br /> {filename}
+            </DialogDescription>
           </DialogHeader>
 
           <div>
@@ -126,7 +134,7 @@ function MediaCard({
 
             <Label>Artist</Label>
             <Input
-              defaultValue={artist === "UNKNOWN_ARTIST" ? "" : artist}
+              defaultValue={artist || ""}
               ref={metadataArtistInput}
               placeholder="e.g. Singer, Band, Composer,..."
               className="mb-2"
@@ -134,7 +142,7 @@ function MediaCard({
 
             <Label>Genre</Label>
             <Input
-              defaultValue={genre === "UNKNOWN_GENRE" ? "" : genre}
+              defaultValue={genre || ""}
               ref={metadataGenreInput}
               placeholder="e.g. Rock, Pop, Techno,..."
               className="mb-2"
@@ -142,13 +150,7 @@ function MediaCard({
 
             <Label>Cover</Label>
             <Input
-              defaultValue={
-                cover.includes("/api/cover/music")
-                  ? ""
-                  : decodeURIComponent(
-                      new URL(cover).pathname.replace("/api/cover/", ""),
-                    )
-              }
+              defaultValue={cover || ""}
               placeholder="Absolute path on the server"
               ref={metadataCoverInput}
               className="mb-2"
@@ -171,10 +173,10 @@ function MediaCard({
                       "Content-Type": "application/json",
                     },
                     body: JSON.stringify({
-                      name: newName,
-                      genre: newGenre,
-                      cover: newCover,
-                      artist: newArtist,
+                      name: newName !== "" ? newName : null,
+                      genre: newGenre !== "" ? newGenre : null,
+                      cover: newCover !== "" ? newCover : null,
+                      artist: newArtist !== "" ? newArtist : null,
                       filename,
                     }),
                   }).then(() => {
@@ -192,11 +194,11 @@ function MediaCard({
         <span
           title={name}
           className="inline-block h-40 w-40 rounded bg-100% bg-no-repeat overflow-hidden transition-all duration-200 delay-150 focus-visible:outline focus-visible:outline-white focus-visible:outline-4 focus-visible:brightness-90"
-          onClick={(e) => {
+          onClick={() => {
             setTimeout(() => onClick(), 200);
           }}
           style={{
-            backgroundImage: `url('${cover}')`,
+            backgroundImage: `url('${coverToUrl(cover)}')`,
             backgroundColor: "#222",
           }}
         >
@@ -643,7 +645,7 @@ function MusicPlayer({ src, cover, name, closePlayer = () => {} }) {
         }
       >
         <img
-          src={cover}
+          src={coverToUrl(cover)}
           ref={coverImg}
           className={
             "rounded mr-2 transition-all ease-in-out h-12 w-12 inline-block "
@@ -845,7 +847,7 @@ function Desktop() {
           for (const [path, info] of e) {
             let pathSegments = path.split(".");
             let extension = pathSegments[pathSegments.length - 1].toLowerCase();
-            if (!g.includes(info[2]) && info[2] !== "UNKNOWN_GENRE") {
+            if (!g.includes(info[2]) && info[2] !== null) {
               g.push(info[2]);
             }
             if (
@@ -862,12 +864,7 @@ function Desktop() {
               ].includes(extension)
             ) {
               m.push({
-                cover:
-                  info[1] !== "UNKNOWN_COVER"
-                    ? fetchURLPrefix +
-                      "/api/cover/" +
-                      encodeURIComponent(info[1])
-                    : fetchURLPrefix + "/api/cover/music",
+                cover: info[1],
                 name: info[0],
                 source: path,
                 genre: info[2],
@@ -891,12 +888,7 @@ function Desktop() {
               ].includes(extension)
             ) {
               v.push({
-                cover:
-                  info[1] !== "UNKNOWN_COVER"
-                    ? fetchURLPrefix +
-                      "/api/cover/" +
-                      encodeURIComponent(info[1])
-                    : fetchURLPrefix + "/api/cover/video",
+                cover: info[1],
                 name: info[0],
                 source: path,
                 genre: info[2],
@@ -925,12 +917,7 @@ function Desktop() {
               // Do nothing (ignored).
             } else {
               v.push({
-                cover:
-                  info[1] !== "UNKNOWN_COVER"
-                    ? fetchURLPrefix +
-                      "/api/cover/" +
-                      encodeURIComponent(info[1])
-                    : fetchURLPrefix + "/api/cover/badtype",
+                cover: info[1],
                 name: info[0],
                 source: path,
                 genre: info[2],
@@ -1035,7 +1022,7 @@ function Desktop() {
               <SelectGroup>
                 {genres.map((e, i) => {
                   return (
-                    <SelectItem key={i} value={e.toLowerCase()}>
+                    <SelectItem key={i} value={e.toLowerCase() === "" ? null : e.toLowerCase()}>
                       {e}
                     </SelectItem>
                   );
@@ -1099,7 +1086,6 @@ function Desktop() {
 
           return (
             <MediaCard
-              src={lCover.length > 0 ? lCover : "askdjalsdklö"}
               name={lName}
               key={v[0] || i}
               onClick={() => {
@@ -1120,6 +1106,7 @@ function Desktop() {
         {videos
           .filter((e) => {
             if (selectedGenre !== "") {
+              if (e.genre === null) return false
               return selectedGenre.toLowerCase() == e.genre.toLowerCase();
             } else {
               return true;
@@ -1138,7 +1125,7 @@ function Desktop() {
             return (
               <MediaCard
                 filename={e.source}
-                cover={e.cover.length > 0 ? e.cover : "/api/cover/music"}
+                cover={e.cover}
                 name={e.name}
                 artist={e.artist}
                 genre={e.genre}
@@ -1187,7 +1174,7 @@ function Desktop() {
           return (
             <MediaCard
               filename={v[0]}
-              cover={lCover.length > 0 ? lCover : "/api/cover/music"}
+              cover={lCover}
               name={lName}
               artist={lArtist}
               genre={lGenre}
@@ -1198,7 +1185,7 @@ function Desktop() {
                 playMusic(
                   v[0],
                   lName,
-                  lCover.length > 0 ? lCover : "/api/cover/music",
+                  lCover,
                 );
               }}
             />
@@ -1215,6 +1202,7 @@ function Desktop() {
         {music
           .filter((e) => {
             if (selectedGenre !== "") {
+              if (e.genre === null) return false
               return selectedGenre.toLowerCase() == e.genre.toLowerCase();
             } else {
               return true;
@@ -1244,7 +1232,7 @@ function Desktop() {
                   playMusic(
                     e.source,
                     e.name,
-                    e.cover.length > 0 ? e.cover : "/api/cover/music",
+                    e.cover,
                   );
                 }}
               />

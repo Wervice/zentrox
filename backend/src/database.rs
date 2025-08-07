@@ -1,6 +1,6 @@
 use diesel::{prelude::*, Connection as _};
 use rusqlite::Connection;
-use std::{fmt::Display, path::PathBuf};
+use std::path::PathBuf;
 
 use crate::models::AdminAccount;
 
@@ -43,32 +43,4 @@ pub fn get_administrator_account() -> AdminAccount {
         .select(AdminAccount::as_select())
         .first(&mut establish_connection())
         .unwrap()
-}
-
-pub fn get_secret_by_name<T: Display>(secret_name: T) -> Option<String> {
-    use crate::models::Secret;
-    use crate::schema::Secrets::dsl::*;
-
-    match Secrets
-        .filter(name.eq(secret_name.to_string()))
-        .select(Secret::as_select())
-        .first(&mut establish_connection())
-    {
-        Ok(v) => Some(v.value?),
-        Err(_) => None,
-    }
-}
-
-pub fn get_setting_by_name<T: Display>(setting_name: T) -> Option<String> {
-    use crate::models::Setting;
-    use crate::schema::Settings::dsl::*;
-
-    match Settings
-        .filter(name.eq(setting_name.to_string()))
-        .select(Setting::as_select())
-        .first(&mut establish_connection())
-    {
-        Ok(v) => Some(v.value?),
-        Err(_) => None,
-    }
 }

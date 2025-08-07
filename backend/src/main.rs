@@ -62,15 +62,13 @@ mod vault;
 mod visit_dirs;
 
 use is_admin::is_admin_state;
-use models::{AdminAccount, Secret};
+use models::AdminAccount;
 use net_data::private_ip;
 use users::convert_uid_to_name;
 use visit_dirs::visit_dirs;
 
 use crate::crypto_utils::argon2_derive_key;
-use crate::database::{
-    establish_connection, get_administrator_account, get_secret_by_name, get_setting_by_name,
-};
+use crate::database::{establish_connection, get_administrator_account};
 use crate::models::{MediaSource, SharedFile};
 
 use self::cron::{
@@ -237,7 +235,7 @@ async fn media_page(session: Session, state: Data<AppState>) -> HttpResponse {
     // is_admin session value is != true (None or false), the user is served the media screen
     // otherwise, the user is redirected to /
     if is_admin_state(&session, state) {
-        if get_setting_by_name("media_enabled").unwrap() == database::ST_BOOL_FALSE {
+        if !get_media_enabled() {
             return HttpResponse::Forbidden().body("Media center has been disabled");
         }
         HttpResponse::build(StatusCode::OK)
@@ -332,14 +330,14 @@ async fn login(session: Session, json: web::Json<Login>, state: Data<AppState>) 
     let database_admin_entry = get_administrator_account();
 
     if &database_admin_entry.username == request_username {
-        let stored_password: String = get_secret_by_name("admin_password").unwrap();
+        let stored_password: String = database_admin_entry.password_hash;
         let hashes_correct =
             is_admin::password_hash(request_password.to_string(), stored_password.to_string());
 
         if hashes_correct {
             let login_token: Vec<u8> = is_admin::generate_random_token();
             if database_admin_entry.use_otp {
-                let stored_otp_secret = get_secret_by_name("otp_secret").unwrap();
+                let stored_otp_secret = database_admin_entry.otp_secret.unwrap();
 
                 if otp::calculate_current_otp(&stored_otp_secret) == *request_otp_code {
                     // User has logged in successfully using password and 2FA
@@ -417,7 +415,6 @@ struct OtpSecretJsonResponse {
 #[get("/api/otpSecret")]
 async fn otp_secret_request(state: Data<AppState>, session: Session) -> HttpResponse {
     use schema::Admin::dsl::*;
-    use schema::Secrets::dsl::*;
 
     let connection = &mut database::establish_connection();
 
@@ -433,13 +430,7 @@ async fn otp_secret_request(state: Data<AppState>, session: Session) -> HttpResp
             .set(knows_otp.eq(true))
             .execute(connection);
 
-        let current_otp_secret = Secrets
-            .select(Secret::as_select())
-            .filter(name.eq("otp_secret"))
-            .first(connection)
-            .unwrap()
-            .value
-            .unwrap();
+        let current_otp_secret = database_admin_entry.otp_secret.unwrap();
 
         HttpResponse::build(StatusCode::OK).json(OtpSecretJsonResponse {
             secret: current_otp_secret,
@@ -456,7 +447,6 @@ async fn update_otp_status(
     path: Path<bool>,
 ) -> HttpResponse {
     use schema::Admin::dsl::*;
-    use schema::Secrets::dsl::*;
 
     if !is_admin_state(&session, state.clone()) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
@@ -477,14 +467,15 @@ async fn update_otp_status(
     if status {
         let secret = otp::generate_otp_secret();
 
-        diesel::insert_into(Secrets)
-            .values((name.eq("otp_secret"), value.eq(&secret)))
+        diesel::update(Admin)
+            .set(otp_secret.eq(Some(secret.clone())))
             .execute(connection);
         HttpResponse::Ok().body(secret)
     } else {
-        diesel::delete(Secrets)
-            .filter(name.eq("otp_secret"))
+        diesel::update(Admin)
+            .set(otp_secret.eq(None::<String>))
             .execute(connection);
+
         HttpResponse::Ok().body("OTP secret has been updated")
     }
 }
@@ -641,7 +632,7 @@ struct PackageResponseJson {
     packageManager: String,
     canProvideUpdates: bool,
     updates: Vec<String>,
-    lastDatabaseUpdate: i32,
+    lastDatabaseUpdate: i64,
 }
 
 #[derive(Serialize)]
@@ -653,7 +644,7 @@ struct PackageResponseJsonCounts {
     packageManager: String,
     canProvideUpdates: bool,
     updates: usize,
-    lastDatabaseUpdate: i32,
+    lastDatabaseUpdate: i64,
 }
 
 /// Return the current package database.
@@ -790,7 +781,7 @@ async fn update_package_database(
                     std::time::SystemTime::now()
                         .duration_since(UNIX_EPOCH)
                         .unwrap()
-                        .as_secs() as i32,
+                        .as_secs() as i64,
                 );
                 diesel::insert_into(PackageActions)
                     .values(PackageAction {
@@ -1754,6 +1745,17 @@ struct VaultConfigurationMessageResponseJson {
     message: String,
 }
 
+fn get_vault_enabled() -> bool {
+    use models::Configurations;
+    use schema::Configuration::dsl::*;
+
+    Configuration
+        .select(Configurations::as_select())
+        .first(&mut establish_connection())
+        .unwrap()
+        .vault_enabled
+}
+
 #[post("/api/vaultConfigure")]
 /// Configure Vault by providing a password.
 /// If no instance of vault has yet been created, it will be. If there already is an instance of
@@ -1765,7 +1767,7 @@ async fn vault_configure(
     state: Data<AppState>,
     json: web::Json<VaultConfigurationJson>,
 ) -> HttpResponse {
-    use schema::Settings::dsl::*;
+    use schema::Configuration::dsl::*;
 
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
@@ -1779,9 +1781,7 @@ async fn vault_configure(
 
     let connection = &mut establish_connection();
 
-    let vault_enabled = get_setting_by_name("vault_enabled").unwrap();
-
-    if vault_enabled == *database::ST_BOOL_FALSE && !vault_path.exists() {
+    if !get_vault_enabled() && !vault_path.exists() {
         if json.key.is_none() {
             return HttpResponse::BadRequest().body("This request is malformed");
         }
@@ -1819,9 +1819,8 @@ async fn vault_configure(
 
         vault::encrypt_file(vault_path.join(".vault").to_string_lossy().to_string(), key);
 
-        diesel::update(Settings)
-            .filter(name.eq("vault_enabled"))
-            .set(value.eq(Some(database::ST_BOOL_TRUE.to_string())))
+        diesel::update(Configuration)
+            .set(vault_enabled.eq(true))
             .execute(connection);
     } else if json.oldKey.is_some() && json.newKey.is_some() {
         let old_key = json.oldKey.clone().unwrap();
@@ -1887,7 +1886,7 @@ async fn vault_configure(
             Err(e) => return HttpResponse::InternalServerError().body(e),
         };
     } else {
-        return HttpResponse::Ok().json(VaultConfigurationCodeResponseJson {
+        return HttpResponse::BadRequest().json(VaultConfigurationCodeResponseJson {
             code: "no_decrypt_key".to_string(),
         });
     }
@@ -1901,7 +1900,7 @@ async fn is_vault_configured(session: Session, state: Data<AppState>) -> HttpRes
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    if get_setting_by_name("vault_enabled").unwrap() == database::ST_BOOL_TRUE {
+    if get_vault_enabled() {
         return HttpResponse::Ok().body("1");
     } else {
         return HttpResponse::Ok().body("0");
@@ -2003,7 +2002,7 @@ async fn vault_tree(
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
-    if get_setting_by_name("vault_enabled").unwrap() == database::ST_BOOL_TRUE {
+    if get_vault_enabled() {
         let key = &json.key;
 
         match vault::decrypt_file(
@@ -2459,7 +2458,7 @@ async fn upload_tls(
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    use schema::Settings::dsl::*;
+    use schema::Configuration::dsl::*;
 
     let file_name = form
         .file
@@ -2474,9 +2473,8 @@ async fn upload_tls(
         .join("zentrox")
         .join(&file_name);
 
-    diesel::update(Settings)
-        .filter(name.eq("tls_cert"))
-        .set(value.eq(&file_name))
+    diesel::update(Configuration)
+        .set(tls_cert.eq(&file_name))
         .execute(&mut establish_connection());
 
     let tmp_file_path = form.file.file.path().to_owned();
@@ -2501,11 +2499,18 @@ struct CertNamesJson {
 #[get("/api/certNames")]
 /// Return the name of the current certificate.
 async fn cert_names(session: Session, state: Data<AppState>) -> HttpResponse {
+    use models::Configurations;
+    use schema::Configuration::dsl::*;
+
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    let tls = get_setting_by_name("tls_cert").unwrap();
+    let tls = Configuration
+        .select(Configurations::as_select())
+        .first(&mut establish_connection())
+        .unwrap()
+        .tls_cert;
 
     HttpResponse::Ok().json(CertNamesJson { tls })
 }
@@ -2569,7 +2574,6 @@ async fn update_account_details(
     json: web::Json<UpdateAccountJson>,
 ) -> HttpResponse {
     use schema::Admin::dsl::*;
-    use schema::Secrets::dsl::*;
 
     if !is_admin_state(&session, state.clone()) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
@@ -2577,16 +2581,19 @@ async fn update_account_details(
 
     let connection = &mut establish_connection();
 
-    let password = &json.password;
-    let new_username = &json.username;
+    let request_password = &json.password;
+    let request_username = &json.username;
 
-    if !password.is_empty() {
-        let hashed_password =
-            hex::encode(crypto_utils::argon2_derive_key(password).unwrap()).to_string();
+    let current_ts = std::time::SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap().as_millis() as i64;
 
-        let password_execution = diesel::update(Secrets)
-            .filter(name.eq("admin_password"))
-            .set(value.eq(hashed_password))
+    if !request_password.is_empty() {
+        let hashed_request_password =
+            hex::encode(crypto_utils::argon2_derive_key(request_password).unwrap()).to_string();
+
+        let password_execution = diesel::update(Admin)
+            .set((password_hash.eq(hashed_request_password), updated_at.eq(current_ts)))
             .execute(connection);
 
         if password_execution.is_err() {
@@ -2594,9 +2601,9 @@ async fn update_account_details(
         }
     }
 
-    if !new_username.is_empty() {
+    if !request_username.is_empty() {
         let username_execution = diesel::update(Admin)
-            .set(username.eq(new_username))
+            .set(username.eq(request_username))
             .execute(connection);
 
         if username_execution.is_err() {
@@ -2739,7 +2746,7 @@ fn is_media_path_whitelisted(l: Vec<MediaSource>, p: PathBuf) -> bool {
         if !r
             && p.canonicalize()
                 .unwrap()
-                .starts_with(PathBuf::from(&le.folderpath).canonicalize().unwrap())
+                .starts_with(PathBuf::from(&le.directory_path).canonicalize().unwrap())
             && le.enabled
         {
             r = true
@@ -2764,7 +2771,7 @@ async fn media_request(
 
     let connection = &mut establish_connection();
 
-    if get_setting_by_name("media_enabled").unwrap() == database::ST_BOOL_FALSE {
+    if !get_media_enabled() {
         return HttpResponse::Forbidden().body("Media center has been disabled");
     }
 
@@ -2901,7 +2908,7 @@ async fn update_video_source_list(
         .iter()
         .filter(|e| e.0.exists())
         .map(|e| MediaSource {
-            folderpath: e.0.canonicalize().unwrap().to_string_lossy().to_string(),
+            directory_path: e.0.canonicalize().unwrap().to_string_lossy().to_string(),
             alias: e.1.clone(),
             enabled: e.2,
         })
@@ -2910,7 +2917,7 @@ async fn update_video_source_list(
     for location in deserialized_locations {
         diesel::insert_into(MediaSources)
             .values(&location)
-            .on_conflict(folderpath)
+            .on_conflict(directory_path)
             .do_update()
             .set(&location)
             .execute(connection);
@@ -2940,7 +2947,7 @@ async fn get_video_source_list(session: Session, state: Data<AppState>) -> HttpR
 
     let mut s = Vec::new();
     for r in rows {
-        s.push((r.folderpath, r.alias, r.enabled));
+        s.push((r.directory_path, r.alias, r.enabled));
     }
 
     HttpResponse::Ok().json(VideoSourcesListResponseJson { locations: s })
@@ -2948,7 +2955,7 @@ async fn get_video_source_list(session: Session, state: Data<AppState>) -> HttpR
 
 #[derive(Serialize)]
 struct MediaListResponseJson {
-    media: HashMap<PathBuf, (String, String, String, String)>,
+    media: HashMap<PathBuf, (Option<String>, Option<String>, Option<String>, Option<String>)>,
 }
 
 /// HashMap all media files including name, filename, cover and genre.
@@ -2968,7 +2975,7 @@ async fn get_media_list(session: Session, state: Data<AppState>) -> HttpResponse
 
     let connection = &mut establish_connection();
 
-    if get_setting_by_name("media_enabled").unwrap() == database::ST_BOOL_FALSE {
+    if !get_media_enabled() {
         return HttpResponse::Forbidden().body("Media center has been disabled");
     }
 
@@ -2978,7 +2985,7 @@ async fn get_media_list(session: Session, state: Data<AppState>) -> HttpResponse
         .unwrap()
         .into_iter()
         .filter(|e| e.enabled)
-        .map(|x| PathBuf::from(x.folderpath))
+        .map(|x| PathBuf::from(x.directory_path))
         .collect();
 
     let media_files_vector: Vec<Vec<PathBuf>> = sources
@@ -3006,7 +3013,7 @@ async fn get_media_list(session: Session, state: Data<AppState>) -> HttpResponse
     // Assume every directory contains a metadata file. If the file does not exists later on, the
     // code will act as if it is empty "".
 
-    let mut media_info_hashmap: HashMap<PathBuf, (String, String, String, String)> = HashMap::new(); // Make empty hashmap
+    let mut media_info_hashmap: HashMap<PathBuf, (Option<String>, Option<String>, Option<String>, Option<String>)> = HashMap::new(); // Make empty hashmap
                                                                                                      // Every media files' path is asigned the information from the metadata files.
 
     // The metadata file is a file designed the same way as the source directory file.
@@ -3026,11 +3033,11 @@ async fn get_media_list(session: Session, state: Data<AppState>) -> HttpResponse
         .unwrap();
 
     for row in metadata_rows {
-        let entry_filepath = std::path::Path::new(&row.filepath);
+        let entry_filepath = std::path::Path::new(&row.file_path);
 
         if !entry_filepath.exists() {
             diesel::delete(Media)
-                .filter(filepath.eq(row.filepath))
+                .filter(file_path.eq(row.file_path))
                 .execute(connection);
         } else {
             let entry_filepath_canonicalized = entry_filepath.canonicalize().unwrap();
@@ -3052,10 +3059,10 @@ async fn get_media_list(session: Session, state: Data<AppState>) -> HttpResponse
             media_info_hashmap.insert(
                 entry_filepath_canonicalized,
                 (
-                    row.name.unwrap(),
-                    row.cover.unwrap(),
-                    row.genre.unwrap(),
-                    row.artist.unwrap(),
+                    row.name,
+                    row.cover,
+                    row.genre,
+                    row.artist,
                 ),
             );
         }
@@ -3088,10 +3095,10 @@ async fn get_media_list(session: Session, state: Data<AppState>) -> HttpResponse
                 // create this cover name. The genre is possible, but it will not really do
                 // anything except be ignored on the frontend side.
                 (
-                    entry_title,
-                    "UNKNOWN_COVER".to_string(),
-                    "UNKNOWN_GENRE".to_string(),
-                    "UNKNOWN_ARTIST".to_string(),
+                    Some(entry_title),
+                    None,
+                    None,
+                    None,
                 ),
             );
         }
@@ -3116,7 +3123,7 @@ async fn get_cover(
     use models::MediaSource;
     use schema::MediaSources::dsl::*;
 
-    if get_setting_by_name("media_enabled").unwrap() == database::ST_BOOL_FALSE {
+    if !get_media_enabled() {
         return HttpResponse::Forbidden().body("Media center has been disabled");
     }
 
@@ -3164,6 +3171,17 @@ async fn get_cover(
     }
 }
 
+fn get_media_enabled() -> bool {
+    use models::Configurations;
+    use schema::Configuration::dsl::*;
+
+    Configuration
+        .select(Configurations::as_select())
+        .first(&mut establish_connection())
+        .unwrap()
+        .media_enabled
+}
+
 #[derive(Serialize)]
 struct MediaEnabledResponseJson {
     enabled: bool,
@@ -3176,7 +3194,7 @@ async fn get_enable_media(session: Session, state: Data<AppState>) -> HttpRespon
     }
 
     HttpResponse::Ok().json(MediaEnabledResponseJson {
-        enabled: get_setting_by_name("media_enabled").unwrap() == database::ST_BOOL_TRUE,
+        enabled: get_media_enabled(),
     })
 }
 
@@ -3186,7 +3204,7 @@ async fn set_enable_media(
     state: Data<AppState>,
     e: web::Path<bool>,
 ) -> HttpResponse {
-    use schema::Settings::dsl::*;
+    use schema::Configuration::dsl::*;
 
     if !is_admin_state(&session, state) {
         return HttpResponse::Forbidden().body("This resource is blocked.");
@@ -3196,17 +3214,9 @@ async fn set_enable_media(
 
     let connection = &mut establish_connection();
 
-    if e.into_inner() {
-        diesel::update(Settings)
-            .filter(name.eq("media_enabled"))
-            .set(value.eq(database::ST_BOOL_TRUE))
-            .execute(connection);
-    } else {
-        diesel::update(Settings)
-            .filter(name.eq("media_enabled"))
-            .set(value.eq(database::ST_BOOL_FALSE))
-            .execute(connection);
-    }
+    diesel::update(Configuration)
+        .set(media_enabled.eq(e.into_inner()))
+        .execute(connection);
 
     return HttpResponse::Ok().body("Updated media center status");
 }
@@ -3226,25 +3236,25 @@ async fn remember_music(
 
     let connection = &mut establish_connection();
 
-    if get_setting_by_name("media_enabled").unwrap() == database::ST_BOOL_FALSE.to_string() {
+    if !get_media_enabled() {
         return HttpResponse::Forbidden().body("Media center has been disabled");
     }
 
     let current_ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("Time does not appear to be correct. Is your system's time configuration correct?");
+            .duration_since(UNIX_EPOCH)
+            .unwrap().as_millis() as i64;
 
     let fp = e.into_inner();
 
     diesel::insert_into(RecommendedMedia)
         .values(RecommendedMediaEntry {
-            filepath: fp,
-            lastview: current_ts.as_millis() as i32,
+            file_path: fp,
+            last_view: current_ts,
             category: String::from("music"),
         })
-        .on_conflict(filepath)
+        .on_conflict(file_path)
         .do_update()
-        .set(lastview.eq(current_ts.as_millis() as i32))
+        .set(last_view.eq(current_ts))
         .execute(connection);
 
     let recommendations = RecommendedMedia
@@ -3253,10 +3263,10 @@ async fn remember_music(
         .unwrap();
 
     recommendations.into_iter().for_each(|e| {
-        let path = PathBuf::from(&e.filepath);
+        let path = PathBuf::from(&e.file_path);
         if !path.exists() {
             diesel::delete(RecommendedMedia)
-                .filter(filepath.eq(e.filepath))
+                .filter(file_path.eq(e.file_path))
                 .execute(connection);
         }
     });
@@ -3279,7 +3289,7 @@ async fn remember_video(
 
     let connection = &mut establish_connection();
 
-    if get_setting_by_name("media_enabled").unwrap() == database::ST_BOOL_FALSE {
+    if !get_media_enabled() {
         return HttpResponse::Forbidden().body("Media center has been disabled");
     }
 
@@ -3291,13 +3301,13 @@ async fn remember_video(
 
     diesel::insert_into(RecommendedMedia)
         .values(RecommendedMediaEntry {
-            filepath: fp,
-            lastview: current_ts.as_millis() as i32,
+            file_path: fp,
+            last_view: current_ts.as_millis() as i64,
             category: String::from("music"),
         })
-        .on_conflict(filepath)
+        .on_conflict(file_path)
         .do_update()
-        .set(lastview.eq(current_ts.as_millis() as i32))
+        .set(last_view.eq(current_ts.as_millis() as i64))
         .execute(connection);
 
     let recommendations = RecommendedMedia
@@ -3306,10 +3316,10 @@ async fn remember_video(
         .unwrap();
 
     recommendations.into_iter().for_each(|e| {
-        let path = PathBuf::from(&e.filepath);
+        let path = PathBuf::from(&e.file_path);
         if !path.exists() {
             diesel::delete(RecommendedMedia)
-                .filter(filepath.eq(e.filepath))
+                .filter(file_path.eq(e.file_path))
                 .execute(connection);
         }
     });
@@ -3319,7 +3329,7 @@ async fn remember_video(
 
 #[derive(Serialize)]
 struct Recommendations {
-    rec: Vec<(String, i32)>,
+    rec: Vec<(String, i64)>,
 }
 
 #[get("/api/recommendedMusic")]
@@ -3331,7 +3341,7 @@ async fn get_recomended_music(session: Session, state: Data<AppState>) -> HttpRe
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    if get_setting_by_name("media_enabled").unwrap() == database::ST_BOOL_FALSE {
+    if !get_media_enabled() {
         return HttpResponse::Forbidden().body("Media center has been disabled");
     }
 
@@ -3343,10 +3353,10 @@ async fn get_recomended_music(session: Session, state: Data<AppState>) -> HttpRe
         .get_results(connection)
         .unwrap();
 
-    let filtered_entries: Vec<(String, i32)> = queried_entries
+    let filtered_entries: Vec<(String, i64)> = queried_entries
         .into_iter()
-        .filter(|e| PathBuf::from(&e.filepath).exists())
-        .map(|e| (e.filepath, e.lastview))
+        .filter(|e| PathBuf::from(&e.file_path).exists())
+        .map(|e| (e.file_path, e.last_view))
         .collect();
 
     return HttpResponse::Ok().json(Recommendations {
@@ -3363,7 +3373,7 @@ async fn get_recomended_videos(session: Session, state: Data<AppState>) -> HttpR
         return HttpResponse::Forbidden().body("This resource is blocked.");
     }
 
-    if get_setting_by_name("media_enabled").unwrap() == database::ST_BOOL_FALSE {
+    if !get_media_enabled() {
         return HttpResponse::Forbidden().body("Media center has been disabled");
     }
 
@@ -3375,10 +3385,10 @@ async fn get_recomended_videos(session: Session, state: Data<AppState>) -> HttpR
         .get_results(connection)
         .unwrap();
 
-    let filtered_entries: Vec<(String, i32)> = queried_entries
+    let filtered_entries: Vec<(String, i64)> = queried_entries
         .into_iter()
-        .filter(|e| PathBuf::from(&e.filepath).exists())
-        .map(|e| (e.filepath, e.lastview))
+        .filter(|e| PathBuf::from(&e.file_path).exists())
+        .map(|e| (e.file_path, e.last_view))
         .collect();
 
     return HttpResponse::Ok().json(Recommendations {
@@ -3388,10 +3398,10 @@ async fn get_recomended_videos(session: Session, state: Data<AppState>) -> HttpR
 
 #[derive(Deserialize)]
 struct MetadataJson {
-    name: String,
-    genre: String,
-    cover: String,
-    artist: String,
+    name: Option<String>,
+    genre: Option<String>,
+    cover: Option<String>,
+    artist: Option<String>,
     filename: String,
 }
 
@@ -3409,48 +3419,27 @@ async fn update_metadata(
     }
 
     let new_media_entry = MediaEntry {
-        filepath: data.filename.clone(),
-        genre: {
-            let v = data.genre.clone();
-            if v.is_empty() {
-                Some("UNKNOWN_GENRE".to_string())
-            } else {
-                Some(v.to_string())
-            }
-        },
-        name: {
-            let v = data.name.clone();
-            if v.is_empty() {
-                Some("UNKNOWN_NAME".to_string())
-            } else {
-                Some(v.to_string())
-            }
-        },
-        artist: {
-            let v = data.artist.clone();
-            if v.is_empty() {
-                Some("UNKNOWN_ARIST".to_string())
-            } else {
-                Some(v.to_string())
-            }
-        },
-        cover: {
-            let v = data.cover.clone();
-            if v.is_empty() {
-                Some("UNKNOWN_COVER".to_string())
-            } else {
-                Some(v.to_string())
-            }
-        },
+        file_path: data.filename.clone(),
+        genre: data.genre.clone(),
+        name: data.name.clone(),
+        artist: data.artist.clone(),
+        cover: data.cover.clone()
     };
 
     let connection = &mut establish_connection();
 
+    dbg!(&new_media_entry);
+
     let wx = diesel::insert_into(Media)
         .values(&new_media_entry)
-        .on_conflict(filepath)
+        .on_conflict(file_path)
         .do_update()
-        .set(&new_media_entry)
+        .set((
+                        genre.eq(&new_media_entry.genre),
+        name.eq(&new_media_entry.name),
+        artist.eq(&new_media_entry.artist),
+        cover.eq(&new_media_entry.cover),
+                ))
         .execute(connection);
 
     if wx.is_err() {
@@ -4055,7 +4044,7 @@ async fn share_file(
         shared_since: std::time::SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
-            .as_secs() as i32,
+            .as_secs() as i64,
     };
 
     diesel::insert_into(FileSharing::dsl::FileSharing)
@@ -4225,11 +4214,16 @@ fn configure_multipart(cfg: &mut web::ServiceConfig) {
 #[actix_web::main]
 /// Prepares Zentrox and starts the server.
 async fn main() -> std::io::Result<()> {
+    use models::Configurations;
+    use schema::Configuration::dsl::*;
+
     if !env::current_dir().unwrap().join("static").exists() {
         let _ = env::set_current_dir(dirs::home_dir().unwrap().join("zentrox"));
     }
 
-    env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
+    let mut gov_vars = std::env::vars();
+
+    env_logger::init_from_env(env_logger::Env::new().default_filter_or("debug"));
 
     if !dirs::home_dir()
         .unwrap()
@@ -4248,7 +4242,11 @@ async fn main() -> std::io::Result<()> {
     app_state.clone().start_interval_tasks();
     debug!("Started interval tasks");
 
-    let tls_cert_filename = get_setting_by_name("tls_cert").unwrap();
+    let tls_cert_filename = Configuration
+        .select(Configurations::as_select())
+        .first(&mut establish_connection())
+        .unwrap()
+        .tls_cert;
 
     if tls_cert_filename == "selfsigned.pem" {
         warn!("Using a self singed certificate");
@@ -4297,7 +4295,6 @@ async fn main() -> std::io::Result<()> {
         .with_single_cert(tls_certs, rustls::pki_types::PrivateKeyDer::Pkcs8(tls_key))
         .unwrap();
 
-    let mut gov_vars = std::env::vars();
     let governor_strict: bool = !gov_vars.any(|x| {
         x == ("ZENTROX_MODE".to_string(), "NO_LIMITING".to_string())
             || x == ("ZENTROX_MODE".to_string(), "DEV".to_string())
@@ -4475,7 +4472,6 @@ async fn main() -> std::io::Result<()> {
             .service(run_cronjob_command)
             .service(create_cronjob)
             // File sharing
-            // TODO Order of services matters! Thats bad
             .service(
                 web::scope("/shared")
                     .wrap(Governor::new(&shared_files_governor_conf))
