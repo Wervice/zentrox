@@ -4,13 +4,16 @@
 // 4. List rules
 use crate::sudo::{SudoExecutionOutput, SudoExecutionResult, SwitchedUserCommand};
 use regex::Regex;
+use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
-#[derive(serde::Serialize)]
+// TODO More details, more pre-processing
+#[derive(Serialize, Debug, ToSchema)]
 pub struct UfwRule {
     pub index: u32,
     pub to: String,
     pub from: String,
-    pub action: String,
+    pub action: FirewallAction,
 }
 
 /// Fetches the current UFW status
@@ -47,7 +50,7 @@ pub fn ufw_status(password: String) -> Result<(bool, Vec<UfwRule>), String> {
     if enabled && output_lines.len() > 3 {
         output_lines.drain(0..3);
 
-        let mut index: i32 = 1;
+        let mut index: i32 = 0;
 
         let re = Regex::new(r"\s{2,}").unwrap();
 
@@ -59,7 +62,7 @@ pub fn ufw_status(password: String) -> Result<(bool, Vec<UfwRule>), String> {
             rules_vec.push(UfwRule {
                 to: String::from(to),
                 from: String::from(from),
-                action: String::from(action),
+                action: FirewallAction::from(action),
                 index: index as u32,
             });
 
@@ -75,30 +78,62 @@ pub trait ToComponent {
     fn to_component(&self) -> String;
 }
 
-pub enum NetworkProtocol {
+pub enum SinglePortProtocol {
     Tcp(u64),
     Udp(u64),
 }
 
-impl ToComponent for NetworkProtocol {
+impl ToComponent for SinglePortProtocol {
     fn to_component(&self) -> String {
         match *self {
-            NetworkProtocol::Tcp(v) => format!("{v} proto tcp").to_string(),
-            NetworkProtocol::Udp(v) => format!("{v} proto udp").to_string(),
+            SinglePortProtocol::Tcp(v) => format!("{v} proto tcp"),
+            SinglePortProtocol::Udp(v) => format!("{v} proto udp"),
         }
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, ToSchema)]
+#[serde(rename_all = "camelCase")]
+// TODO Check if this works with ALLOW OUT etc.
+pub enum RuleDirection {
+    Out,
+    In,
+}
+
+impl ToComponent for RuleDirection {
+    fn to_component(&self) -> String {
+        match *self {
+            Self::In => "in".to_string(),
+            Self::Out => "out".to_string(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, ToSchema)]
+#[serde(rename_all = "camelCase")]
+// TODO Check if this works with ALLOW OUT etc.
 pub enum FirewallAction {
-    Deny,
-    Allow,
+    Deny(RuleDirection),
+    Allow(RuleDirection),
+}
+
+impl From<&str> for FirewallAction {
+    fn from(value: &str) -> Self {
+        match value {
+            "ALLOW" | "ALLOW IN" => FirewallAction::Allow(RuleDirection::In),
+            "DENY" | "DENY IN" => FirewallAction::Deny(RuleDirection::In),
+            "ALLOW OUT" => FirewallAction::Allow(RuleDirection::Out),
+            "DENY OUT" => FirewallAction::Deny(RuleDirection::Out),
+            _ => unreachable!("An unknown firewall action was encountered."),
+        }
+    }
 }
 
 impl ToComponent for FirewallAction {
     fn to_component(&self) -> String {
         match *self {
-            FirewallAction::Deny => "deny".to_string(),
-            FirewallAction::Allow => "allow".to_string(),
+            FirewallAction::Deny(dir) => format!("deny {}", dir.to_component()),
+            FirewallAction::Allow(dir) => format!("allow {}", dir.to_component()),
         }
     }
 }
@@ -121,22 +156,22 @@ impl ToComponent for FirewallSender {
     }
 }
 
-pub enum PortRange {
+pub enum PortRangeProtocol {
     Tcp(u64, u64),
     Udp(u64, u64),
 }
 
-impl PortRange {
+impl PortRangeProtocol {
     fn to_port_component(&self) -> String {
         match *self {
-            PortRange::Tcp(l, r) => format!("{l}:{r}").to_string(),
-            PortRange::Udp(l, r) => format!("{l}:{r}").to_string(),
+            PortRangeProtocol::Tcp(l, r) => format!("{l}:{r}").to_string(),
+            PortRangeProtocol::Udp(l, r) => format!("{l}:{r}").to_string(),
         }
     }
     fn to_protocol_component(&self) -> String {
         match *self {
-            PortRange::Tcp(_, _) => "proto tcp".to_string(),
-            PortRange::Udp(_, _) => "proto udp".to_string(),
+            PortRangeProtocol::Tcp(_, _) => "proto tcp".to_string(),
+            PortRangeProtocol::Udp(_, _) => "proto udp".to_string(),
         }
     }
 }
@@ -150,7 +185,7 @@ impl PortRange {
 /// * `action`: FirewallAction - The action to be taken
 pub fn new_rule_port<T: ToString>(
     password: T,
-    destination_port: NetworkProtocol,
+    destination_port: SinglePortProtocol,
     sender: FirewallSender,
     action: FirewallAction,
 ) -> Result<(), String> {
@@ -176,7 +211,7 @@ pub fn new_rule_port<T: ToString>(
 /// * `action`: FirewallAction - The action to be taken
 pub fn new_rule_range<T: ToString>(
     password: T,
-    destination_range: PortRange,
+    destination_range: PortRangeProtocol,
     sender: FirewallSender,
     action: FirewallAction,
 ) -> Result<(), String> {
@@ -194,16 +229,34 @@ pub fn new_rule_range<T: ToString>(
     }
 }
 
-/// Deletes UFW rule by spawning a command contaiting the rules index
+/// Deletes UFW rule by spawning a command containing the rules index
 ///
 /// The command is spawned with `sudo` to allow for deletign rules.
 /// `password` - The password to authenticate sudo.
 /// `index` - The index of the rule to delete.
 pub fn delete_rule(password: String, index: u32) -> Result<(), String> {
-    let command = format!("/usr/sbin/ufw --force delete {index}");
-
+    // Index is added 1 as ufw starts numbering at [1], but common convention is 0
+    let command = format!("/usr/sbin/ufw --force delete {}", index + 1);
+    // FIX Direct interpolation of unsanitized user due to index
+    // input
     match SwitchedUserCommand::new(password, command).spawn() {
         SudoExecutionResult::Success(_) => Ok(()),
         _ => Err("Failed to spawn command".to_string()),
     }
+}
+
+pub fn disable(password: String) -> SudoExecutionResult {
+    SwitchedUserCommand::new(
+        password.to_string(),
+        "/usr/sbin/ufw --force disable".to_string(),
+    )
+    .spawn()
+}
+
+pub fn enable(password: String) -> SudoExecutionResult {
+    SwitchedUserCommand::new(
+        password.to_string(),
+        "/usr/sbin/ufw --force enable".to_string(),
+    )
+    .spawn()
 }

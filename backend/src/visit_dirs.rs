@@ -1,6 +1,7 @@
 use std::fs::{self, DirEntry};
 use std::path::PathBuf;
 
+/// Recursively find all entries in a directory
 pub fn visit_dirs(dir: PathBuf) -> Result<std::vec::IntoIter<DirEntry>, std::io::Error> {
     let mut e: Vec<DirEntry> = Vec::new();
 

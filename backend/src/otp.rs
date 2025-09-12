@@ -2,13 +2,13 @@ use log::debug;
 use rand::Rng;
 use totp_rs::{Algorithm, Secret, TOTP};
 
-/// Generates a random otp secret.
+/// Generates a random OTP secret.
 ///
 /// The secret consists of 16 random bytes that are encoded with unpadded base32 and the Rfc4648
 /// alphabet.
 pub fn generate_otp_secret() -> String {
     let mut random_number_generator = rand::thread_rng();
-    let secret_bytes: Vec<u8> = (0..16).map(|_| random_number_generator.gen()).collect();
+    let secret_bytes: Vec<u8> = (0..16).map(|_| random_number_generator.r#gen()).collect();
 
     debug!("OTP secret with the bytes {secret_bytes:?} has been generated.");
 

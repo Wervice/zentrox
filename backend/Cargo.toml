@@ -1,10 +1,10 @@
 [package]
 name = "zentrox"
 version = "0.1.1"
-edition = "2021"
-authors = ["wervice"]
+edition = "2024"
+authors = ["Wervice <wervice@proton.me>"]
 description = "An open source home lab device frontend to administrate your devices"
-documentation = "https://github.com/Wervice/zentrox/wiki"
+documentation = "https://github.com/Wervice/zentrox/wiki" # TODO Update
 homepage = "https://wervice.github.io/zentrox"
 license = "Apache-2.0"
 keywords = ["administration", "actix", "remote"]
@@ -34,7 +34,7 @@ serde_json = "1.0.127"
 sha2 = "0.10.8"
 systemstat = "0.2.3"
 tar = "0.4.42"
-tokio = "1.43.1"
+tokio = "1.47.1"
 toml = "0.8.19"
 toml_edit = "0.22.20"
 totp-rs = "5.6.0"
@@ -50,6 +50,7 @@ log = "0.4.27"
 futures-util = "0.3.31"
 diesel = { version = "2.2.12", features = ["sqlite", "returning_clauses_for_sqlite_3_35"] }
 base32 = "0.5.1"
+utoipa = { version = "5.4.0", features = ["macros"] }
 
 [profile.release]
 opt-level = 3

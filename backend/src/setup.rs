@@ -4,13 +4,13 @@ use crate::otp::generate_otp_secret;
 use crate::sudo::{SudoExecutionResult, SwitchedUserCommand};
 use diesel::RunQueryDsl;
 use dirs::{self, home_dir};
-use rcgen::{generate_simple_self_signed, CertifiedKey};
+use rcgen::{CertifiedKey, generate_simple_self_signed};
 use rpassword::prompt_password;
 use std::fs;
 use std::io::{self, BufRead, Write};
 use std::time::UNIX_EPOCH;
 
-fn f() {
+fn flush() {
     let _ = io::stdout().flush();
 }
 
@@ -25,7 +25,7 @@ fn read() -> String {
 
 fn prompt(msg: &str) -> String {
     print!("{msg}");
-    f();
+    flush();
     read().replace("\n", "")
 }
 
@@ -36,10 +36,14 @@ fn hostname() -> Option<String> {
 }
 
 pub fn run_setup() -> Result<(), String> {
+    // NOTE Prettier TUI would be reasonable
+
     use crate::models::AdminAccount;
     use crate::models::Configurations;
+    use crate::models::PackageAction;
     use crate::schema::Admin::dsl::*;
     use crate::schema::Configuration::dsl::*;
+    use crate::schema::PackageActions::dsl::*;
 
     let _installation_path = home_dir()
         .unwrap()
@@ -77,6 +81,8 @@ pub fn run_setup() -> Result<(), String> {
 
     let connection = &mut establish_connection();
 
+    // NOTE Handle these errors
+
     diesel::insert_into(Configuration)
         .values(Configurations {
             media_enabled: false,
@@ -87,21 +93,27 @@ pub fn run_setup() -> Result<(), String> {
         })
         .execute(connection);
 
+    diesel::insert_into(PackageActions)
+        .values(PackageAction {
+            key: 0_i32,
+            last_database_update: None,
+        })
+        .execute(connection);
+
     let new_password_hash = argon2_derive_key(&input_password.unwrap());
     let new_password_hash_hex = hex::encode(new_password_hash.unwrap()).to_string();
 
     let generated_otp_secret = generate_otp_secret();
 
     let current_ts = std::time::SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as i64;
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
 
     diesel::insert_into(Admin)
         .values(AdminAccount {
             username: input_username,
             use_otp: enable_otp,
-            knows_otp: enable_otp,
             otp_secret: {
                 if enable_otp {
                     Some(generated_otp_secret.clone())
@@ -116,7 +128,9 @@ pub fn run_setup() -> Result<(), String> {
         })
         .execute(connection);
 
-    println!("Your OTP secret is: {generated_otp_secret}\nStore it in a secure location, ideally a 2FA App and keep it to yourself. You can not view this secret again.");
+    println!(
+        "Your OTP secret is: {generated_otp_secret}\nStore it in a secure location, ideally a 2FA App and keep it to yourself. You can not view this secret again."
+    );
 
     let subject_alt_names = vec![
         "localhost".to_string(),

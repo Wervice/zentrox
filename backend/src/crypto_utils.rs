@@ -1,8 +1,8 @@
 use crate::schema::Encryption::dsl::*;
 use crate::{database::establish_connection, models::Secrets};
 use argon2::{
-    password_hash::{rand_core::OsRng, SaltString},
     Argon2,
+    password_hash::{SaltString, rand_core::OsRng},
 };
 use diesel::dsl::insert_into;
 use diesel::prelude::*;

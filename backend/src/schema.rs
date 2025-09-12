@@ -3,7 +3,6 @@ diesel::table! {
         id -> Integer,
         username -> Text,
         use_otp -> Bool,
-        knows_otp -> Bool,
         otp_secret -> Nullable<Text>,
         password_hash -> Text,
         created_at -> BigInt,
@@ -51,7 +50,6 @@ diesel::table! {
 diesel::table! {
     RecommendedMedia (file_path) {
         file_path -> Text,
-        category -> Text,
         last_view -> BigInt,
     }
 }

@@ -1,28 +1,46 @@
+//! Zentrox is a Linux server administration application.
+//! It support various tasks ranging from sharing and managing files to installing system packages
+//! and basic network configuration tasks.
+//!
+//! The project uses actix_web together with serde_json for API communication.
+//! To provide a session a CookieSession is used. Authentication is handled by Zentrox and does not
+//! use a dedicated library.
+//!
+//! Interactions with the SQLite database are handled through diesel.rs.
+//!
+//! Most interactions between Zentrox and the operating system are handled through commands or files.
+//!
+//! Documentation for the API can be obtained by running the executable with the {`--docs`} flag.
+//! This will produce an OpenAPI documentation in JSON format.
+
+// NOTE ~/Documents/Zentrox_Rust_Structure.drawio
+
 use actix_cors::Cors;
 use actix_files as afs;
+use actix_governor::{self, Governor, GovernorConfigBuilder};
 use actix_multipart::form::MultipartFormConfig;
-use actix_multipart::form::{tempfile::TempFile, text::Text, MultipartForm};
+use actix_multipart::form::{MultipartForm, tempfile::TempFile, text::Text};
+use actix_session::SessionExt;
 use actix_session::config::CookieContentSecurity;
-use actix_session::{storage::CookieSessionStore, Session, SessionMiddleware};
-use actix_web::cookie::Key;
-use actix_web::web::Path;
+use actix_session::{Session, SessionMiddleware, storage::CookieSessionStore};
 use actix_web::HttpRequest;
-use actix_web::{
-    get, http::header, http::StatusCode, middleware, post, web, web::Data, App, HttpResponse,
-    HttpServer,
-};
-use core::panic;
+use actix_web::body::{BoxBody, MessageBody};
+use actix_web::cookie::Key;
+use actix_web::dev::{ServiceRequest, ServiceResponse};
+use actix_web::middleware::{Next, from_fn};
+use actix_web::web::{Path, Query};
+use actix_web::{App, HttpResponse, HttpServer, get, http::header, middleware, web, web::Data};
 use futures::FutureExt;
-use rand::distributions::Alphanumeric;
 use rand::Rng;
+use rand::distributions::Alphanumeric;
 use serde::{Deserialize, Serialize};
 use std::ffi::OsString;
 use std::net::IpAddr;
 use std::ops::Div;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
-use std::process::{Command, Stdio};
+use std::process::{Command, Stdio, exit};
 use std::str::FromStr;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use std::{
     collections::HashMap,
     env,
@@ -33,12 +51,12 @@ use std::{
     time::UNIX_EPOCH,
 };
 use sysinfo::{Components, MemoryRefreshKind, Pid, ProcessRefreshKind, RefreshKind, UpdateKind};
+use utoipa::openapi::ServerBuilder;
 use uuid::Uuid;
 extern crate inflector;
-use actix_governor::{self, Governor, GovernorConfigBuilder};
 use diesel::prelude::*;
-use inflector::Inflector;
 use log::{debug, error, info, warn};
+use utoipa::{OpenApi, ToSchema};
 
 mod cron;
 mod crypto_utils;
@@ -53,30 +71,33 @@ mod otp;
 mod packages;
 mod schema;
 mod setup;
+mod status_com;
 mod sudo;
 mod ufw;
 mod uptime;
-mod url_decode;
 mod users;
 mod vault;
 mod visit_dirs;
 
 use is_admin::is_admin_state;
-use models::AdminAccount;
 use net_data::private_ip;
-use users::convert_uid_to_name;
+use status_com::{ErrorCode, MessageRes};
 use visit_dirs::visit_dirs;
 
 use crate::crypto_utils::argon2_derive_key;
 use crate::database::{establish_connection, get_administrator_account};
-use crate::models::{MediaSource, SharedFile};
+use crate::drives::DriveUsageStatistics;
+use crate::logs::QuickJournalEntry;
+use crate::models::{MediaSource, RecommendedMediaEntry, SharedFile};
+use crate::ufw::FirewallAction;
+use crate::users::NativeUser;
 
 use self::cron::{
-    delete_interval_cronjob, delete_specific_cronjob, IntervalCronJob, SpecificCronJob, User,
+    IntervalCronJob, SpecificCronJob, User, delete_interval_cronjob, delete_specific_cronjob,
 };
 use self::net_data::{DeletionRoute, Destination, IpAddrWithSubnet, OperationalState, Route};
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 #[allow(unused)]
 enum BackgroundTaskState {
     Success,
@@ -86,35 +107,37 @@ enum BackgroundTaskState {
     Pending,
 }
 
-#[derive(Debug, Clone, Serialize)]
+/// A network interface with an up/down data transfer rate relative to a time.
+/// The struct implements Serialize.
+#[derive(Clone, Serialize)]
 #[allow(unused)]
+#[serde(rename_all = "camelCase")]
 struct MeasuredInterface {
-    pub ifindex: i64,
-    pub ifname: String,
+    pub index: i64,
+    pub name: String,
     pub flags: Vec<String>,
-    pub mtu: i64,
-    pub qdisc: String,
-    pub operstate: OperationalState,
-    pub linkmode: String,
+    pub max_tranmission_unit: u64,
+    pub queuing_discipline: String,
+    pub operational_state: OperationalState,
+    pub link_mode: String,
     pub group: String,
-    pub txqlen: Option<i64>,
+    pub transmit_queue: Option<i64>,
     pub link_type: String,
     pub address: String,
     pub broadcast: String,
     pub up: f64,
     pub down: f64,
-    pub altnames: Option<Vec<String>>,
+    pub alternative_names: Option<Vec<String>>,
 }
 
-#[allow(non_snake_case)]
+/// Current state of the application
+/// This AppState is meant to be accessible for every route in the system
 #[derive(Clone)]
-/// Current state of the application used to keep track of the logged in users, DoS/Brute force
-/// attack requests and sharing a instance of the System struct.
 struct AppState {
-    login_token: Arc<Mutex<String>>,
+    login_token: Arc<Mutex<String>>, // TODO Use Option
+    // TODO Make the token be invalidated after some time
     system: Arc<Mutex<sysinfo::System>>,
-    username: Arc<Mutex<String>>,
-    cpu_usage: Arc<Mutex<f32>>,
+    username: Arc<Mutex<String>>, // TODO Use Option
     network_interfaces: Arc<Mutex<Vec<MeasuredInterface>>>,
     background_jobs: Arc<Mutex<HashMap<Uuid, BackgroundTaskState>>>,
 }
@@ -130,97 +153,81 @@ impl AppState {
             system: Arc::new(Mutex::new(sysinfo::System::new())),
             username: Arc::new(Mutex::new(String::new())),
             network_interfaces: Arc::new(Mutex::new(Vec::new())),
-            cpu_usage: Arc::new(Mutex::new(0_f32)),
             background_jobs: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
     fn update_network_statistics(&self) {
-        if (*self.username.lock().unwrap()).to_string().is_empty() {
+        if (*self).username.lock().unwrap().is_empty() {
             return;
         }
         let devices_a = net_data::get_network_interfaces().unwrap();
         std::thread::sleep(std::time::Duration::from_millis(1000));
         let devices_b = net_data::get_network_interfaces().unwrap();
         let devices_b_hashmap: HashMap<String, &net_data::Interface> =
-            devices_b.iter().map(|d| (d.ifname.clone(), d)).collect();
+            devices_b.iter().map(|d| (d.name.clone(), d)).collect();
         let mut result: Vec<MeasuredInterface> = Vec::new();
         for device in devices_a {
-            if let Some(v) = devices_b_hashmap.get(&device.ifname) {
-                let a_up = device.stats64.get("tx").unwrap().bytes;
-                let a_down = device.stats64.get("rx").unwrap().bytes;
-                let b_up = v.stats64.get("tx").unwrap().bytes;
-                let b_down = v.stats64.get("rx").unwrap().bytes;
+            if let Some(v) = devices_b_hashmap.get(&device.name) {
+                let a_up = device.statistics.get("tx").unwrap().bytes;
+                let a_down = device.statistics.get("rx").unwrap().bytes;
+                let b_up = v.statistics.get("tx").unwrap().bytes;
+                let b_down = v.statistics.get("rx").unwrap().bytes;
+
                 result.push(MeasuredInterface {
-                    ifname: device.ifname,
-                    ifindex: device.ifindex,
+                    name: device.name,
+                    index: device.index,
                     flags: device.flags,
-                    mtu: device.mtu,
-                    qdisc: device.qdisc,
-                    operstate: device.operstate,
-                    linkmode: device.linkmode,
+                    max_tranmission_unit: device.max_transmission_unit,
+                    queuing_discipline: device.queueing_discipline,
+                    operational_state: device.operational_state,
+                    link_mode: device.link_mode,
                     address: device.address,
-                    altnames: device.altnames,
+                    alternative_names: device.alternative_names,
                     broadcast: device.broadcast,
                     down: (b_down - a_down) / 5_f64,
                     up: (b_up - a_up) / 5_f64,
                     group: device.group,
                     link_type: device.link_type,
-                    txqlen: device.txqlen,
+                    transmit_queue: device.transmit_queue,
                 })
             }
         }
         *self.network_interfaces.lock().unwrap() = result;
     }
 
-    /// Update CPU statistics
-    fn update_cpu_statistics(&self) {
-        if (*self.username.lock().unwrap()).to_string().is_empty() {
-            return;
-        }
-        self.system.lock().unwrap().refresh_cpu_usage();
-        std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
-        self.system.lock().unwrap().refresh_cpu_usage();
-        *self.cpu_usage.lock().unwrap() = self.system.lock().unwrap().global_cpu_usage();
-    }
-
     fn start_interval_tasks(self) {
         let network_clone = self.clone();
-        let cpu_clone = self.clone();
-        std::thread::spawn(move || loop {
-            std::thread::sleep(std::time::Duration::from_millis(5 * 1000));
-            network_clone.update_network_statistics();
-        });
-        std::thread::spawn(move || loop {
-            std::thread::sleep(std::time::Duration::from_millis(5 * 1000));
-            cpu_clone.update_cpu_statistics();
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(std::time::Duration::from_millis(5 * 1000));
+                network_clone.update_network_statistics();
+            }
         });
     }
 }
 
 /// Root of the server.
 ///
-/// If the user is logged in, they get redireced to /dashboard, otherwise the login is shown.
-#[get("/")]
+/// If the user is logged in, they get redirected to /dashboard, otherwise the login is shown.
 async fn index(session: Session, state: Data<AppState>) -> HttpResponse {
     // is_admin session value is != true (None or false), the user is served the login screen
     // otherwise, the user is redirected to /
     if is_admin_state(&session, state) {
         HttpResponse::Found()
             .append_header(("Location", "/dashboard"))
-            .body("You will soon be redirected")
+            .body("You will soon be redirected.")
     } else {
-        HttpResponse::build(StatusCode::OK)
+        HttpResponse::Ok()
             .body(std::fs::read_to_string("static/index.html").expect("Failed to read file"))
     }
 }
 
-#[get("/alerts")]
 async fn alerts_page(session: Session, state: Data<AppState>) -> HttpResponse {
     // is_admin session value is != true (None or false), the user is served the alerts screen
     // otherwise, the user is redirected to /
     if is_admin_state(&session, state) {
-        HttpResponse::build(StatusCode::OK).body(
+        HttpResponse::Ok().body(
             std::fs::read_to_string("static/alerts.html").expect("Failed to read alerts page"),
         )
     } else {
@@ -230,29 +237,21 @@ async fn alerts_page(session: Session, state: Data<AppState>) -> HttpResponse {
     }
 }
 
-#[get("/media")]
-async fn media_page(session: Session, state: Data<AppState>) -> HttpResponse {
+async fn media_page() -> HttpResponse {
     // is_admin session value is != true (None or false), the user is served the media screen
     // otherwise, the user is redirected to /
-    if is_admin_state(&session, state) {
-        if !get_media_enabled() {
-            return HttpResponse::Forbidden().body("Media center has been disabled");
-        }
-        HttpResponse::build(StatusCode::OK)
-            .body(std::fs::read_to_string("static/media.html").expect("Failed to read alerts page"))
-    } else {
-        HttpResponse::Found()
-            .append_header(("Location", "/"))
-            .body("You will soon be redirected")
+    if !get_media_enabled_database() {
+        return HttpResponse::Forbidden().json(ErrorCode::MediaCenterDisabled.as_error_message());
     }
+    HttpResponse::Ok()
+        .body(std::fs::read_to_string("static/media.html").expect("Failed to read alerts page"))
 }
 
 async fn shared_page() -> HttpResponse {
-    HttpResponse::build(StatusCode::OK)
+    HttpResponse::Ok()
         .body(std::fs::read_to_string("static/shared.html").expect("Failed to read shared page"))
 }
 
-#[get("/alerts/manifest.json")]
 async fn alerts_manifest() -> HttpResponse {
     HttpResponse::Ok().body(include_str!("../manifest.json"))
 }
@@ -260,12 +259,11 @@ async fn alerts_manifest() -> HttpResponse {
 /// The dashboard route.
 ///
 /// If the user is logged in, the dashboard is shown, otherwise they get redirected to root.
-#[get("/dashboard")]
 async fn dashboard(session: Session, state: Data<AppState>) -> HttpResponse {
     // is_admin session value is != true (None or false), the user is redirected to /
     // otherwise, the user is served the dashboard.html file
     if is_admin_state(&session, state) {
-        HttpResponse::build(StatusCode::OK)
+        HttpResponse::Ok()
             .body(std::fs::read_to_string("static/dashboard.html").expect("Failed to read file"))
     } else {
         HttpResponse::Found()
@@ -274,348 +272,346 @@ async fn dashboard(session: Session, state: Data<AppState>) -> HttpResponse {
     }
 }
 
-// API (Actuall API calls)
+// API (Actual API calls)
 
-/// Empty Json Response
+/// Single path schema
 ///
-/// This struct implements serde::Serialize. It can be used to respond with an empty Json
-/// response.
-#[derive(Serialize)]
-struct EmptyJson {}
-
-/// Error JSON
-///
-/// This struct implements serder::Serialize. It can be used to respond with an error message.
-#[derive(Serialize)]
-struct ErrorJson {
-    error: String,
+/// This struct implements serde::Serialize and Deserialize. It is intended for handling query
+/// parameters, request bodies or response bodies that only contain a single file path that can be
+/// expressed as a PathBuf.
+#[derive(Deserialize, Serialize)]
+struct SinglePath {
+    path: PathBuf,
 }
 
-/// Request that only contains a sudo password from the backend.
+/// Request that only contains a sudo password for the backend.
 ///
-/// This struct implements serde::Derserialize. It can be used to parse a single sudoPassword from
+/// This struct implements serde::Deserialize. It can be used to parse a single sudoPassword from
 /// the user. It only has the String filed sudoPassword.
-#[derive(Deserialize, Debug)]
-#[allow(non_snake_case)]
-struct SudoPasswordOnlyRequest {
-    sudoPassword: String,
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct SudoPasswordReq {
+    sudo_password: String,
 }
 
 // Login
 
-#[derive(Deserialize)]
-#[allow(non_snake_case)]
-struct Login {
+#[derive(Deserialize, ToSchema)]
+struct LoginReq {
     username: String,
     password: String,
-    userOtp: String,
+    otp: Option<String>,
 }
 
-/// Route that loggs a user in.
-///
-/// First the users name is check in the users database. If it is not in there, the user is
-/// rejected.
-/// Next, the user password is hashed and compared to the password corresponding to the stored
-/// hash.
-/// If the user has enabled 2FA via OTP, the provided token is compared to the one that can be
-/// calculated using the stored OTP secret.
-/// The function keeps track on how often a user attempted to login. If they tried to login more
-/// than 5 times in 10 seconds, they are automatically being rejected for the next 10 seconds, even
-/// if the credentials are correct.
-async fn login(session: Session, json: web::Json<Login>, state: Data<AppState>) -> HttpResponse {
+fn setup_login_state(session: Session, state: Data<AppState>, provided_username: String) {
+    let login_token: Vec<u8> = is_admin::generate_random_token();
+    let _ = session.insert("login_token", hex::encode(&login_token).to_string());
+
+    *state.login_token.lock().unwrap() = hex::encode(&login_token).to_string();
+    *state.username.lock().unwrap() = provided_username;
+
+    let state_copy = state.clone();
+    std::thread::spawn(move || {
+        state_copy.update_network_statistics();
+    });
+}
+
+/// Verify user and log in
+#[utoipa::path(
+    post,
+    path = "/public/auth/login",
+    responses(
+        (status = 200, description = "The login was successful"),
+        (status = 403, description = "A wrong password was provided."),
+        (status = 401, description = "The username does not exist."),
+        (status = 400, description = "Not enough information was provided.")
+    ),
+    request_body = LoginReq,
+    tags = ["public", "authentication"]
+)]
+async fn verification(
+    session: Session,
+    json: web::Json<LoginReq>,
+    state: Data<AppState>,
+) -> HttpResponse {
     let request_username = &json.username;
     let request_password = &json.password;
-    let request_otp_code = &json.userOtp;
+    let request_otp_code = &json.otp;
 
     let database_admin_entry = get_administrator_account();
 
-    if &database_admin_entry.username == request_username {
-        let stored_password: String = database_admin_entry.password_hash;
-        let hashes_correct =
-            is_admin::password_hash(request_password.to_string(), stored_password.to_string());
+    if &database_admin_entry.username != request_username {
+        info!("A login with a wrong username will be denied.");
+        return HttpResponse::Unauthorized().json(ErrorCode::UnkownUsername.as_error_message());
+    }
+    let stored_password: String = database_admin_entry.password_hash;
+    let hashes_correct =
+        is_admin::password_hash(request_password.to_string(), stored_password.to_string());
 
-        if hashes_correct {
-            let login_token: Vec<u8> = is_admin::generate_random_token();
-            if database_admin_entry.use_otp {
-                let stored_otp_secret = database_admin_entry.otp_secret.unwrap();
-
-                if otp::calculate_current_otp(&stored_otp_secret) == *request_otp_code {
-                    // User has logged in successfully using password and 2FA
-                    let _ = session.insert("login_token", hex::encode(&login_token).to_string());
-
-                    *state.login_token.lock().unwrap() = hex::encode(&login_token).to_string();
-                    *state.username.lock().unwrap() = database_admin_entry.username;
-                    let state_copy = state.clone();
-                    std::thread::spawn(move || {
-                        state_copy.update_network_statistics();
-                        state_copy.update_cpu_statistics();
-                    });
-
-                    HttpResponse::build(StatusCode::OK).json(web::Json(EmptyJson {}))
-                } else {
-                    debug!("A login with a wrong OTP code will be denied.");
-                    return HttpResponse::build(StatusCode::FORBIDDEN).body("Missing permissions");
-                }
-            } else {
-                // User has logged in successfully using password
-                let _ = session.insert("login_token", hex::encode(&login_token).to_string());
-
-                *state.login_token.lock().unwrap() = hex::encode(&login_token).to_string();
-                *state.username.lock().unwrap() = database_admin_entry.username;
-
-                let state_copy = state.clone();
-                std::thread::spawn(move || {
-                    state_copy.update_network_statistics();
-                    state_copy.update_cpu_statistics();
-                });
-
-                return HttpResponse::build(StatusCode::OK).json(web::Json(EmptyJson {}));
-            }
-        } else {
-            debug!("A login with a wrong password will be denied.");
-            return HttpResponse::build(StatusCode::FORBIDDEN).body("Missing permissions");
+    if !hashes_correct {
+        info!("A login with a wrong password will be denied.");
+        return HttpResponse::Forbidden().json(ErrorCode::WrongPassword.as_error_message());
+    }
+    if database_admin_entry.use_otp {
+        if json.otp.is_none() {
+            info!("The user is missing an otp code.");
+            return HttpResponse::BadRequest().json(ErrorCode::MissingOtpCode.as_error_message());
         }
+
+        let stored_otp_secret = database_admin_entry.otp_secret.unwrap();
+
+        if otp::calculate_current_otp(&stored_otp_secret) != request_otp_code.clone().unwrap() {
+            info!("A login with a wrong OTP code will be denied.");
+            return HttpResponse::Forbidden().json(ErrorCode::WrongOtpCode.as_error_message());
+        }
+        setup_login_state(session, state, database_admin_entry.username);
+        HttpResponse::Ok().json(MessageRes::from("The login was successful."))
     } else {
-        debug!("A login with a wrong username will be denied.");
-        HttpResponse::build(StatusCode::FORBIDDEN).body("Missing permissions")
+        // User has logged in successfully using password
+        setup_login_state(session, state, database_admin_entry.username);
+        HttpResponse::Ok().json(MessageRes::from("The login was successful."))
     }
 }
 
-/// Log out a user.
-///
-/// This function removes the users login token from the cookie as well as the
-/// zentrox_admin_password. This invalidates the user and they are logged out.
-/// To prevent the user from re-using the current cookie, the state is replaced by a new random
-/// token that is longer than the one that would normally be used to log in.
-#[post("/logout")]
+/// Logs a user out.
+#[utoipa::path(
+    get,
+    path = "/private/logout",
+    responses((status = 301, description = "User has been logged out successfully and will be redirected.")),
+    tags = ["private", "authentication"]
+)]
 async fn logout(session: Session, state: Data<AppState>) -> HttpResponse {
-    if is_admin_state(&session, state.clone()) {
-        session.purge();
-
-        *state.username.lock().unwrap() = "".to_string();
-        *state.login_token.lock().unwrap() =
-            hex::encode((0..64).map(|_| rand::random::<u8>()).collect::<Vec<u8>>()).to_string();
-        HttpResponse::Found()
-            .append_header(("Location", "/"))
-            .body("You will soon be redirected")
-    } else {
-        HttpResponse::BadRequest().body("You are not logged in.")
-    }
+    session.purge();
+    *state.username.lock().unwrap() = "".to_string();
+    // TODO Login token should be Option<String> and set to None if user is logged out
+    *state.login_token.lock().unwrap() =
+        hex::encode((0..64).map(|_| rand::random::<u8>()).collect::<Vec<u8>>()).to_string();
+    HttpResponse::Found()
+        .append_header(("Location", "/"))
+        .body("You will soon be redirected")
 }
 
-/// Retrieve OTP secret on first login.
-///
-/// This function will only return the users OTP secret when the web page is viewed for the first
-/// time. To keep track of this status, a key knows_otp_secret is used.
-
-#[derive(Serialize)]
-struct OtpSecretJsonResponse {
-    secret: String,
+#[derive(Deserialize, ToSchema)]
+struct OtpActivationReq {
+    active: bool,
 }
-#[get("/api/otpSecret")]
-async fn otp_secret_request(state: Data<AppState>, session: Session) -> HttpResponse {
+
+/// Disable or enable 2FA using OTP
+#[utoipa::path(
+    put,
+    path = "/private/auth/useOtp",
+    responses(
+            (status = 200, description = "Status updated."),
+    ),
+    request_body = OtpActivationReq,
+    tags = ["authentication", "private"]
+)]
+async fn otp_activation(json: web::Json<OtpActivationReq>) -> HttpResponse {
     use schema::Admin::dsl::*;
-
     let connection = &mut database::establish_connection();
 
-    let database_admin_entry = Admin
-        .select(AdminAccount::as_select())
-        .first(connection)
-        .unwrap();
+    let status: bool = json.active;
 
-    if (!database_admin_entry.knows_otp && database_admin_entry.use_otp)
-        || is_admin_state(&session, state.clone())
-    {
-        diesel::update(Admin)
-            .set(knows_otp.eq(true))
-            .execute(connection);
-
-        let current_otp_secret = database_admin_entry.otp_secret.unwrap();
-
-        HttpResponse::build(StatusCode::OK).json(OtpSecretJsonResponse {
-            secret: current_otp_secret,
-        })
-    } else {
-        HttpResponse::Forbidden().body("You can not access this value anymore.")
-    }
-}
-
-#[get("/api/updateOtp/{status}")]
-async fn update_otp_status(
-    state: Data<AppState>,
-    session: Session,
-    path: Path<bool>,
-) -> HttpResponse {
-    use schema::Admin::dsl::*;
-
-    if !is_admin_state(&session, state.clone()) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    };
-
-    let connection = &mut database::establish_connection();
-
-    let status: bool = path.into_inner();
-
-    diesel::update(Admin)
+    let status_update_execution = diesel::update(Admin)
         .set(use_otp.eq(status))
         .execute(connection);
 
-    diesel::update(Admin)
-        .set(knows_otp.eq(status))
-        .execute(connection);
+    if let Err(update_error) = status_update_execution {
+        return HttpResponse::InternalServerError()
+            .json(ErrorCode::DatabaseReadFailed(update_error.to_string()).as_error_message());
+    }
 
     if status {
         let secret = otp::generate_otp_secret();
 
-        diesel::update(Admin)
+        let secret_update_execution = diesel::update(Admin)
             .set(otp_secret.eq(Some(secret.clone())))
             .execute(connection);
+
+        if let Err(update_error) = secret_update_execution {
+            return HttpResponse::InternalServerError()
+                .json(ErrorCode::DatabaseReadFailed(update_error.to_string()).as_error_message());
+        }
+
         HttpResponse::Ok().body(secret)
     } else {
-        diesel::update(Admin)
+        let secret_reset_execution = diesel::update(Admin)
             .set(otp_secret.eq(None::<String>))
             .execute(connection);
 
-        HttpResponse::Ok().body("OTP secret has been updated")
+        if let Err(update_error) = secret_reset_execution {
+            return HttpResponse::InternalServerError()
+                .json(ErrorCode::DatabaseReadFailed(update_error.to_string()).as_error_message());
+        }
+
+        HttpResponse::Ok().json(MessageRes::from("Updated OTP activation."))
     }
 }
 
-/// Check if the users uses OTP.
-///
-/// This function returns a boolean depending on the user using OTP or not.
-
-#[derive(Serialize)]
-struct JsonResponse {
+#[derive(Serialize, ToSchema)]
+struct UseOtpRes {
     used: bool,
 }
-#[post("/api/useOtp")]
+
+#[utoipa::path(
+    get,
+    path = "/public/auth/useOtp",
+    responses((
+            status = 200,
+            body = UseOtpRes)),
+    tags=["public", "authentication"]
+)]
+/// Does the user use OTP?
 async fn use_otp(_state: Data<AppState>) -> HttpResponse {
-    HttpResponse::Ok().json(JsonResponse {
+    HttpResponse::Ok().json(UseOtpRes {
         used: get_administrator_account().use_otp,
     })
 }
 
 /// Verifies a given sudo password
-#[post("/api/verifySudoPassword")]
-async fn verify_sudo_password(
-    session: Session,
-    state: Data<AppState>,
-    json: web::Json<SudoPasswordOnlyRequest>,
-) -> HttpResponse {
-    if !is_admin_state(&session, state.clone()) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
+#[utoipa::path(
+    post,
+    path = "/private/auth/sudo/verify",
+    request_body = SudoPasswordReq,
+    responses((status = 401, description = "Wrong sudo password"), (status = 200, description = "Correct sudo password")),
+    tags=["private", "authentication"])]
+async fn verify_sudo_password(json: web::Json<SudoPasswordReq>) -> HttpResponse {
+    if !sudo::verify_password(json.sudo_password.clone()) {
+        return HttpResponse::Unauthorized().json(ErrorCode::BadSudoPassword.as_error_message());
     }
 
-    if !sudo::verify_password(json.sudoPassword.clone()) {
-        return HttpResponse::BadRequest().body("Wrong sudo password");
-    }
-
-    return HttpResponse::Ok().body("Sudo password has been verified");
+    return HttpResponse::Ok().json(MessageRes::from("Sudo password is correct"));
 }
 
-// Functional Requests
+/// A single thermometer reading with a name
+#[derive(Serialize, ToSchema)]
+struct Thermometer {
+    label: String,
+    critical: Option<f32>,
+    reading: Option<f32>,
+}
 
-/// Return general information about the system. This includes:
-/// * `os_name` {string} - The name of your operating system. i.e.: Debian Bookworm 12
-/// * `power_supply` {string} - Does you PC get AC power of battery? Is it charging?
-/// * `hostname` {string} - The hostname of your computer.
-/// * `uptime ` {string} - How long is your computer running since the last boot.
-/// * `temperature` {string} - Your computer CPU temperature in celcius.
-/// * `zentrox_pid` {u16} - The PID of the current running Zentrox instance.
-/// * `process_number` {u32} - The number of active running processes
-#[get("/api/deviceInformation")]
-async fn device_information(session: Session, state: Data<AppState>) -> HttpResponse {
-    if !is_admin_state(&session, state.clone()) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct DeviceInformationRes {
+    hostname: Option<String>,
+    #[schema(value_type = Option<String>)]
+    ip: Option<IpAddr>,
+    /// Milliseconds since last boot
+    uptime: u128,
+    thermometers: Vec<Thermometer>,
+    zentrox_pid: u32,
+    network_bytes_up: Option<f64>,
+    network_bytes_down: Option<f64>,
+    most_active_network_interface: Option<String>,
+    network_interfaces_count: usize,
+    memory_total_bytes: u64,
+    memory_free_bytes: u64,
+    cpu_usage: f32,
+    os_name: Option<String>,
+}
 
-    #[derive(Serialize)]
-    struct JsonResponse {
-        hostname: String,
-        ip: String,
-        uptime: u128,
-        temperature: f32,
-        zentrox_pid: u16,
-        net_up: f64,
-        net_down: f64,
-        net_interface: String,
-        net_connected_interfaces: i32,
-        memory_total: u64,
-        memory_free: u64,
-        cpu_usage: f32,
-        os_name: String,
-    }
-
-    // Current machines hostname. i.e.: debian_pc or 192.168.1.3
-    let hostname = fs::read_to_string("/etc/hostname")
-        .unwrap_or("Unknown hostname".to_string())
-        .replace("\n", "")
-        .to_string();
+#[
+utoipa::path(
+    get,
+    path = "/private/dashboard/information",
+    tags = ["private", "dashboard"],
+    responses((status = 200, body = DeviceInformationRes))
+    )
+]
+/// Hardware and OS statistics
+async fn device_information(state: Data<AppState>) -> HttpResponse {
+    // Current machines host-name. i.e.: debian_pc or 192.168.1.3
+    let hostname = match fs::read_to_string("/etc/hostname") {
+        Ok(reading) => Some(reading.replace("\n", "")),
+        Err(_) => None,
+    };
 
     let uptime = uptime::get().unwrap().as_millis();
 
-    let mut temperature = -300_f32;
-    let c = Components::new_with_refreshed_list();
-    for comp in &c {
-        temperature = comp.temperature().unwrap_or(-300_f32);
-    }
+    // A refreshed list of all thermometer components in the system is obtained.
+    let thermometers_component_list = Components::new_with_refreshed_list();
+    let thermometers: Vec<Thermometer> = thermometers_component_list
+        .iter()
+        .map(|component| Thermometer {
+            label: component.label().to_string(),
+            reading: match component.temperature() {
+                Some(unwrapped_reading) => {
+                    if unwrapped_reading.is_nan() {
+                        None
+                    } else {
+                        Some(unwrapped_reading)
+                    }
+                }
+                None => None,
+            },
+            critical: match component.critical() {
+                Some(unwrapped_reading) => {
+                    if unwrapped_reading.is_nan() {
+                        None
+                    } else {
+                        Some(unwrapped_reading)
+                    }
+                }
+                None => None,
+            },
+        })
+        .collect();
 
-    state.system.lock().unwrap().refresh_memory();
-    state.system.lock().unwrap().refresh_cpu_usage();
-    let cpu_usage = state.system.lock().unwrap().global_cpu_usage();
-    let memory_total: u64 = state.system.lock().unwrap().total_memory();
-    let memory_free: u64 = state.system.lock().unwrap().available_memory();
+    // Refresh current data in the shared system instance.
+    let mut locked_system_instance = state.system.lock().unwrap();
+    locked_system_instance.refresh_memory();
+    locked_system_instance.refresh_cpu_usage();
 
-    let mut net_down = 0.0;
-    let mut net_up = 0.0;
-    let mut net_interface = None;
-    let mut net_interface_name = "MISSING_INTERFACE".to_string();
-    let mut interfaces_i = 0;
-    let interfaces = state.network_interfaces.lock().unwrap();
-    let interfaces_count = interfaces.iter().len();
-    while interfaces_i != interfaces_count {
-        if interfaces[interfaces_i].up != 0.0 && interfaces[interfaces_i].down != 0.0 {
-            net_interface = Some(interfaces[interfaces_i].clone());
+    // Obtain device statistics
+    let cpu_usage = locked_system_instance.global_cpu_usage() / 100_f32;
+    let memory_total_bytes = locked_system_instance.total_memory();
+    let memory_free_bytes = locked_system_instance.available_memory();
+
+    // Default values are None if no interface could be found to obtain the measurements from.
+    let mut network_bytes_down = None;
+    let mut network_bytes_up = None;
+    let mut most_active_network_interface = None;
+
+    let network_interfaces = state.network_interfaces.lock().unwrap();
+    let network_interfaces_count = &network_interfaces.iter().len();
+
+    let mut current_highest_interface_activity: f64 = 0.0;
+
+    for interface in network_interfaces.iter() {
+        let sum = interface.up + interface.down;
+        if sum > current_highest_interface_activity {
+            most_active_network_interface = Some(interface.name.clone());
+            network_bytes_up = Some(interface.up);
+            network_bytes_down = Some(interface.down);
+            current_highest_interface_activity = sum;
         }
-        interfaces_i += 1;
-    }
-    if net_interface.is_some() {
-        let u = net_interface.unwrap();
-        net_interface_name = u.ifname;
-        net_down = u.down;
-        net_up = u.up;
-    } else if interfaces.len() > 0 {
-        let u = interfaces[0].clone();
-        net_interface_name = u.ifname;
-        net_down = u.down;
-        net_up = u.up;
     }
 
+    // Get operating system name from /etc/os-release
     let os_release = fs::read_to_string("/etc/os-release");
-    let mut os_name = String::new();
+    let mut os_name = None;
     if let Ok(s) = os_release {
         s.lines().for_each(|l| {
             if l.starts_with("PRETTY_NAME") {
-                os_name = l.split("=").nth(1).unwrap_or("").replace("\"", "");
+                // The operating system is named using this key
+                os_name = Some(l.split("=").nth(1).unwrap_or("").replace("\"", ""));
             }
         });
     }
 
-    HttpResponse::Ok().json(JsonResponse {
-        zentrox_pid: std::process::id() as u16,
+    HttpResponse::Ok().json(DeviceInformationRes {
+        zentrox_pid: std::process::id(),
         hostname,
         uptime,
-        temperature,
-        net_down,
-        net_up,
-        net_interface: net_interface_name,
-        net_connected_interfaces: interfaces_count as i32,
-        ip: match private_ip() {
-            Ok(v) => v.to_string(),
-            Err(_) => "No route".to_string(),
-        },
-        memory_free,
-        memory_total,
+        thermometers,
+        network_bytes_down,
+        network_bytes_up,
+        most_active_network_interface,
+        network_interfaces_count: *network_interfaces_count,
+        ip: private_ip().ok(),
+        memory_free_bytes,
+        memory_total_bytes,
         cpu_usage,
         os_name,
     })
@@ -623,44 +619,39 @@ async fn device_information(session: Session, state: Data<AppState>) -> HttpResp
 
 // Package API
 
-#[derive(Serialize)]
-#[allow(non_snake_case)]
-struct PackageResponseJson {
-    packages: Vec<String>, // Any package the supported package managers (apt, pacman and dnf) say
-    // would be installed on the system (names only)
-    others: Vec<String>, // Not installed and not a .desktop file
-    packageManager: String,
-    canProvideUpdates: bool,
-    updates: Vec<String>,
-    lastDatabaseUpdate: i64,
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct PackageDatabaseRes {
+    installed: Vec<String>,
+    available: Vec<String>,
+    package_manager: Option<packages::PackageManagers>,
+    updates: Option<Vec<String>>,
+    last_database_update: Option<i64>, // The last database update expressed as seconds since the
+                                       // UNIX epoch
 }
 
-#[derive(Serialize)]
-#[allow(non_snake_case)]
-struct PackageResponseJsonCounts {
-    packages: usize, // Any package the supported package managers (apt, pacman and dnf) say
-    // would be installed on the system (names only)
-    others: usize, // Not installed and not a .desktop file
-    packageManager: String,
-    canProvideUpdates: bool,
-    updates: usize,
-    lastDatabaseUpdate: i64,
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct PackageStatisticsRes {
+    installed: usize,
+    available: usize,
+    package_manager: Option<packages::PackageManagers>,
+    updates: Option<usize>,
+    last_database_update: Option<i64>, // The last database update expressed as seconds since the
+                                       // UNIX epoch
 }
 
-/// Return the current package database.
+#[utoipa::path(
+    get,
+    path = "/private/packages/database",
+    responses((status = 200, body = PackageDatabaseRes)),
+    tags = ["private", "packages"]
+)]
+/// Package database
 ///
-/// This returns a list of every installed packages, every app the has a .desktop file and all
-/// available packages that are listed in the package manager.
-#[get("/api/packageDatabase/{count_only}")]
-async fn package_database(
-    session: Session,
-    state: Data<AppState>,
-    path: Path<bool>,
-) -> HttpResponse {
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
+/// This includes the full names of installed packages. Updates can not be listed if the package
+/// manager is PacMan.
+async fn package_database() -> HttpResponse {
     use models::PackageAction;
     use schema::PackageActions::dsl::*;
     let connection = &mut establish_connection();
@@ -669,102 +660,121 @@ async fn package_database(
         .select(PackageAction::as_select())
         .first(connection)
     {
-        Ok(v) => v.last_database_update.unwrap_or(0),
-        Err(_) => 0,
+        Ok(v) => v.last_database_update,
+        Err(database_error) => {
+            return HttpResponse::InternalServerError().json(
+                ErrorCode::DatabaseReadFailed(database_error.to_string()).as_error_message(),
+            );
+        }
     };
 
-    if path.into_inner() {
-        let installed = match packages::list_installed_packages() {
-            Ok(packages) => packages.len(),
-            Err(_err) => {
-                eprintln!("Listing installed packages failed");
-                0
-            }
-        };
+    let installed = packages::list_installed_packages();
 
-        let available = packages::list_available_packages().unwrap().len();
+    let available = match packages::list_available_packages() {
+        Ok(packages) => packages,
+        Err(_) => {
+            return HttpResponse::InternalServerError()
+                .json(ErrorCode::PackageManagerFailed.as_error_message());
+        }
+    };
 
-        let updates_execution = packages::list_updates();
-        let (can_provide_updates, updates) = {
-            if let Ok(u) = updates_execution {
-                (true, u.len())
-            } else {
-                (false, 0)
-            }
-        };
+    let updates = packages::list_updates().ok();
 
-        HttpResponse::Ok().json(PackageResponseJsonCounts {
-            packages: installed,
-            others: available,
-            packageManager: packages::get_package_manager().unwrap_or("".to_string()),
-            canProvideUpdates: can_provide_updates,
-            updates,
-            lastDatabaseUpdate: stored_last_database_update,
-        })
-    } else {
-        let installed = match packages::list_installed_packages() {
-            Ok(packages) => packages,
-            Err(_err) => {
-                eprintln!("Listing installed packages failed");
-                Vec::new()
-            }
-        };
-
-        let available = packages::list_available_packages().unwrap();
-
-        let updates_execution = packages::list_updates();
-        let (can_provide_updates, updates) = {
-            if let Ok(u) = updates_execution {
-                (true, u)
-            } else {
-                (false, Vec::new())
-            }
-        };
-
-        HttpResponse::Ok().json(PackageResponseJson {
-            packages: installed,
-            others: available,
-            packageManager: packages::get_package_manager().unwrap_or("".to_string()),
-            canProvideUpdates: can_provide_updates,
-            updates,
-            lastDatabaseUpdate: stored_last_database_update,
-        })
-    }
+    HttpResponse::Ok().json(PackageDatabaseRes {
+        installed,
+        available,
+        package_manager: packages::get_package_manager().ok(),
+        updates,
+        last_database_update: stored_last_database_update,
+    })
 }
 
-// Packages that would be affected by an autoremove
+#[utoipa::path(
+    get,
+    path = "/private/packages/statistics",
+    responses((status = 200, body = PackageStatisticsRes)),
+    tags = ["private", "packages"]
+)]
+/// Package database counts
+async fn package_statistics() -> HttpResponse {
+    use models::PackageAction;
+    use schema::PackageActions::dsl::*;
+    let connection = &mut establish_connection();
 
-#[derive(Serialize)]
-struct PackageDatabaseAutoremoveJson {
+    let stored_last_database_update = match PackageActions
+        .select(PackageAction::as_select())
+        .first(connection)
+    {
+        Ok(v) => v.last_database_update,
+        Err(database_error) => {
+            return HttpResponse::InternalServerError().json(
+                ErrorCode::DatabaseReadFailed(database_error.to_string()).as_error_message(),
+            );
+        }
+    };
+
+    let installed = packages::list_installed_packages().len();
+
+    let available = match packages::list_available_packages() {
+        Ok(packages) => packages.len(),
+        Err(_) => {
+            return HttpResponse::InternalServerError()
+                .json(ErrorCode::PackageManagerFailed.as_error_message());
+        }
+    };
+
+    let updates = match packages::list_updates() {
+        Ok(packages) => Some(packages.len()),
+        Err(_) => None,
+    };
+
+    HttpResponse::Ok().json(PackageStatisticsRes {
+        installed,
+        available,
+        package_manager: packages::get_package_manager().ok(),
+        updates,
+        last_database_update: stored_last_database_update,
+    })
+}
+
+#[derive(Serialize, ToSchema)]
+struct OrphanedPackagesRes {
     packages: Vec<String>,
 }
 
-/// Return a list of all packages that would be affected by an autoremove.
-#[get("/api/listOrphanedPackages")]
-async fn orphaned_packages(session: Session, state: Data<AppState>) -> HttpResponse {
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
+/// List of packages affected by auto-remove.
+#[utoipa::path(
+    get,
+    path = "/private/packages/orphaned",
+    responses((status = 200, body = OrphanedPackagesRes)),
+    tags = ["private", "packages"]
+)]
+async fn orphaned_packages() -> HttpResponse {
+    if let Ok(packages) = packages::list_orphaned_packages() {
+        HttpResponse::Ok().json(OrphanedPackagesRes { packages })
+    } else {
+        HttpResponse::InternalServerError().json(ErrorCode::PackageManagerFailed.as_error_message())
     }
-
-    let packages = packages::list_orphaned_packages().unwrap();
-
-    HttpResponse::Ok().json(PackageDatabaseAutoremoveJson { packages })
 }
 
+#[utoipa::path(
+    post,
+    path = "/private/packages/updateDatabase",
+    request_body = SudoPasswordReq,
+    responses((status = 200, description = "The update has been started, a Job ID in UUID format is provided.")),
+    tags=["private", "packages", "responding_job"]
+)]
 /// Update package database
-#[post("/api/updatePackageDatabase")]
+///
+/// This action may take several minutes and is useful for discovering outdated packages.
+/// The task is ran asynchronous to the rest of the program and a job id is given which can be
+/// polled to get the state of the job.
 async fn update_package_database(
-    session: Session,
     state: Data<AppState>,
-    json: web::Json<SudoPasswordOnlyRequest>,
+    json: web::Json<SudoPasswordReq>,
 ) -> HttpResponse {
     use models::PackageAction;
     use schema::PackageActions::dsl::*;
-
-    if !is_admin_state(&session, state.clone()) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
     let job_id = Uuid::new_v4();
 
     state
@@ -773,69 +783,78 @@ async fn update_package_database(
         .unwrap()
         .insert(job_id, BackgroundTaskState::Pending);
 
-    drop(actix_web::web::block(move || {
+    let block = actix_web::web::block(move || {
         let connection = &mut establish_connection();
-        match packages::update_database(json.into_inner().sudoPassword) {
-            Ok(_) => {
-                let updated_new_database_update = Some(
-                    std::time::SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs() as i64,
-                );
-                diesel::insert_into(PackageActions)
-                    .values(PackageAction {
-                        last_database_update: updated_new_database_update,
-                        key: 0_i32,
-                    })
-                    .on_conflict(key)
-                    .do_update()
-                    .set(last_database_update.eq(updated_new_database_update))
-                    .execute(connection);
+        if let Ok(_) = packages::update_database(json.into_inner().sudo_password) {
+            let updated_new_database_update = std::time::SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64;
+
+            let new_package_action_row = PackageAction {
+                last_database_update: Some(updated_new_database_update),
+                key: 0_i32,
+            };
+
+            let package_action_time_update_execution = diesel::insert_into(PackageActions)
+                .values(new_package_action_row)
+                .on_conflict(key)
+                .do_update()
+                .set(last_database_update.eq(updated_new_database_update))
+                .execute(connection);
+
+            if let Err(database_error) = package_action_time_update_execution {
+                state.background_jobs.lock().unwrap().insert(
+                    job_id,
+                    BackgroundTaskState::FailOutput(database_error.to_string()),
+                )
+            } else {
                 state
                     .background_jobs
                     .lock()
                     .unwrap()
                     .insert(job_id, BackgroundTaskState::Success)
             }
-            Err(_) => state
+        } else {
+            state
                 .background_jobs
                 .lock()
                 .unwrap()
-                .insert(job_id, BackgroundTaskState::Fail),
+                .insert(job_id, BackgroundTaskState::Fail)
         }
-    }));
+    });
+
+    drop(block);
 
     HttpResponse::Ok().body(job_id.to_string())
 }
 
-#[derive(Deserialize)]
-#[allow(non_snake_case)]
-struct PackageActionRequest {
-    packageName: String,
-    sudoPassword: String,
+/// Struct used for all actions performed on a package (install, remove, update...)
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct PackageActionReq {
+    package_name: String,
+    sudo_password: String,
 }
 
-#[post("/api/installPackage")]
-/// Install a package on the users system.
+#[utoipa::path(
+    post,
+    path = "/private/packages/install",
+    request_body = PackageActionReq,
+    responses((status = 200, description = "Job started with ID")),
+    tags = ["private", "packages", "responding_job"]
+)]
+/// Install package
 ///
 /// It requires the package name along side the sudo password in the request body.
-/// This only works under apt, dnf and pacman.
-async fn install_package(
-    session: Session,
-    json: web::Json<PackageActionRequest>,
-    state: Data<AppState>,
-) -> HttpResponse {
-    if !is_admin_state(&session, state.clone()) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
+/// This only works under apt, dnf and pacman. This request responds only with a job id.
+async fn install_package(json: web::Json<PackageActionReq>, state: Data<AppState>) -> HttpResponse {
     let job_id = Uuid::new_v4();
 
     drop(actix_web::web::block(
         move || match packages::install_package(
-            json.packageName.to_string(),
-            json.sudoPassword.to_string(),
+            json.package_name.to_string(),
+            json.sudo_password.to_string(),
         ) {
             Ok(_) => state
                 .background_jobs
@@ -853,26 +872,24 @@ async fn install_package(
     HttpResponse::Ok().body(job_id.to_string())
 }
 
-#[post("/api/removePackage")]
-/// Remove a package from the users system.
+#[utoipa::path(
+    post,
+    path = "/private/packages/remove",
+    request_body = PackageActionReq,
+    responses((status = 200, description = "Job started with ID")),
+    tags = ["private", "packages", "responding_job"]
+)]
+/// Remove package
 ///
 /// It requires the package name along side the sudo password in the request body.
-/// This only works under apt, dnf and pacman.
-async fn remove_package(
-    session: Session,
-    json: web::Json<PackageActionRequest>,
-    state: Data<AppState>,
-) -> HttpResponse {
-    if !is_admin_state(&session, state.clone()) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
+/// This only works under apt, dnf and pacman. This request responds only with a job id.
+async fn remove_package(json: web::Json<PackageActionReq>, state: Data<AppState>) -> HttpResponse {
     let job_id = Uuid::new_v4();
 
     drop(actix_web::web::block(
         move || match packages::remove_package(
-            json.packageName.to_string(),
-            json.sudoPassword.to_string(),
+            json.package_name.to_string(),
+            json.sudo_password.to_string(),
         ) {
             Ok(_) => state
                 .background_jobs
@@ -890,26 +907,24 @@ async fn remove_package(
     HttpResponse::Ok().body(job_id.to_string())
 }
 
-#[post("/api/updatePackage")]
-/// Remove a package from the users system.
+#[utoipa::path(
+    post,
+    path = "/private/packages/update",
+    request_body = PackageActionReq,
+    responses((status = 200, description = "Job started with ID")),
+    tags = ["private", "packages", "responding_job"]
+)]
+/// Update packages
 ///
 /// It requires the package name along side the sudo password in the request body.
-/// This only works under apt, dnf and pacman.
-async fn update_package(
-    session: Session,
-    json: web::Json<PackageActionRequest>,
-    state: Data<AppState>,
-) -> HttpResponse {
-    if !is_admin_state(&session, state.clone()) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
+/// This only works under apt, dnf and pacman. This request responds only with a job id.
+async fn update_package(state: Data<AppState>, json: web::Json<PackageActionReq>) -> HttpResponse {
     let job_id = Uuid::new_v4();
 
     drop(actix_web::web::block(
         move || match packages::update_package(
-            json.packageName.to_string(),
-            json.sudoPassword.to_string(),
+            json.package_name.to_string(),
+            json.sudo_password.to_string(),
         ) {
             Ok(_) => state
                 .background_jobs
@@ -927,21 +942,22 @@ async fn update_package(
     HttpResponse::Ok().body(job_id.to_string())
 }
 
-#[post("/api/updateAllPackages")]
-/// Remove a package from the users system.
+#[utoipa::path(
+    post,
+    path = "/private/packages/updateAll",
+    request_body = SudoPasswordReq,
+    responses((status = 200, description = "Job started with ID")),
+    tags = ["private", "packages", "responding_job"]
+)]
+/// Update all packages
 ///
 /// It requires the package name along side the sudo password in the request body.
 /// This only works under apt, dnf and pacman.
 async fn update_all_packages(
-    session: Session,
-    json: web::Json<SudoPasswordOnlyRequest>,
     state: Data<AppState>,
+    json: web::Json<SudoPasswordReq>,
 ) -> HttpResponse {
-    if !is_admin_state(&session, state.clone()) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
-    let sudo_password = json.sudoPassword.clone();
+    let sudo_password = json.sudo_password.clone();
     let job_id = Uuid::new_v4();
 
     state
@@ -968,46 +984,19 @@ async fn update_all_packages(
     HttpResponse::Ok().body(job_id.to_string())
 }
 
-#[get("/api/fetchJobStatus/{jobId}")]
-async fn fetch_job_status(
-    session: Session,
-    state: Data<AppState>,
-    path: web::Path<String>,
-) -> HttpResponse {
-    if !is_admin_state(&session, state.clone()) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
-    let requested_id = path.into_inner().to_string();
-    let jobs = state.background_jobs.lock().unwrap().clone();
-    let background_state = jobs.get(&uuid::Uuid::parse_str(&requested_id).unwrap());
-
-    match background_state {
-        Some(bs) => match bs {
-            BackgroundTaskState::Success => HttpResponse::Ok().body("Task finished successfully"),
-            BackgroundTaskState::Fail => HttpResponse::UnprocessableEntity().body("Task failed"),
-            BackgroundTaskState::SuccessOutput(s) => HttpResponse::Ok().body(s.clone()),
-            BackgroundTaskState::FailOutput(f) => {
-                HttpResponse::UnprocessableEntity().body(f.clone())
-            }
-            BackgroundTaskState::Pending => HttpResponse::Accepted().body("Task is pending"),
-        },
-        None => HttpResponse::Accepted().body("Task does not exist"),
-    }
-}
-
-#[post("/api/removeOrphanedPackages")]
-/// Run an autoremove command on the users computer.
+#[utoipa::path(
+    post,
+    path = "/private/packages/removeOrphaned",
+    request_body = SudoPasswordReq,
+    responses((status = 200, description = "Job started with ID")),
+    tags = ["private", "packages", "responding_job"]
+)]
+/// Auto-remove packages
 async fn remove_orphaned_packages(
-    session: Session,
-    json: web::Json<SudoPasswordOnlyRequest>,
+    json: web::Json<SudoPasswordReq>,
     state: Data<AppState>,
 ) -> HttpResponse {
-    if !is_admin_state(&session, state.clone()) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
-    let sudo_password = json.sudoPassword.clone();
+    let sudo_password = json.sudo_password.clone();
     let job_id = Uuid::new_v4();
 
     state
@@ -1016,353 +1005,342 @@ async fn remove_orphaned_packages(
         .unwrap()
         .insert(job_id, BackgroundTaskState::Pending);
 
-    drop(actix_web::web::block(
-        move || match packages::remove_orphaned_packages(sudo_password.to_string()) {
-            Ok(_) => state
-                .background_jobs
-                .lock()
-                .unwrap()
-                .insert(job_id, BackgroundTaskState::Success),
-            Err(_) => state
-                .background_jobs
-                .lock()
-                .unwrap()
-                .insert(job_id, BackgroundTaskState::Fail),
-        },
-    ));
+    drop(actix_web::web::block(move || {
+        let status = match packages::remove_orphaned_packages(sudo_password.to_string()) {
+            Ok(_) => BackgroundTaskState::Success,
+            Err(e) => BackgroundTaskState::FailOutput(e.to_string()),
+        };
+        state.background_jobs.lock().unwrap().insert(job_id, status)
+    }));
 
     return HttpResponse::Ok().body(job_id.to_string());
 }
 
-// Firewall API
+#[utoipa::path(
+    get,
+    path = "/private/jobs/status/{id}",
+    responses((status = 200, description = "The operation finished and may have provided results."),
+    (status = 422, description = "The task failed and may have provided error details."),
+    (status = 202, description = "The task is still pending."),
+    (status = 404, description = "A job with this ID could not be found.")),
+    tags = ["private", "jobs"],
+    params(("id" = String, Path))
+)]
+/// Get the status of a job.
+///
+/// Jobs are used for tasks that would block the server and take a lot of time to finish, making it
+/// unreasonable to keep the connection alive for that long. Some browser may even time out.
+async fn fetch_job_status(state: Data<AppState>, path: web::Path<String>) -> HttpResponse {
+    let requested_id = path.into_inner().to_string();
+    let jobs = state.background_jobs.lock().unwrap().clone();
+    let background_state = jobs.get(&uuid::Uuid::parse_str(&requested_id).unwrap());
 
-#[get("/api/hasUfw")]
-async fn firewall_has_ufw(session: Session, state: Data<AppState>) -> HttpResponse {
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
-    let installed_packages = packages::list_installed_packages();
-
-    match installed_packages {
-        Ok(v) => {
-            if v.contains(&String::from("ufw")) {
-                return HttpResponse::Ok().body("true");
-            } else {
-                return HttpResponse::Ok().body("false");
+    match background_state {
+        Some(bs) => match bs {
+            BackgroundTaskState::Success => {
+                HttpResponse::Ok().json(MessageRes::from("Operation finished successfully."))
             }
-        }
-        Err(_) => {
-            if Command::new("ufw").spawn().is_ok() {
-                return HttpResponse::Ok().body("true");
-            } else {
-                return HttpResponse::Ok().body("false");
+            BackgroundTaskState::Fail => {
+                HttpResponse::UnprocessableEntity().json(ErrorCode::TaskFailed.as_error_message())
             }
-        }
+            BackgroundTaskState::SuccessOutput(s) => {
+                HttpResponse::Ok().json(MessageRes::from(s.clone()))
+            }
+            BackgroundTaskState::FailOutput(f) => HttpResponse::UnprocessableEntity()
+                .json(ErrorCode::TaskFailedWithDescription(f.to_string()).as_error_message()),
+            BackgroundTaskState::Pending => {
+                HttpResponse::Accepted().json(MessageRes::from("The task is still in work."))
+            }
+        },
+        None => HttpResponse::NotFound().json(ErrorCode::NoSuchTask.as_error_message()),
     }
 }
 
-#[derive(Serialize)]
-struct FireWallInformationResponseJson {
+// Firewall API
+
+#[derive(Serialize, ToSchema)]
+struct HasUfwReq {
+    has: bool,
+}
+
+#[utoipa::path(
+    get,
+    path = "/private/firewall/ufwPresent",
+    responses((status = 200, body = HasUfwReq)),
+    tags = ["private", "firewall"]
+)]
+/// Is UFW installed
+async fn firewall_has_ufw() -> HttpResponse {
+    let check = packages::list_installed_packages().contains(&String::from("ufw"));
+    HttpResponse::Ok().json(HasUfwReq { has: check })
+}
+
+#[derive(Serialize, ToSchema)]
+struct FirewallInformationRes {
     enabled: bool,
     rules: Vec<ufw::UfwRule>,
 }
 
-#[post("/api/fireWallInformation")]
-/// Returns general information about the current UFW firewall configuration.
-async fn firewall_information(
-    session: Session,
-    state: Data<AppState>,
-    json: web::Json<SudoPasswordOnlyRequest>,
-) -> HttpResponse {
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
-    let password = &json.sudoPassword;
+#[utoipa::path(
+    post,
+    path = "/private/firewall/rules",
+    request_body = SudoPasswordReq,
+    responses(
+        (status = 200, body = FirewallInformationRes),
+    ),
+    tags = ["firewall", "private"])]
+/// UFW status
+async fn firewall_information(json: web::Json<SudoPasswordReq>) -> HttpResponse {
+    let password = &json.sudo_password;
 
     match ufw::ufw_status(password.to_string()) {
         Ok(ufw_status) => {
             let enabled = ufw_status.0;
             let rules = ufw_status.1;
 
-            HttpResponse::Ok().json(FireWallInformationResponseJson { enabled, rules })
+            HttpResponse::Ok().json(FirewallInformationRes { enabled, rules })
         }
         Err(err) => {
-            eprintln!("UFW Status error {err}");
-            HttpResponse::BadRequest().body(err)
+            error!("Executing UFW failed with error: {err}");
+            HttpResponse::InternalServerError()
+                .json(ErrorCode::UfwExecutionFailed(err).as_error_message())
         }
     }
 }
 
-#[post("/api/switchUfw/{value}")]
-/// Enable or disable the UFW firewall.
-///
-/// This requires a url parameter. It can either be "true" or "false".
-/// In addtion to that the request has to server the user with a sudo password.
-async fn switch_ufw(
-    session: Session,
-    state: Data<AppState>,
-    path: web::Path<String>,
-    json: web::Json<SudoPasswordOnlyRequest>,
-) -> HttpResponse {
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
-    let v: String = path.into_inner();
-
-    if v == *"true" {
-        let password = &json.sudoPassword;
-        match sudo::SwitchedUserCommand::new(
-            password.to_string(),
-            "/usr/sbin/ufw --force enable".to_string(),
-        )
-        .spawn()
-        {
-            sudo::SudoExecutionResult::Success(status) => {
-                if status == 0 {
-                    return HttpResponse::Ok().body("UFW has been started");
-                } else {
-                    return HttpResponse::InternalServerError()
-                        .body("Failed to start UFW (Return value unequal 0)");
-                }
-            }
-            sudo::SudoExecutionResult::ExecutionError(_) => {
-                return HttpResponse::InternalServerError()
-                    .body("Failed to start UFW because to command error");
-            }
-            _ => {
-                return HttpResponse::InternalServerError()
-                    .body("Failed to start UFW because to command error");
-            }
-        }
-    } else if v == *"false" {
-        let password = &json.sudoPassword;
-        match sudo::SwitchedUserCommand::new(
-            password.to_string(),
-            "/usr/sbin/ufw --force disable".to_string(),
-        )
-        .spawn()
-        {
-            sudo::SudoExecutionResult::Success(status) => {
-                if status == 0 {
-                    return HttpResponse::Ok().body("UFW has been stopped");
-                } else {
-                    return HttpResponse::InternalServerError()
-                        .body("Failed to stop UFW (Return value unequal 0)");
-                }
-            }
-            sudo::SudoExecutionResult::ExecutionError(_) => {
-                return HttpResponse::InternalServerError()
-                    .body("Failed to stop UFW because of command error");
-            }
-            _ => {
-                return HttpResponse::InternalServerError()
-                    .body("Failed to start UFW because to command error");
-            }
-        }
-    }
-
-    HttpResponse::Ok().body("UFW has been configured")
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct SwitchUfwReq {
+    sudo_password: String,
+    enabled: bool,
 }
 
-#[post(
-    "/api/newFireWallRule/{mode}/{destination}/{protocol}/{sender_mode}/{sender_adress}/{action}"
-)]
-/// Create a new firewall rule.
-///
-/// This request takes three URL parameters.
-/// This requires a sudo password.
-async fn new_firewall_rule(
-    session: Session,
-    state: Data<AppState>,
-    path: web::Path<(String, String, String, String, String, String)>,
-    json: web::Json<SudoPasswordOnlyRequest>,
-) -> HttpResponse {
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
+#[utoipa::path(post,
+    path = "/private/firewall/enabled",
+    request_body = SwitchUfwReq,
+    responses(
+        (status = 200),
+    ),
+    tags = ["private", "firewall"])]
+/// Set UFW to enabled or disabled
+async fn switch_ufw(json: web::Json<SwitchUfwReq>) -> HttpResponse {
+    let password = json.sudo_password.clone();
+    let enabled = json.enabled;
 
-    let password = &json.sudoPassword;
-    let (mode, destination, protocol, sender_mode, sender_adress, action) = path.into_inner();
-
-    let decoded_sender_adress = url_decode::url_decode(sender_adress);
-
-    if mode == "p" {
-        // "p" is short for port, thus used for single port rules
-        let destination_parsed: u64 = match destination.parse::<u64>() {
-            Ok(d) => d,
-            Err(_) => return HttpResponse::BadRequest().body("Malformed port"),
-        };
-        let x = ufw::new_rule_port(
-            password,
-            {
-                if protocol == "tcp" {
-                    ufw::NetworkProtocol::Tcp(destination_parsed)
-                } else if protocol == "udp" {
-                    ufw::NetworkProtocol::Udp(destination_parsed)
+    if enabled {
+        match ufw::enable(password) {
+            sudo::SudoExecutionResult::Success(status) => {
+                if status == 0 {
+                    return HttpResponse::Ok().json(MessageRes::from("UFW has been started."));
                 } else {
-                    ufw::NetworkProtocol::Tcp(destination_parsed)
+                    return HttpResponse::InternalServerError()
+                        .json(ErrorCode::UfwExecutionFailedWithStatus(status).as_error_message());
                 }
-            },
-            {
-                if sender_mode == "any" {
-                    ufw::FirewallSender::Any
-                } else {
-                    ufw::FirewallSender::Specific(decoded_sender_adress)
-                }
-            },
-            {
-                if action == "allow" {
-                    ufw::FirewallAction::Allow
-                } else {
-                    ufw::FirewallAction::Deny
-                }
-            },
-        );
-
-        match x {
-            Ok(_) => HttpResponse::Ok().body("Added new rule"),
-            Err(_e) => HttpResponse::InternalServerError().body("Failed to create new rule"),
-        }
-    } else if mode == "r" {
-        // r is short for range, thus used for port range rules (i.e. 8000-8100)
-        let lr: Vec<&str> = destination.split(":").collect();
-
-        if lr.len() != 2 {
-            return HttpResponse::BadRequest().body("Malformed port range");
-        }
-
-        let range_left = match lr[0].parse::<u64>() {
-            Ok(v) => v,
-            Err(_) => return HttpResponse::BadRequest().body("Malformed left side port"),
-        };
-
-        let range_right = match lr[1].parse::<u64>() {
-            Ok(v) => v,
-            Err(_) => return HttpResponse::BadRequest().body("Malformed right side port"),
-        };
-
-        let x = ufw::new_rule_range(
-            password,
-            {
-                if protocol == "tcp" {
-                    ufw::PortRange::Tcp(range_left, range_right)
-                } else if protocol == "udp" {
-                    ufw::PortRange::Udp(range_left, range_right)
-                } else {
-                    ufw::PortRange::Tcp(range_left, range_right)
-                }
-            },
-            {
-                if sender_mode == "any" {
-                    ufw::FirewallSender::Any
-                } else {
-                    ufw::FirewallSender::Specific(decoded_sender_adress)
-                }
-            },
-            {
-                if action == "allow" {
-                    ufw::FirewallAction::Allow
-                } else {
-                    ufw::FirewallAction::Deny
-                }
-            },
-        );
-
-        match x {
-            Ok(_) => HttpResponse::Ok().body("Added new rule"),
-            Err(e) => {
-                eprintln!("Failed to create firewall rule: {e}");
-                HttpResponse::InternalServerError().body("Failed to create new rule")
+            }
+            sudo::SudoExecutionResult::ExecutionError(returned_error) => {
+                return HttpResponse::InternalServerError()
+                    .json(ErrorCode::UfwExecutionFailed(returned_error).as_error_message());
+            }
+            _ => {
+                return HttpResponse::InternalServerError()
+                    .json(ErrorCode::MissingSystemPermissions.as_error_message());
             }
         }
     } else {
-        return HttpResponse::BadRequest().body("Malformed mode parameter");
+        match ufw::disable(password) {
+            sudo::SudoExecutionResult::Success(status) => {
+                if status == 0 {
+                    return HttpResponse::Ok().json(MessageRes::from("UFW has been stopped."));
+                } else {
+                    return HttpResponse::InternalServerError()
+                        .json(ErrorCode::UfwExecutionFailedWithStatus(status).as_error_message());
+                }
+            }
+            sudo::SudoExecutionResult::ExecutionError(returned_error) => {
+                return HttpResponse::InternalServerError()
+                    .json(ErrorCode::UfwExecutionFailed(returned_error).as_error_message());
+            }
+            _ => {
+                return HttpResponse::InternalServerError()
+                    .json(ErrorCode::MissingSystemPermissions.as_error_message());
+            }
+        }
     }
 }
 
-#[post("/api/deleteFireWallRule/{index}")]
-/// Delete a firewall rule by its index.
-async fn delete_firewall_rule(
-    session: Session,
-    state: Data<AppState>,
-    json: web::Json<SudoPasswordOnlyRequest>,
-    path: web::Path<i32>,
-) -> HttpResponse {
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+enum FirewallRulePortMode {
+    Single,
+    Range,
+}
+
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+enum NetworkProtocolName {
+    Tcp,
+    Udp,
+}
+
+impl NetworkProtocolName {
+    fn to_single_port(&self, port: u64) -> ufw::SinglePortProtocol {
+        match *self {
+            Self::Tcp => return ufw::SinglePortProtocol::Tcp(port),
+            Self::Udp => return ufw::SinglePortProtocol::Udp(port),
+        }
     }
 
-    let i = path.into_inner();
-    let password = &json.sudoPassword;
+    fn to_port_range(&self, left: u64, right: u64) -> ufw::PortRangeProtocol {
+        match *self {
+            Self::Tcp => return ufw::PortRangeProtocol::Tcp(left, right),
+            Self::Udp => return ufw::PortRangeProtocol::Udp(left, right),
+        }
+    }
+}
 
-    match ufw::delete_rule(password.to_string(), i as u32) {
-        Ok(_) => HttpResponse::Ok().body("The rule has been deleted"),
-        Err(_) => HttpResponse::InternalServerError()
-            .body("Failed to remove rule because of command error"),
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct NewFirewallRuleReq {
+    mode: FirewallRulePortMode,
+    port: Option<u32>, // The port the rule applies to, this can be None if a range is used
+    range: Option<(u32, u32)>, // The port range the rule applies to, this cane be None in a single
+    // port is used
+    network_protocol: NetworkProtocolName, // The network protocol used on the request (TCP/UDP)
+    sender_address: Option<String>,
+    action: FirewallAction,
+    sudo_password: String,
+}
+
+#[utoipa::path(
+    post,
+    path = "/private/firewall/rule/new",
+    responses((status = 200)),
+    tags = ["private", "firewall"],
+    request_body = NewFirewallRuleReq
+)]
+/// Create firewall rule.
+async fn new_firewall_rule(json: web::Json<NewFirewallRuleReq>) -> HttpResponse {
+    let mode = &json.mode;
+    let sender = {
+        if let Some(specific_address) = &json.sender_address {
+            ufw::FirewallSender::Specific(specific_address.clone())
+        } else {
+            ufw::FirewallSender::Any
+        }
+    };
+
+    let execution = match mode {
+        FirewallRulePortMode::Single => ufw::new_rule_port(
+            &json.sudo_password.clone(),
+            json.network_protocol
+                .to_single_port(json.port.unwrap() as u64),
+            sender,
+            json.action,
+        ),
+
+        FirewallRulePortMode::Range => {
+            let range = &json.range.unwrap();
+            ufw::new_rule_range(
+                &json.sudo_password.clone(),
+                json.network_protocol
+                    .to_port_range(range.0 as u64, range.1 as u64),
+                sender,
+                json.action,
+            )
+        }
+    };
+
+    match execution {
+        Ok(_) => HttpResponse::Ok().json(MessageRes::from("A new firewall rule was created.")),
+        Err(e) => HttpResponse::InternalServerError()
+            .json(ErrorCode::UfwExecutionFailed(e).as_error_message()),
+    }
+}
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct FirewallDeleteRuleReq {
+    // The index of the rule to delete. UFW starts counting at 1, but common convention is 0, thus
+    // this API also uses 0 to start counting.
+    index: u32,
+    sudo_password: String,
+}
+
+#[utoipa::path(
+    post,
+    path = "/private/firewall/rule/delete",
+    tags = ["firewall", "private"],
+    responses((status = 200)),
+    request_body = FirewallDeleteRuleReq
+)]
+/// Delete firewall rule
+async fn delete_firewall_rule(json: web::Json<FirewallDeleteRuleReq>) -> HttpResponse {
+    let password = &json.sudo_password;
+
+    match ufw::delete_rule(password.to_string(), json.index) {
+        Ok(_) => HttpResponse::Ok().json(MessageRes::from("The rule has been deleted.")),
+        Err(e) => HttpResponse::InternalServerError()
+            .json(ErrorCode::UfwExecutionFailed(e).as_error_message()),
     }
 }
 
 // File API
-#[get("/api/callFile/{file_name}")]
-/// Download a file from the machines file system.
-/// This does not work for files that can not be read by the current user.
-async fn call_file(
-    session: Session,
-    state: Data<AppState>,
-    path: web::Path<String>,
-) -> HttpResponse {
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
 
-    let file_path = url_decode::url_decode(&path);
+#[utoipa::path(
+    get,
+    path = "/private/files/download",
+    responses(
+        (status = 200, body = Vec<u8>),
+        (status = 404, description = "File not found")
+    ),
+    params(("path" = String, Query)),
+    tags = ["private", "files"]
+)]
+/// Read file contents
+async fn download_file(info: Query<SinglePath>) -> HttpResponse {
+    let path_for_logging = info.path.to_string_lossy();
 
-    if path::Path::new(&file_path).exists() {
-        let f = fs::read(&file_path);
+    info!("File download started for {}", path_for_logging);
+
+    if path::Path::new(&info.path).exists() {
+        error!("File {} does not exist.", path_for_logging);
+        let f = fs::read(&info.path);
         match f {
             Ok(fh) => {
                 HttpResponse::Ok().body(fh.bytes().map(|x| x.unwrap_or(0_u8)).collect::<Vec<u8>>())
             }
-            Err(_) => HttpResponse::InternalServerError()
-                .body(format!("Failed to read file {}", &file_path)),
+            Err(_) => {
+                HttpResponse::InternalServerError().json(ErrorCode::FileError.as_error_message())
+            }
         }
     } else {
-        HttpResponse::BadRequest().body("This file does not exist.")
+        HttpResponse::NotFound().json(ErrorCode::FileDoesNotExist.as_error_message())
     }
 }
 
-#[derive(Serialize)]
-struct FilesListJson {
-    content: Vec<(String, DirectoryEntryType)>,
+#[derive(Serialize, ToSchema)]
+struct FilesListRes {
+    content: Vec<(String, FileSystemEntry)>,
 }
 
-#[derive(Serialize)]
-enum DirectoryEntryType {
-    File,
-    Directory,
-    InsufficientPermissions,
-}
-
-#[get("/api/filesList/{path}")]
-/// List all the files and folders in a current path.
-/// The path provided in the URL has to be url encoded.
-async fn files_list(
-    session: Session,
-    state: Data<AppState>,
-    path: web::Path<String>,
-) -> HttpResponse {
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
+/// List directory contents
+#[utoipa::path(
+    get,
+    path = "/private/files/directoryReading",
+    responses(
+        (status = 200, body = FilesListRes),
+        (status = 404, description = "Directory not found")
+    ),
+    params(("path" = String, Query)),
+    tags = ["private", "files"]
+)]
+async fn files_list(info: Query<SinglePath>) -> HttpResponse {
+    if !&info.path.exists() {
+        return HttpResponse::NotFound().json(ErrorCode::DirectoryDoesNotExist.as_error_message());
     }
 
-    let dir_path = url_decode::url_decode(&path);
-
-    match fs::read_dir(dir_path) {
+    match fs::read_dir(&info.path) {
         Ok(contents) => {
-            let mut result: Vec<(String, DirectoryEntryType)> = Vec::new();
+            let mut result: Vec<(String, FileSystemEntry)> = Vec::new();
             for e in contents {
                 let e_unwrap = &e.unwrap();
                 let file_name = &e_unwrap.file_name().into_string().unwrap();
@@ -1371,138 +1349,152 @@ async fn files_list(
                 let is_symlink = e_unwrap.metadata().unwrap().is_symlink();
 
                 if is_file {
-                    result.push((file_name.to_string(), DirectoryEntryType::File))
-                } else if is_dir || is_symlink {
-                    result.push((file_name.to_string(), DirectoryEntryType::Directory))
+                    result.push((file_name.to_string(), FileSystemEntry::File))
+                } else if is_dir {
+                    result.push((file_name.to_string(), FileSystemEntry::Directory))
+                } else if is_symlink {
+                    result.push((file_name.to_string(), FileSystemEntry::Symlink))
                 } else {
-                    result.push((
-                        file_name.to_string(),
-                        DirectoryEntryType::InsufficientPermissions,
-                    ))
+                    result.push((file_name.to_string(), FileSystemEntry::Unknown))
                 }
             }
-            HttpResponse::Ok().json(FilesListJson { content: result })
+            HttpResponse::Ok().json(FilesListRes { content: result })
         }
-        Err(_) => HttpResponse::InternalServerError().body("Failed to read directory."),
+        Err(_) => {
+            HttpResponse::InternalServerError().json(ErrorCode::DirectoryError.as_error_message())
+        }
     }
 }
 
-#[get("/api/deleteFile/{path}")]
-/// Delete a path from the machines file system.
-/// This does not work with files that can not be written by the current user.
-/// The path provided in the requests URL has to be url encoded.
-async fn delete_file(
-    session: Session,
-    state: Data<AppState>,
-    path: web::Path<String>,
-) -> HttpResponse {
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
+/// Delete a file path
+#[utoipa::path(
+    post,
+    path = "/private/files/delete",
+    responses(
+        (status = 200),
+        (status = 404, description = "Path does not exist."),
+        (status = 403, description = "The user lacks permissions to delete the file.")
+    ),
+    params(("path" = String, Query)),
+    tags = ["private", "files"]
+)]
+async fn delete_file(info: Query<SinglePath>) -> HttpResponse {
+    let file_path = &info.path;
 
-    let file_path = url_decode::url_decode(&path);
-
-    if std::path::Path::new(&file_path).exists() {
-        let metadata = fs::metadata(&file_path).unwrap();
-        let is_file = metadata.is_file();
-        let is_dir = metadata.is_dir();
-        let is_link = metadata.is_symlink();
-        let has_permissions = !metadata.permissions().readonly();
-
-        if (is_file || is_link) && has_permissions {
-            match fs::remove_file(&file_path) {
-                Ok(_) => HttpResponse::Ok().body("The file has been deleted"),
-                Err(_) => HttpResponse::InternalServerError().body("Failed to delete file."),
-            }
-        } else if is_dir && has_permissions {
-            match fs::remove_dir_all(&file_path) {
-                Ok(_) => HttpResponse::Ok().body("The directory has been deleted"),
-                Err(_) => HttpResponse::InternalServerError().body("Failed to delete directory."),
-            }
-        } else {
-            HttpResponse::Forbidden().body("Missing file permissions. File is readonly.")
-        }
-    } else {
-        HttpResponse::BadRequest().body("This path does not exist")
-    }
-}
-
-#[get("/api/movePath/{old_path}/{new_path}")]
-/// Rename/move a file or folder on the machines file system.
-/// This does not work with files that can not be written/read by the current user.
-/// The paths provided in the URL have to be url encoded.
-async fn move_path(
-    session: Session,
-    state: Data<AppState>,
-    path: web::Path<(String, String)>,
-) -> HttpResponse {
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
-    let (old_path_e, new_path_e) = &path.into_inner();
-    let old_path = url_decode::url_decode(old_path_e);
-    let new_path = url_decode::url_decode(new_path_e);
-
-    if std::path::Path::new(&old_path).exists() {
-        let metadata = fs::metadata(&old_path).unwrap();
-        let has_permissions = !metadata.permissions().readonly();
-        if has_permissions && !std::path::Path::new(&new_path).exists() {
-            match fs::rename(old_path, new_path) {
-                Ok(_) => HttpResponse::Ok().body("The file has been renamed"),
-                Err(_) => HttpResponse::InternalServerError().body("Failed to rename file"),
-            }
-        } else {
-            HttpResponse::Forbidden().body("Missing file permissions. Can not rename.")
-        }
-    } else {
-        HttpResponse::BadRequest().body("This path does not exist")
-    }
-}
-
-#[get("/api/burnFile/{path}")]
-/// Overwrite a file with random data and then delete it.
-/// This does not work with files that can not be written by the current user.
-/// The path provided in the URL has to be url encoded.
-async fn burn_file(
-    session: Session,
-    state: Data<AppState>,
-    path: web::Path<String>,
-) -> HttpResponse {
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
-    let file_path = url_decode::url_decode(&path);
-    let path = std::path::Path::new(&file_path);
-
-    if path.is_dir() {
-        return HttpResponse::BadRequest().body("This is a directory. It can not be burned.");
-    }
-
-    if !path.exists() {
-        return HttpResponse::BadRequest().body("This path does not exist");
+    if !std::path::Path::new(&file_path).exists() {
+        return HttpResponse::NotFound().json(ErrorCode::FileDoesNotExist.as_error_message());
     }
 
     let metadata = fs::metadata(&file_path).unwrap();
+    let is_file = metadata.is_file();
+    let is_dir = metadata.is_dir();
+    let is_link = metadata.is_symlink();
+    let has_permissions = !metadata.permissions().readonly();
+
+    if (is_file || is_link) && has_permissions {
+        match fs::remove_file(&file_path) {
+            Ok(_) => HttpResponse::Ok().json(MessageRes::from("The file has been deleted.")),
+            Err(_) => {
+                HttpResponse::InternalServerError().json(ErrorCode::FileError.as_error_message())
+            }
+        }
+    } else if is_dir && has_permissions {
+        match fs::remove_dir_all(&file_path) {
+            Ok(_) => HttpResponse::Ok().json(MessageRes::from("The directory has been deleted.")),
+            Err(_) => HttpResponse::InternalServerError()
+                .json(ErrorCode::DirectoryError.as_error_message()),
+        }
+    } else {
+        HttpResponse::Forbidden().json(ErrorCode::MissingSystemPermissions.as_error_message())
+    }
+}
+
+#[derive(Deserialize, ToSchema)]
+struct MovePathReq {
+    #[schema(value_type = String)]
+    origin: PathBuf,
+    #[schema(value_type = String)]
+    destination: PathBuf,
+}
+
+/// Move file path
+#[utoipa::path(
+    post,
+    path = "/private/files/move",
+    responses(
+        (status = 200),
+        (status = 404, description = "Path does not exist."),
+        (status = 403, description = "The user lacks permissions to rename the path.")
+    ),
+    request_body = inline(MovePathReq),
+    tags = ["private", "files"]
+)]
+async fn move_path(json: web::Json<MovePathReq>) -> HttpResponse {
+    if !json.origin.exists() || json.destination.exists() {
+        HttpResponse::NotFound().json(ErrorCode::FileDoesNotExist.as_error_message());
+    }
+
+    let metadata = fs::metadata(&json.origin).unwrap();
+    let has_permissions = !metadata.permissions().readonly();
+    if has_permissions && !&json.destination.exists() {
+        match fs::rename(&json.origin, &json.destination) {
+            Ok(_) => HttpResponse::Ok().json(MessageRes::from("The directory has been renamed.")),
+            Err(_) => {
+                HttpResponse::InternalServerError().json(ErrorCode::FileError.as_error_message())
+            }
+        }
+    } else {
+        HttpResponse::Forbidden().json(ErrorCode::MissingSystemPermissions.as_error_message())
+    }
+}
+
+/// Delete file
+///
+/// Overwrites the file with random data and removes it.
+#[utoipa::path(
+    post,
+    path = "/private/files/burn",
+    responses(
+        (status = 200),
+        (status = 404, description = "Path does not exist."),
+        (status = 403, description = "The user lacks permissions to burn this file.")
+    ),
+    params(("path" = String, Query)),
+    tags = ["private", "files"]
+)]
+async fn burn_file(info: Query<SinglePath>) -> HttpResponse {
+    let path = &info.path;
+
+    if path.is_dir() {
+        return HttpResponse::UnprocessableEntity()
+            .json(ErrorCode::DirectoryError.as_error_message());
+    }
+
+    if !path.exists() {
+        return HttpResponse::NotFound().json(ErrorCode::FileDoesNotExist.as_error_message());
+    }
+
+    let metadata = fs::metadata(&path).unwrap();
     let has_permissions = !metadata.permissions().readonly();
 
     if !has_permissions {
-        return HttpResponse::Forbidden().body("Missing file permissions. Can not burn.");
+        return HttpResponse::Forbidden()
+            .json(ErrorCode::MissingSystemPermissions.as_error_message());
     }
 
     let size = metadata.len();
     let r_s = (0..size).map(|_| rand::random::<u8>()).collect::<Vec<u8>>();
-    match fs::write(file_path.clone(), r_s) {
+    match fs::write(path.clone(), r_s) {
         Ok(_) => {
-            let _ = fs::remove_file(&file_path);
-            HttpResponse::Ok().body("The file has been burned")
+            let _ = fs::remove_file(&path);
+            HttpResponse::Ok().json(MessageRes::from("The file has been burned."))
         }
-        Err(_) => HttpResponse::InternalServerError().body("Failed to destroy file."),
+        Err(_) => HttpResponse::InternalServerError().json(ErrorCode::FileError.as_error_message()),
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 enum FileSystemEntry {
     File,
     Directory,
@@ -1510,12 +1502,11 @@ enum FileSystemEntry {
     Unknown,
 }
 
-#[derive(Serialize)]
-struct GetMetadataResponseJson {
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct GetMetadataRes {
     permissions: i32,
-    owner_username: String,
-    owner_uid: u32,
-    owner_gid: u32,
+    owner: NativeUser,
     size: u64,
     entry_type: FileSystemEntry,
     created: Option<u64>,
@@ -1543,23 +1534,30 @@ fn recursive_size_of_directory(path: &PathBuf) -> u64 {
     size
 }
 
-#[get("/api/getMetadata/{path}")]
-async fn get_metadata(
-    session: Session,
-    state: Data<AppState>,
-    path: web::Path<String>,
-) -> HttpResponse {
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
+/// Metadata of path
+#[utoipa::path(
+    get,
+    path = "/private/files/metadata",
+    responses(
+        (status = 200, body = GetMetadataRes),
+        (status = 404, description = "Path does not exist."),
+    ),
+    params(("path" = String, Query)),
+    tags = ["private", "files"]
+)]
+async fn get_file_metadata(info: Query<SinglePath>) -> HttpResponse {
+    let constructed_path = &info.path;
+    if !constructed_path.exists() {
+        return HttpResponse::NotFound().json(ErrorCode::FileDoesNotExist.as_error_message());
     }
 
-    let from_url_path = url_decode::url_decode(&path);
-    let constructed_path = std::path::PathBuf::from(from_url_path);
-    if !constructed_path.exists() {
-        return HttpResponse::BadRequest().body("Path does not exist");
-    }
-    let metadata =
-        fs::metadata(constructed_path.clone()).expect("Failed to retrieve metadata for file");
+    let metadata = match fs::metadata(constructed_path.clone()) {
+        Ok(m) => m,
+        Err(_) => {
+            return HttpResponse::InternalServerError()
+                .json(ErrorCode::FileError.as_error_message());
+        }
+    };
 
     let permissions = metadata.permissions().mode() & 0o777;
     let permissions_octal_string = format!("{permissions:o}");
@@ -1595,17 +1593,12 @@ async fn get_metadata(
         recursive_size_of_directory(&constructed_path)
     };
 
-    let owner_uid = metadata.uid();
-    let owner_username =
-        convert_uid_to_name(owner_uid as usize).unwrap_or("Unknown owner username".to_string());
-    let owner_gid = metadata.gid();
+    let owner = NativeUser::from_uid(metadata.uid()).unwrap();
 
-    HttpResponse::Ok().json(GetMetadataResponseJson {
+    HttpResponse::Ok().json(GetMetadataRes {
         permissions: permissions_octal,
         size,
-        owner_uid,
-        owner_gid,
-        owner_username,
+        owner,
         modified: modified_stamp,
         created: created_stamp,
         entry_type: {
@@ -1629,28 +1622,29 @@ async fn get_metadata(
     })
 }
 
-#[derive(Debug, MultipartForm)]
+#[derive(MultipartForm, ToSchema)]
 struct UploadFileForm {
     #[multipart(limit = "32 GiB")]
+    #[schema(value_type = [u8])]
     file: TempFile,
+    #[schema(value_type = String)]
     path: Text<String>,
 }
 
-#[post("/upload/file")]
-async fn upload_file(
-    session: Session,
-    state: Data<AppState>,
-    MultipartForm(form): MultipartForm<UploadFileForm>,
-) -> HttpResponse {
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
+/// Uploads a file to the host system.
+#[utoipa::path(
+    post,
+    path = "/private/files/upload",
+    responses((status = 200)),
+    request_body(content_type = "mutlipart/form-data", content = UploadFileForm,description = "The path and file to upload."),
+    tags = ["private", "files"]
+)]
+async fn upload_file(MultipartForm(form): MultipartForm<UploadFileForm>) -> HttpResponse {
     let intended_path = PathBuf::from(form.path.to_string());
     let filename = match form.file.file_name {
         Some(v) => v,
         None => {
-            return HttpResponse::BadRequest().body("No filename specified");
+            return HttpResponse::BadRequest().json(ErrorCode::InsufficientData.as_error_message());
         }
     };
     let intended_path = intended_path.join(filename);
@@ -1658,91 +1652,92 @@ async fn upload_file(
     let cpy = fs::copy(temp_path, &intended_path);
     let unk = fs::remove_file(temp_path);
 
-    if cpy.is_err() {
-        HttpResponse::InternalServerError()
-            .body("Unable to copy temporary file to intended destination");
+    if cpy.is_err() || unk.is_err() {
+        HttpResponse::InternalServerError().json(ErrorCode::FileError.as_error_message());
     }
 
-    if unk.is_err() {
-        HttpResponse::InternalServerError().body("Unable to delete temporary file");
-    }
-
-    HttpResponse::Ok().body("The upload has been finished")
+    HttpResponse::Ok().json(MessageRes::from("The upload has been finished."))
 }
 
 // Block Device API
-#[derive(Serialize)]
-struct DriveListJson {
+#[derive(Serialize, ToSchema)]
+struct DriveListRes {
     drives: Vec<drives::BlockDevice>,
 }
 
-#[get("/api/driveList")]
-/// List all block devices connected to the current machine including partition and virtual block
-/// devices.
-async fn list_drives(session: Session, state: Data<AppState>) -> HttpResponse {
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
+#[utoipa::path(
+    get,
+    path = "/private/drives/list",
+    responses((status = 200, body = DriveListRes)),
+    tags = ["private", "drives"]
+)]
+/// List of connected block devices
+async fn list_drives() -> HttpResponse {
     let drives_out = drives::device_list();
 
-    let drives_out_blkdv = drives_out
-        .expect("Failed to get block devices.")
-        .blockdevices;
+    let drives = match drives_out {
+        Some(drives_list) => drives_list.blockdevices,
+        None => {
+            return HttpResponse::InternalServerError()
+                .json(ErrorCode::BlockDeviceListingFailed.as_error_message());
+        }
+    };
 
-    HttpResponse::Ok().json(DriveListJson {
-        drives: drives_out_blkdv,
-    })
+    HttpResponse::Ok().json(DriveListRes { drives })
 }
 
-#[derive(Serialize)]
-struct DriveInformationJson {
-    drives: drives::Drive,
-    ussage: Vec<(String, u64, u64, u64, f64, String)>,
+#[derive(Serialize, ToSchema)]
+struct DriveInformationRes {
+    metadata: drives::Drive,
+    statistics: DriveUsageStatistics,
 }
 
-#[get("/api/driveInformation/{drive}")]
-/// Return information about a block device specified in the URL.
-/// The provided information includes (but is not limited to) the block devices mountpoint, file
-/// size, path, owner...
-async fn drive_information(
-    session: Session,
-    state: Data<AppState>,
-    path: web::Path<String>,
-) -> HttpResponse {
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
+#[derive(Deserialize)]
+struct DriveStatisticsQuery {
+    drive: String,
+}
 
-    let drive = path;
+/// Block device statistics
+#[utoipa::path(
+    get,
+    path = "/private/drives/statistics",
+    responses((status = 200, body = DriveInformationRes)),
+    params(("drive" = String, Query)),
+    tags = ["private", "drives"]
+)]
+async fn drive_information(info: Query<DriveStatisticsQuery>) -> HttpResponse {
+    let drive = &info.drive;
 
-    let info = drives::drive_information(drive.to_string());
+    let metadata = match drives::drive_information(drive.clone()) {
+        Some(m) => m,
+        None => {
+            return HttpResponse::InternalServerError()
+                .json(ErrorCode::DriveMetadataFailed.as_error_message());
+        }
+    };
 
-    HttpResponse::Ok().json(DriveInformationJson {
-        drives: info.unwrap(),
-        ussage: drives::drive_statistics(drive.to_string())
-            .expect("Failed to get drive statistics"),
+    let statistics = match drives::drive_statistics(drive.clone()) {
+        Some(s) => s,
+        None => {
+            return HttpResponse::InternalServerError()
+                .json(ErrorCode::DriveStatisticsFailed.as_error_message());
+        }
+    };
+
+    HttpResponse::Ok().json(DriveInformationRes {
+        metadata,
+        statistics,
     })
 }
 
 // Vault API
 
-#[derive(Deserialize)]
-#[allow(non_snake_case)]
-struct VaultConfigurationJson {
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct VaultConfigurationReq {
     key: Option<String>,
-    oldKey: Option<String>,
-    newKey: Option<String>,
-}
-
-#[derive(Serialize)]
-struct VaultConfigurationCodeResponseJson {
-    code: String,
-}
-
-#[derive(Serialize)]
-struct VaultConfigurationMessageResponseJson {
-    message: String,
+    old_key: Option<String>,
+    new_key: Option<String>,
 }
 
 fn get_vault_enabled() -> bool {
@@ -1756,23 +1751,20 @@ fn get_vault_enabled() -> bool {
         .vault_enabled
 }
 
-#[post("/api/vaultConfigure")]
-/// Configure Vault by providing a password.
-/// If no instance of vault has yet been created, it will be. If there already is an instance of
-/// vault on the current machine, the password is changed, by decrypting the .vault file in the
-/// vault folder with the old password and then encrypting it with the new password. Thus, Zentrox
-/// also requires the current password.
-async fn vault_configure(
-    session: Session,
-    state: Data<AppState>,
-    json: web::Json<VaultConfigurationJson>,
-) -> HttpResponse {
+/// Configure Vault
+///
+/// This creates a new vault instance. If one is already found on the system, only the password is
+/// updated to a new one.
+#[utoipa::path(
+    post,
+    path = "/private/vault/configuration",
+    request_body = VaultConfigurationReq,
+    responses((status = 200), (status = 403, description = "The new old key could not be used to decrypt.")),
+    tags = ["private", "vault"]
+)]
+// NOTE The following could use less indentations
+async fn vault_configure(json: web::Json<VaultConfigurationReq>) -> HttpResponse {
     use schema::Configuration::dsl::*;
-
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
     let vault_path = path::Path::new(&dirs::home_dir().unwrap())
         .join(".local")
         .join("share")
@@ -1783,7 +1775,7 @@ async fn vault_configure(
 
     if !get_vault_enabled() && !vault_path.exists() {
         if json.key.is_none() {
-            return HttpResponse::BadRequest().body("This request is malformed");
+            return HttpResponse::BadRequest().json(ErrorCode::InsufficientData.as_error_message());
         }
 
         let key = &json.key.clone().unwrap();
@@ -1791,139 +1783,97 @@ async fn vault_configure(
         match fs::create_dir_all(&vault_path) {
             Ok(_) => {}
             Err(e) => {
-                eprintln!("Failed to create vault_directory.\n{}", e);
+                error!("The vault directory could not be created due to the following error: {e}");
                 return HttpResponse::InternalServerError()
-                    .body("Failed to create vault_directory.");
+                    .json(ErrorCode::DirectoryError.as_error_message());
             }
         };
 
         let vault_file_contents = format!(
             "Vault created by {} at UNIX {}.",
             whoami::username(),
-            match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
-                Ok(v) => v,
-                Err(_) =>
-                    return HttpResponse::InternalServerError()
-                        .body("System time before UNIX epoch (1/1/1970)"),
-            }
-            .as_millis()
+            SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("Time went backwards.")
+                .as_millis()
         );
 
         match fs::write(vault_path.join(".vault"), vault_file_contents) {
             Ok(_) => {}
             Err(e) => {
-                eprintln!("Failed to write vault file.\n{e}");
-                return HttpResponse::InternalServerError().body(e.to_string());
+                error!("Creating the initial vault file failed with error: {e}");
+                return HttpResponse::InternalServerError()
+                    .json(ErrorCode::FileError.as_error_message());
             }
         }
 
-        vault::encrypt_file(vault_path.join(".vault").to_string_lossy().to_string(), key);
+        vault::encrypt_file(vault_path.join(".vault"), key);
 
-        diesel::update(Configuration)
+        let database_vault_enable_update = diesel::update(Configuration)
             .set(vault_enabled.eq(true))
             .execute(connection);
-    } else if json.oldKey.is_some() && json.newKey.is_some() {
-        let old_key = json.oldKey.clone().unwrap();
-        let new_key = json.newKey.clone().unwrap();
-        match vault::decrypt_file(
-            std::path::Path::new(&dirs::home_dir().unwrap())
-                .join(".local")
-                .join("share")
-                .join("zentrox")
-                .join("vault_directory")
-                .join(".vault")
-                .to_string_lossy()
-                .to_string(),
-            &old_key.to_string(),
-        ) {
-            Some(_) => vault::encrypt_file(
-                std::path::Path::new(&dirs::home_dir().unwrap())
-                    .join(".local")
-                    .join("share")
-                    .join("zentrox")
-                    .join("vault_directory")
-                    .join(".vault")
-                    .to_string_lossy()
-                    .to_string(),
-                &old_key.to_string(),
-            ),
+
+        if let Err(database_error) = database_vault_enable_update {
+            return HttpResponse::InternalServerError().json(
+                ErrorCode::DatabaseUpdateFailed(database_error.to_string()).as_error_message(),
+            );
+        }
+    } else if json.old_key.is_some() && json.new_key.is_some() {
+        let old_key = json.old_key.clone().unwrap();
+        let new_key = json.new_key.clone().unwrap();
+        match vault::decrypt_file(vault_path.join(".vault"), &old_key.to_string()) {
+            Some(_) => vault::encrypt_file(vault_path.join(".vault"), &old_key.to_string()),
             None => {
-                return HttpResponse::Forbidden().json(VaultConfigurationMessageResponseJson {
-                    message: "auth_failed".to_string(),
-                })
+                return HttpResponse::Forbidden()
+                    .json(ErrorCode::MissingVaultPermissions.as_error_message());
             }
         };
 
-        match vault::decrypt_directory(
-            path::Path::new(&dirs::home_dir().unwrap())
-                .join(".local")
-                .join("share")
-                .join("zentrox")
-                .join("vault_directory")
-                .to_string_lossy()
-                .as_ref(),
-            &old_key,
-        ) {
+        match vault::decrypt_directory(vault_path.clone(), &old_key) {
             Ok(_) => {}
             Err(_) => {
-                return HttpResponse::Forbidden().json(VaultConfigurationMessageResponseJson {
-                    message: "auth_failed".to_string(),
-                })
+                return HttpResponse::Forbidden()
+                    .json(ErrorCode::MissingVaultPermissions.as_error_message());
             }
         };
 
-        match vault::encrypt_directory(
-            path::Path::new(&dirs::home_dir().unwrap())
-                .join(".local")
-                .join("share")
-                .join("zentrox")
-                .join("vault_directory")
-                .to_string_lossy()
-                .as_ref(),
-            &new_key,
-        ) {
-            Ok(_) => {}
-            Err(e) => return HttpResponse::InternalServerError().body(e),
-        };
+        if let Err(_) = vault::encrypt_directory(vault_path.clone(), &new_key) {
+            return HttpResponse::InternalServerError()
+                .json(ErrorCode::EncryptionFailed.as_error_message());
+        }
     } else {
-        return HttpResponse::BadRequest().json(VaultConfigurationCodeResponseJson {
-            code: "no_decrypt_key".to_string(),
-        });
+        return HttpResponse::BadRequest().json(ErrorCode::InsufficientData.as_error_message());
     }
 
-    HttpResponse::Ok().json(EmptyJson {})
+    HttpResponse::Ok().json(MessageRes::from("The vault has been configured."))
 }
 
-#[get("/api/isVaultConfigured")]
-async fn is_vault_configured(session: Session, state: Data<AppState>) -> HttpResponse {
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
-    if get_vault_enabled() {
-        return HttpResponse::Ok().body("1");
-    } else {
-        return HttpResponse::Ok().body("0");
-    }
+#[utoipa::path(get,
+    path = "/private/vault/enabled",
+    responses((status = 200, body = String)),
+    tags = ["private", "vault"]
+)]
+/// Is vault ready for use
+async fn is_vault_configured() -> HttpResponse {
+    return HttpResponse::Ok().body(get_vault_enabled().to_string());
 }
 
 // Vault Tree
 
-#[derive(Serialize)]
-struct VaultFsPathJson {
-    fs: Vec<String>,
+#[derive(Serialize, ToSchema)]
+struct VaultFsPathRes {
+    tree: Vec<String>,
 }
 
-#[derive(Deserialize)]
-struct VaultKeyRequest {
+#[derive(Deserialize, ToSchema)]
+struct VaultKeyReq {
     key: String,
 }
 
-/// List all paths in Zentrox Vault in a one-dimensional vector. This also decrypts the file names
+/// List all paths in Zentrox Vault in a one-dimensional vector. This also decrypts the filenames
 /// and folder names of the entries. A directory path always ends with /. The path never starts
 /// with /, thus root is "".
-/// Example: abc.txt; def/; def/gh.i; dev/jkl/mno
-fn list_paths(directory: String, key: String) -> Vec<String> {
+fn list_paths(directory: PathBuf, key: String) -> Vec<String> {
     let read = fs::read_dir(directory).unwrap();
     let mut paths: Vec<String> = Vec::new();
 
@@ -1941,6 +1891,7 @@ fn list_paths(directory: String, key: String) -> Vec<String> {
                 .to_string(),
             "",
         );
+        // TODO ^ Check if this is error prone
 
         if is_file {
             paths.push(
@@ -1980,10 +1931,7 @@ fn list_paths(directory: String, key: String) -> Vec<String> {
                     .to_string()
                     + "/",
             ); // Path of the file, while ignoring the path until (but still including) vault_directory.
-            for e in list_paths(
-                entry_unwrap.path().to_string_lossy().to_string(),
-                key.clone(),
-            ) {
+            for e in list_paths(entry_unwrap.path(), key.clone()) {
                 paths.push(e); // Path of the file, while ignoring the path until (but still including) vault_directory.
             }
         }
@@ -1991,89 +1939,59 @@ fn list_paths(directory: String, key: String) -> Vec<String> {
     paths
 }
 
-#[post("/api/vaultTree")]
-/// Calls list_paths with the password provided by the user. This does not work if the password is
-/// wrong.
-async fn vault_tree(
-    session: Session,
-    state: Data<AppState>,
-    json: web::Json<VaultKeyRequest>,
-) -> HttpResponse {
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
+/// Vault paths as flat path tree
+#[utoipa::path(
+    post,
+    path = "/private/vault/tree",
+    request_body = VaultKeyReq,
+    responses((status = 200, body = VaultFsPathRes), (status = 403, description = "The new key could not be used to decrypt.")),
+    tags = ["private", "vault"]
+)]
+async fn vault_tree(json: web::Json<VaultKeyReq>) -> HttpResponse {
     if get_vault_enabled() {
+        let vault_path = path::Path::new(&dirs::home_dir().unwrap())
+            .join(".local")
+            .join("share")
+            .join("zentrox")
+            .join("vault_directory");
+
         let key = &json.key;
 
-        match vault::decrypt_file(
-            std::path::Path::new(&dirs::home_dir().unwrap())
-                .join(".local")
-                .join("share")
-                .join("zentrox")
-                .join("vault_directory")
-                .join(".vault")
-                .to_string_lossy()
-                .to_string(),
-            &key.to_string(),
-        ) {
-            Some(_) => vault::encrypt_file(
-                std::path::Path::new(&dirs::home_dir().unwrap())
-                    .join(".local")
-                    .join("share")
-                    .join("zentrox")
-                    .join("vault_directory")
-                    .join(".vault")
-                    .to_string_lossy()
-                    .to_string(),
-                &key.to_string(),
-            ),
+        match vault::decrypt_file(vault_path.join(".vault"), &key.to_string()) {
+            Some(_) => vault::encrypt_file(vault_path.join(".vault"), &key.to_string()),
             None => {
-                return HttpResponse::Forbidden().json(VaultConfigurationMessageResponseJson {
-                    message: "auth_failed".to_string(),
-                })
+                return HttpResponse::Forbidden()
+                    .json(ErrorCode::MissingVaultPermissions.as_error_message());
             }
         };
 
-        let paths = list_paths(
-            std::path::Path::new(&dirs::home_dir().unwrap())
-                .join(".local")
-                .join("share")
-                .join("zentrox")
-                .join("vault_directory")
-                .to_string_lossy()
-                .to_string(),
-            key.to_string(),
-        );
+        let paths = list_paths(vault_path, key.to_string());
 
-        HttpResponse::Ok().json(VaultFsPathJson { fs: paths })
+        HttpResponse::Ok().json(VaultFsPathRes { tree: paths })
     } else {
-        HttpResponse::Ok().json(VaultConfigurationMessageResponseJson {
-            message: "vault_not_configured".to_string(),
-        })
+        HttpResponse::BadRequest().json(ErrorCode::VaultUnconfigured)
     }
 }
 
 // Delete vault file
-#[derive(Deserialize)]
-#[allow(non_snake_case)]
-struct VaultDeleteRequest {
-    deletePath: String,
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct VaultDeleteReq {
+    delete_path: String,
     key: String,
 }
 
-#[post("/api/deleteVaultFile")]
-/// Overwrites a file in vault with random data and then removes it from the users file system.
-/// This does not work for the .vault file. This request also does not check for the password
-/// provided by the user to be correct.
-async fn delete_vault_file(
-    session: Session,
-    state: Data<AppState>,
-    json: web::Json<VaultDeleteRequest>,
-) -> HttpResponse {
-    if !is_admin_state(&session, state.clone()) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
+/// Burn vault file
+///
+/// Burns a file in Zentrox vault by overwriting it with random data
+#[utoipa::path(
+    post,
+    path = "/private/vault/delete",
+    request_body = VaultDeleteReq,
+    responses((status = 200, description = "The file is being deleted. This may take several seconds, thus a Job UUID is provided.")),
+    tags = ["private", "vault", "responding_job"]
+)]
+async fn delete_vault_file(state: Data<AppState>, json: web::Json<VaultDeleteReq>) -> HttpResponse {
     let uuid = Uuid::new_v4();
     state
         .background_jobs
@@ -2082,7 +2000,7 @@ async fn delete_vault_file(
         .insert(uuid, BackgroundTaskState::Pending);
 
     drop(actix_web::web::block(move || {
-        let sent_path = &json.deletePath;
+        let sent_path = &json.delete_path;
         if sent_path == ".vault" {
             error!(".vault file may never be deleted.");
             state.background_jobs.lock().unwrap().insert(
@@ -2155,30 +2073,27 @@ async fn delete_vault_file(
 }
 
 // Create new folder in vault
-#[derive(Deserialize)]
-#[allow(non_snake_case)]
-struct VaultNewFolderRequest {
-    folder_name: String,
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct VaultNewFolderReq {
+    directory_name: String,
     key: String,
 }
 
-#[post("/api/vaultNewFolder")]
-/// This creates a new folder/directory in the vault directory. The name of the directory is
-/// encrypted. This does not check if the password provided by the user is correct. This wont work
-/// if the directory name is longer than 64 characters.
-async fn vault_new_folder(
-    session: Session,
-    state: Data<AppState>,
-    json: web::Json<VaultNewFolderRequest>,
-) -> HttpResponse {
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
-    let sent_path = &json.folder_name;
+/// Create new directory in vault.
+#[utoipa::path(
+    post,
+    path = "/private/vault/directory",
+    request_body = VaultNewFolderReq,
+    responses((status = 200), (status = 500, description = "Directory name too long.")),
+    tags = ["private", "vault"]
+)]
+async fn vault_new_folder(json: web::Json<VaultNewFolderReq>) -> HttpResponse {
+    let sent_path = &json.directory_name;
 
     if sent_path.split("/").last().unwrap().len() > 64 {
-        return HttpResponse::InternalServerError().body("The path is invalid");
+        return HttpResponse::InternalServerError()
+            .json(ErrorCode::VaultPathTooLong.as_error_message());
     }
 
     let path = path::Path::new(&dirs::home_dir().unwrap().to_string_lossy().to_string())
@@ -2196,36 +2111,36 @@ async fn vault_new_folder(
         );
 
     if path.exists() {
-        return HttpResponse::BadRequest().body("This file already exists.");
+        return HttpResponse::Conflict().json(ErrorCode::DirectoryError);
     }
 
     let _ = fs::create_dir(&path);
-    HttpResponse::Ok().json(EmptyJson {})
+    HttpResponse::Ok().json(MessageRes::from("A new directory has been created."))
 }
 
 // Upload vault file
 
-#[derive(Debug, MultipartForm)]
+#[derive(MultipartForm, ToSchema)]
 struct VaultUploadForm {
+    #[schema(value_type = String)]
     key: Text<String>,
+    #[schema(value_type = String)]
     path: Text<String>,
 
     #[multipart(limit = "32 GiB")]
+    #[schema(value_type = Vec<u8>)]
     file: TempFile,
 }
 
-#[post("/upload/vault")]
-/// Upload a new file to vault. This requires a multipart form to be the requests body. The file is
-/// then extracted and stored in the users file system.
-async fn upload_vault(
-    session: Session,
-    state: Data<AppState>,
-    MultipartForm(form): MultipartForm<VaultUploadForm>,
-) -> HttpResponse {
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
+/// Upload file to vault.
+#[utoipa::path(
+    post,
+    path = "/private/vault/file",
+    request_body(content_type = "mutlipart/form-data", content = UploadFileForm,description = "The path and file to upload."),
+    responses((status = 200), (status = 409, description = "File with same path already exists.")),
+    tags = ["private", "vault"]
+    )]
+async fn upload_vault(MultipartForm(form): MultipartForm<VaultUploadForm>) -> HttpResponse {
     let file_name = form
         .file
         .file_name
@@ -2236,7 +2151,7 @@ async fn upload_vault(
     let key = &form.key;
 
     if file_name == ".vault" {
-        return HttpResponse::BadRequest().body("A file can not be named .vault");
+        return HttpResponse::BadRequest().json(ErrorCode::FileError);
     }
 
     let base_path = path::Path::new(&dirs::home_dir().unwrap())
@@ -2258,7 +2173,7 @@ async fn upload_vault(
         .join(vault::encrypt_string_hash(file_name.to_string(), key).unwrap());
 
     if in_vault_path.exists() {
-        return HttpResponse::BadRequest().body("This file already exists.");
+        return HttpResponse::Conflict().json(ErrorCode::FileError);
     }
 
     let tmp_file_path = form.file.file.path().to_owned();
@@ -2266,9 +2181,7 @@ async fn upload_vault(
 
     let _ = tokio::fs::copy(&tmp_file_path, &in_vault_path).await;
 
-    println!("{:?}", &tmp_file_path);
-
-    drop(actix_web::web::block(|| {
+    let block = actix_web::web::block(|| {
         let _ = tokio::fs::metadata(&tmp_file_path.clone()).then(async move |v| {
             let file_size = v.unwrap().len();
             let mut i = 0;
@@ -2281,38 +2194,39 @@ async fn upload_vault(
             }
             let _ = tokio::fs::remove_file(&tmp_file_path);
         });
-    }));
+    });
 
-    vault::encrypt_file(in_vault_path.to_string_lossy().to_string(), key);
+    drop(block);
 
-    HttpResponse::Ok().body("The upload has been finished")
+    vault::encrypt_file(in_vault_path, key);
+
+    HttpResponse::Ok().json(MessageRes::from("The upload has been finished."))
 }
 
 // Rename file/folder in vault
-#[derive(Deserialize)]
-#[allow(non_snake_case)]
-struct VaultRenameRequest {
-    path: String,
-    newName: String,
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct VaultRenameReq {
+    origin: String,
+    target: String,
     key: String,
 }
 
-#[post("/api/renameVaultFile")]
-/// This renames/moves a directory or file in the vault directory.
+/// Move a path in vault
+///
 /// The new name will be encrypted. The original name must be provided in non-encrypted form.
-async fn rename_vault_file(
-    session: Session,
-    state: Data<AppState>,
-    json: web::Json<VaultRenameRequest>,
-) -> HttpResponse {
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
-    let sent_path = &json.path;
+#[utoipa::path(
+    post,
+    path = "/private/vault/move",
+    request_body = VaultRenameReq,
+    responses((status = 404, description = "Origin not found."), (status = 400, description = "File can not be moved."), (status = 409, description = "Target path already exists.")),
+    tags = ["private", "vault"]
+)]
+async fn rename_vault_file(json: web::Json<VaultRenameReq>) -> HttpResponse {
+    let sent_path = &json.origin;
 
     if sent_path == "/.vault" {
-        HttpResponse::BadRequest().body("This file can never be deleted");
+        return HttpResponse::BadRequest().json(ErrorCode::FileError);
     }
 
     let path = path::Path::new(&dirs::home_dir().unwrap().to_string_lossy().to_string())
@@ -2329,7 +2243,11 @@ async fn rename_vault_file(
                 .join("/"),
         );
 
-    let sent_new_path = &json.newName;
+    if !path.exists() {
+        return HttpResponse::NotFound().json(ErrorCode::FileDoesNotExist.as_error_message());
+    }
+
+    let sent_new_path = &json.target;
     let new_path = path::Path::new(&dirs::home_dir().unwrap().to_string_lossy().to_string())
         .join(".local")
         .join("share")
@@ -2345,7 +2263,7 @@ async fn rename_vault_file(
         );
 
     if new_path.exists() {
-        return HttpResponse::BadRequest().body("This file already exists.");
+        HttpResponse::Conflict().json(ErrorCode::FileError);
     }
 
     let _ = fs::rename(&path, &new_path);
@@ -2365,37 +2283,43 @@ async fn rename_vault_file(
         let _ = fs::remove_file(path);
     }
 
-    HttpResponse::Ok().json(EmptyJson {})
+    HttpResponse::Ok().json(MessageRes::from("The file has been moved."))
 }
 
 // Download vault file
-#[derive(Deserialize)]
-struct VaultFileDownloadJson {
+#[derive(Deserialize, ToSchema)]
+struct VaultFileDownloadReq {
     key: String,
     path: String,
 }
 
-#[post("/api/vaultFileDownload")]
-/// Download a file from Zentrox Vault.
+fn append_file_extension(p: PathBuf, extension: &str) -> PathBuf {
+    let mut stringified = p.to_string_lossy().to_string();
+    stringified.push_str(extension);
+    PathBuf::from(stringified)
+}
+
+/// Download vault file.
+///
 /// This requires a password from the user in order to decrypt the file server side.
 /// The file will not be provided in encrypted form.
-async fn vault_file_download(
-    session: Session,
-    state: Data<AppState>,
-    json: web::Json<VaultFileDownloadJson>,
-) -> HttpResponse {
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
+#[utoipa::path(
+    post,
+    path = "/private/vault/download",
+    request_body = VaultFileDownloadReq,
+    responses((status = 200, content_type = "application/octet-stream"), (status = 400, description = "File can not be read."), (status = 404, description = "File does not exist.")),
+    tags = ["private", "vault"]
+)]
+async fn vault_file_download(json: web::Json<VaultFileDownloadReq>) -> HttpResponse {
     let sent_path = &json.path;
     let key = &json.key;
 
     if sent_path == "/.vault" {
-        HttpResponse::BadRequest().finish();
+        HttpResponse::BadRequest().json(ErrorCode::FileError);
     }
 
-    let path = path::Path::new(&dirs::home_dir().unwrap().to_string_lossy().to_string())
+    let path = dirs::home_dir()
+        .unwrap()
         .join(".local")
         .join("share")
         .join("zentrox")
@@ -2407,27 +2331,28 @@ async fn vault_file_download(
                 .map(|x| vault::encrypt_string_hash(x.to_string(), &json.key.to_string()).unwrap())
                 .collect::<Vec<String>>()
                 .join("/"),
-        )
-        .to_string_lossy()
-        .to_string();
+        );
 
-    let _ = fs::copy(&path, format!("{path}.dec").to_string());
+    let temporary_decrypted_file = append_file_extension(path.clone(), ".dec");
 
-    vault::decrypt_file(format!("{path}.dec").to_string(), key);
-    if path::Path::new(&format!("{path}.dec").to_string()).exists() {
-        let f = fs::read(format!("{path}.dec").to_string());
+    let _ = fs::copy(path, temporary_decrypted_file.clone());
+
+    vault::decrypt_file(temporary_decrypted_file.clone(), key);
+    if temporary_decrypted_file.exists() {
+        let f = fs::read(&temporary_decrypted_file);
         match f {
             Ok(fh) => {
                 let data = fh.bytes().map(|x| x.unwrap_or(0_u8)).collect::<Vec<u8>>();
-                let _ = vault::burn_file(format!("{path}.dec").to_string());
-                let _ = fs::remove_file(format!("{path}.dec").to_string());
+                let _ = vault::burn_file(temporary_decrypted_file.clone());
+                let _ = fs::remove_file(temporary_decrypted_file.clone());
                 HttpResponse::Ok().body(data)
             }
-            Err(_) => HttpResponse::InternalServerError()
-                .body("Failed to read decrypted file".to_string()),
+            Err(_) => {
+                HttpResponse::InternalServerError().json(ErrorCode::FileError.as_error_message())
+            }
         }
     } else {
-        HttpResponse::BadRequest().body("This file does not exist.")
+        HttpResponse::NotFound().json(ErrorCode::FileDoesNotExist.as_error_message())
     }
 }
 
@@ -2438,26 +2363,27 @@ async fn robots_txt() -> HttpResponse {
     HttpResponse::Ok().body(include_str!("../robots.txt"))
 }
 
-// Upload tls cert
+// Upload TLS cert
 
-#[derive(Debug, MultipartForm)]
+#[derive(MultipartForm, ToSchema)]
 struct TlsUploadForm {
     #[multipart(limit = "1GB")]
+    #[schema(value_type = Vec<u8>)]
     file: TempFile,
 }
 
-#[post("/upload/tls")]
-/// Upload and store a new tls certificate used for TLS protection in HTTPS and FTPS.
+/// Upload new TLS certificate
+///
+/// This certificate is used to encrypt the connection between your browser and Zentrox.
 /// The name of then new certificate is stored in the configuration file.
-async fn upload_tls(
-    session: Session,
-    state: Data<AppState>,
-    MultipartForm(form): MultipartForm<TlsUploadForm>,
-) -> HttpResponse {
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
+#[utoipa::path(
+    post,
+    path = "/private/tls/upload",
+    request_body(content = TlsUploadForm, content_type = "multipart/form-data"),
+    responses((status = 200)),
+    tags = ["private", "tls"]
+)]
+async fn upload_tls(MultipartForm(form): MultipartForm<TlsUploadForm>) -> HttpResponse {
     use schema::Configuration::dsl::*;
 
     let file_name = form
@@ -2473,131 +2399,142 @@ async fn upload_tls(
         .join("zentrox")
         .join(&file_name);
 
-    diesel::update(Configuration)
+    let database_update_execution = diesel::update(Configuration)
         .set(tls_cert.eq(&file_name))
         .execute(&mut establish_connection());
+
+    if let Err(database_error) = database_update_execution {
+        return HttpResponse::InternalServerError()
+            .json(ErrorCode::DatabaseUpdateFailed(database_error.to_string()).as_error_message());
+    }
 
     let tmp_file_path = form.file.file.path().to_owned();
     let _ = fs::copy(&tmp_file_path, &base_path);
 
     match fs::remove_file(&tmp_file_path) {
         Ok(_) => {}
-        Err(e) => {
-            eprintln!("Failed to remove temp file.\n{}", e);
-            return HttpResponse::InternalServerError().finish();
+        Err(_) => {
+            error!(
+                "Unable to remove temporary file at {}",
+                tmp_file_path.to_string_lossy()
+            );
+            return HttpResponse::InternalServerError()
+                .json(ErrorCode::FileError.as_error_message());
         }
     };
 
-    HttpResponse::Ok().finish()
+    HttpResponse::Ok().json(MessageRes::from("Certificate uploaded and stored."))
 }
 
-#[derive(Serialize)]
-struct CertNamesJson {
-    tls: String,
+#[derive(Serialize, ToSchema)]
+struct CertNameRes {
+    name: String,
 }
 
-#[get("/api/certNames")]
-/// Return the name of the current certificate.
-async fn cert_names(session: Session, state: Data<AppState>) -> HttpResponse {
+/// Name of active certificate.
+#[utoipa::path(
+    get,
+    path = "/private/tls/name",
+    responses((status = 200, body = CertNameRes)),
+    tags = ["private", "tls"]
+)]
+async fn cert_names() -> HttpResponse {
     use models::Configurations;
     use schema::Configuration::dsl::*;
-
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
-    let tls = Configuration
+    let name = Configuration
         .select(Configurations::as_select())
         .first(&mut establish_connection())
         .unwrap()
         .tls_cert;
 
-    HttpResponse::Ok().json(CertNamesJson { tls })
+    HttpResponse::Ok().json(CertNameRes { name })
 }
 
 // Power Off System
-#[post("/api/powerOff")]
 /// Powers off the system.
-async fn power_off(
-    session: Session,
-    state: Data<AppState>,
-    json: web::Json<SudoPasswordOnlyRequest>,
-) -> HttpResponse {
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
+#[utoipa::path(
+    post,
+    path = "/private/power/off",
+    request_body = SudoPasswordReq,
+    responses((status = 200)),
+    tags = ["private", "power"]
+)]
+async fn power_off(json: web::Json<SudoPasswordReq>) -> HttpResponse {
     let e =
-        sudo::SwitchedUserCommand::new(json.sudoPassword.clone(), "poweroff".to_string()).spawn();
+        sudo::SwitchedUserCommand::new(json.sudo_password.clone(), "poweroff".to_string()).spawn();
 
     if let sudo::SudoExecutionResult::Success(_) = e {
-        HttpResponse::Ok().body("Shutting down.")
+        HttpResponse::Ok().json(MessageRes::from("The computer is shutting down."))
     } else {
-        HttpResponse::InternalServerError().body("Failed to execute poweroff as super user.")
+        HttpResponse::InternalServerError().json(ErrorCode::PowerOffFailed.as_error_message())
     }
 }
 
 // Account Details
-#[derive(Serialize)]
-struct AccountDetailsJson {
+#[derive(Serialize, ToSchema)]
+struct AccountDetailsRes {
     username: String,
 }
 
-#[post("/api/accountDetails")]
-/// Return the users account details, which is currently limited to the users username.
-async fn account_details(session: Session, state: Data<AppState>) -> HttpResponse {
-    if !is_admin_state(&session, state.clone()) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
-    let username = match state.username.lock() {
+/// Admin account details
+#[utoipa::path(
+    get,
+    path = "/private/account/details",
+    responses((status = 200, body = AccountDetailsRes)),
+    tags = ["private", "account"]
+)]
+async fn account_details(state: Data<AppState>) -> HttpResponse {
+    let state_username = match state.username.lock() {
         Ok(v) => v,
         Err(e) => e.into_inner(),
     };
 
-    HttpResponse::Ok().json(AccountDetailsJson {
-        username: username.to_string(),
+    HttpResponse::Ok().json(AccountDetailsRes {
+        username: state_username.to_string(),
     })
 }
 
-#[derive(Deserialize)]
-struct UpdateAccountJson {
+#[derive(Deserialize, ToSchema)]
+struct UpdateAccountReq {
     password: String,
     username: String,
 }
 
-#[post("/api/updateAccountDetails")]
-/// Update the users username and password.
-async fn update_account_details(
-    session: Session,
-    state: Data<AppState>,
-    json: web::Json<UpdateAccountJson>,
-) -> HttpResponse {
+/// Update account details
+#[utoipa::path(
+    post,
+    path = "/private/account/details",
+    request_body = UpdateAccountReq,
+    responses((status = 200)),
+    tags = ["private", "account"]
+)]
+async fn update_account_details(json: web::Json<UpdateAccountReq>) -> HttpResponse {
     use schema::Admin::dsl::*;
-
-    if !is_admin_state(&session, state.clone()) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
     let connection = &mut establish_connection();
 
     let request_password = &json.password;
     let request_username = &json.username;
 
     let current_ts = std::time::SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap().as_millis() as i64;
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
 
     if !request_password.is_empty() {
         let hashed_request_password =
             hex::encode(crypto_utils::argon2_derive_key(request_password).unwrap()).to_string();
 
         let password_execution = diesel::update(Admin)
-            .set((password_hash.eq(hashed_request_password), updated_at.eq(current_ts)))
+            .set((
+                password_hash.eq(hashed_request_password),
+                updated_at.eq(current_ts),
+            ))
             .execute(connection);
 
-        if password_execution.is_err() {
-            return HttpResponse::InternalServerError().body("Failed to update admin_password.");
+        if let Err(database_error) = password_execution {
+            return HttpResponse::InternalServerError().json(
+                ErrorCode::DatabaseUpdateFailed(database_error.to_string()).as_error_message(),
+            );
         }
     }
 
@@ -2606,21 +2543,24 @@ async fn update_account_details(
             .set(username.eq(request_username))
             .execute(connection);
 
-        if username_execution.is_err() {
-            return HttpResponse::InternalServerError().body("Failed to update username.");
+        if let Err(database_error) = username_execution {
+            return HttpResponse::InternalServerError().json(
+                ErrorCode::DatabaseUpdateFailed(database_error.to_string()).as_error_message(),
+            );
         }
     }
 
-    HttpResponse::Ok().finish()
+    HttpResponse::Ok().json(MessageRes::from("Account details have been updated."))
 }
 
-#[get("/api/profilePicture")]
-/// Return the current profile picture.
-async fn profile_picture(session: Session, state: Data<AppState>) -> HttpResponse {
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
+/// Admin profile picture
+#[utoipa::path(
+    get,
+    path = "/private/account/profilePicture",
+    responses((status = 200, body = &[u8], content_type = "image/")),
+    tags = ["private", "account"]
+)]
+async fn profile_picture() -> HttpResponse {
     let f = fs::read(
         path::Path::new(&dirs::home_dir().unwrap())
             .join(".local")
@@ -2633,28 +2573,30 @@ async fn profile_picture(session: Session, state: Data<AppState>) -> HttpRespons
         Ok(fh) => {
             HttpResponse::Ok().body(fh.bytes().map(|x| x.unwrap_or(0_u8)).collect::<Vec<u8>>())
         }
-        Err(_) => HttpResponse::NotFound().body("Failed to find account picture".to_string()),
+        Err(_) => HttpResponse::NotFound().json(ErrorCode::FileDoesNotExist.as_error_message()),
     }
 }
 
-#[derive(Debug, MultipartForm)]
+#[derive(MultipartForm, ToSchema)]
 struct ProfilePictureUploadForm {
     #[multipart(limit = "2MB")]
+    #[schema(value_type = Vec<u8>)]
     file: TempFile,
 }
 
-#[post("/api/uploadProfilePicture")]
-/// Upload a new profile picture for the users account.
+/// Upload admin profile picture.
+///
 /// The picture may not be larger than 2MB in order to keep loading time down.
+#[utoipa::path(
+    post,
+    path = "/private/account/profilePicture",
+    request_body = ProfilePictureUploadForm,
+    responses((status = 200)),
+    tags = ["private", "account"]
+)]
 async fn upload_profile_picture(
-    session: Session,
-    state: Data<AppState>,
     MultipartForm(form): MultipartForm<ProfilePictureUploadForm>,
 ) -> HttpResponse {
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
     let profile_picture_path = path::Path::new(&dirs::home_dir().unwrap())
         .join(".local")
         .join("share")
@@ -2665,47 +2607,71 @@ async fn upload_profile_picture(
     let _ = fs::copy(&tmp_file_path, &profile_picture_path);
 
     match fs::remove_file(&tmp_file_path) {
-        Ok(_) => HttpResponse::Ok().finish(),
-        Err(e) => {
-            eprintln!("Failed to remove temp file.\n{}", e);
-            HttpResponse::InternalServerError().finish()
+        Ok(_) => HttpResponse::Ok().json(MessageRes::from("The profile picture has been updated.")),
+        Err(_) => {
+            error!(
+                "Remove a temporary file at {} failed.",
+                tmp_file_path.to_string_lossy()
+            );
+            HttpResponse::InternalServerError().json(ErrorCode::FileError.as_error_message())
         }
     }
 }
 
-#[derive(Serialize)]
-struct MessagesLog {
-    logs: Vec<(String, String, String, String, String)>,
+#[derive(Serialize, ToSchema)]
+struct MessagesLogRes {
+    users: Vec<NativeUser>,
+    logs: Vec<QuickJournalEntry>,
 }
 
-#[post("/api/logs/{log}/{since}/{until}")]
-async fn logs_request(
-    session: Session,
-    state: Data<AppState>,
-    json: web::Json<SudoPasswordOnlyRequest>,
-    path: web::Path<(String, u64, u64)>,
-) -> HttpResponse {
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct LogReq {
+    sudo_password: String,
+    since: u64,
+    until: u64,
+}
 
-    let pii = path.into_inner();
-    let log = pii.0;
-    let since = pii.1;
-    let until = pii.2;
+/// Journalctl log in certain time frame
+#[utoipa::path(
+    post,
+    path = "/private/logs",
+    responses((status = 200, body = MessagesLogRes)),
+    request_body = LogReq,
+    tags = ["private", "logs"]
+)]
+async fn logs_request(json: web::Json<LogReq>) -> HttpResponse {
+    let since = &json.since;
+    let until = &json.until;
 
-    if log == "messages" {
-        let messages = logs::log_messages(json.sudoPassword.clone(), since / 1000, until / 1000);
+    match logs::log_messages(json.sudo_password.clone(), since / 1000, until / 1000) {
+        Ok(messages) => {
+            let mut users = vec![];
+            let messages_minified: Vec<QuickJournalEntry> = messages
+                .iter()
+                .map(|m| {
+                    let user = &m.user;
 
-        match messages {
-            Ok(v) => HttpResponse::Ok().json(MessagesLog { logs: v }),
-            Err(e) => {
-                eprintln!("Failed to fetch for logs");
-                HttpResponse::InternalServerError().body(format!("Failed to get message logs {e}"))
-            }
+                    if let Some(valued_user) = user {
+                        if !users.contains(valued_user) {
+                            users.push(valued_user.clone())
+                        }
+                    }
+
+                    m.clone().as_quick_journal_entry()
+                })
+                .collect();
+
+            return HttpResponse::Ok().json(MessagesLogRes {
+                users,
+                logs: messages_minified,
+            });
         }
-    } else {
-        HttpResponse::NotFound().body("The requested logs do not exist")
+        Err(_) => {
+            error!("Getting logs failed.");
+            HttpResponse::InternalServerError()
+                .json(ErrorCode::LogFetchingFailed.as_error_message())
+        }
     }
 }
 
@@ -2755,143 +2721,161 @@ fn is_media_path_whitelisted(l: Vec<MediaSource>, p: PathBuf) -> bool {
     r
 }
 
-#[get("/api/getMedia/{path}")]
-async fn media_request(
-    session: Session,
-    state: Data<AppState>,
-    path: web::Path<String>,
-    req: HttpRequest,
-) -> HttpResponse {
+/// Media file
+#[utoipa::path(
+    get,
+    path = "/private/media/download",
+    responses((status = 200, description = "Binary media file", content_type = "application/octet-stream"), (status = 404, description = "File not found."), (status = 416), (status = 403, description = "Media center may be disabled.")),
+    tags = ["media", "private"]
+)]
+async fn media_request(info: Query<SinglePath>, req: HttpRequest) -> HttpResponse {
     use models::MediaSource;
+    use models::RecommendedMediaEntry;
     use schema::MediaSources::dsl::*;
-
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
+    use schema::RecommendedMedia::dsl::*;
 
     let connection = &mut establish_connection();
 
-    if !get_media_enabled() {
-        return HttpResponse::Forbidden().body("Media center has been disabled");
+    // Determine the requested file path
+    let requested_file_path = &info.path;
+
+    let current_ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("Time went backwards.");
+
+    if !requested_file_path.exists() {
+        return HttpResponse::NotFound().json(ErrorCode::FileDoesNotExist.as_error_message());
+    }
+
+    let database_insert_execution = diesel::insert_into(RecommendedMedia)
+        .values(RecommendedMediaEntry {
+            file_path: requested_file_path.to_string_lossy().to_string(),
+            last_view: current_ts.as_millis() as i64,
+        })
+        .on_conflict(file_path)
+        .do_update()
+        .set(last_view.eq(current_ts.as_millis() as i64))
+        .execute(connection);
+
+    if let Err(database_error) = database_insert_execution {
+        return HttpResponse::InternalServerError()
+            .json(ErrorCode::DatabaseInsertFailed(database_error.to_string()));
     }
 
     // Implement HTTP Ranges
     let headers = req.headers();
     let range = headers.get(actix_web::http::header::RANGE);
 
-    // Determine the requested file path
-    let pii = path.into_inner();
-    let file_path_url = url_decode::url_decode(&pii);
-    let file_path = PathBuf::from(&file_path_url);
+    let mime = mime::guess_mime(requested_file_path.to_path_buf());
 
-    let mime = mime::guess_mime(file_path.to_path_buf());
+    let whitelist_vector: Vec<MediaSource> = MediaSources
+        .select(MediaSource::as_select())
+        .get_results(connection)
+        .unwrap();
 
-    if file_path.exists() {
-        let whitelist_vector: Vec<MediaSource> = MediaSources
-            .select(MediaSource::as_select())
-            .get_results(connection)
-            .unwrap();
+    if !is_media_path_whitelisted(
+        whitelist_vector,
+        fs::canonicalize(requested_file_path.clone()).unwrap(),
+    ) {
+        return HttpResponse::Forbidden().json(ErrorCode::MissingApiPermissions.as_error_message());
+    }
 
-        if !is_media_path_whitelisted(
-            whitelist_vector,
-            fs::canonicalize(file_path.clone()).unwrap(),
-        ) {
-            return HttpResponse::Forbidden().body("This is not a white-listed location.");
+    if requested_file_path.is_dir() {
+        return HttpResponse::BadRequest().json(ErrorCode::FileError.as_error_message());
+    }
+
+    match range {
+        None => {
+            // Does the file even exist
+            HttpResponse::Ok()
+                .insert_header((
+                    header::CONTENT_TYPE,
+                    mime.unwrap_or("application/octet-stream".to_string()),
+                ))
+                .insert_header(header::ContentEncoding::Identity)
+                .insert_header((header::ACCEPT_RANGES, "bytes"))
+                .body(fs::read(requested_file_path).unwrap())
         }
+        Some(e) => {
+            let byte_range = parse_range(e.clone());
+            let file = File::open(&requested_file_path).unwrap();
+            let mut reader = BufReader::new(file);
+            let filesize: usize = reader
+                .get_ref()
+                .metadata()
+                .unwrap()
+                .len()
+                .try_into()
+                .unwrap_or(0);
 
-        if file_path.is_dir() {
-            return HttpResponse::BadRequest().body("A file can not be a directory.");
-        }
-
-        match range {
-            None => {
-                // Does the file even exist
-                HttpResponse::Ok()
-                    .insert_header((
-                        header::CONTENT_TYPE,
-                        mime.unwrap_or("application/octet-stream".to_string()),
-                    ))
-                    .insert_header(header::ContentEncoding::Identity)
-                    .insert_header((header::ACCEPT_RANGES, "bytes"))
-                    .body(fs::read(file_path).unwrap())
+            if byte_range.0 > filesize {
+                return HttpResponse::RangeNotSatisfiable()
+                    .json(ErrorCode::LeftRangeTooHigh.as_error_message());
             }
-            Some(e) => {
-                let byte_range = parse_range(e.clone());
-                let file = File::open(&file_path).unwrap();
-                let mut reader = BufReader::new(file);
-                let filesize: usize = reader
-                    .get_ref()
-                    .metadata()
-                    .unwrap()
-                    .len()
-                    .try_into()
-                    .unwrap_or(0);
-                if byte_range.0 > filesize {
-                    return HttpResponse::RangeNotSatisfiable()
-                        .body("The requested range can not be satisfied.");
-                }
-                if byte_range.1.is_some() && (byte_range.1.unwrap() > filesize) {
-                    return HttpResponse::RangeNotSatisfiable()
-                        .body("The requested range can not be satisfied.");
-                }
-                let buffer_length = byte_range.1.unwrap_or(filesize) - byte_range.0;
-                let _ = reader.seek(SeekFrom::Start(byte_range.0 as u64));
-                let mut buf = vec![0; buffer_length]; // A buffer with the length buffer_length
-                reader.read_exact(&mut buf).unwrap();
 
-                HttpResponse::PartialContent()
-                    .insert_header(header::ContentEncoding::Identity)
-                    .insert_header((header::ACCEPT_RANGES, "bytes"))
-                    .insert_header((
-                        header::CONTENT_DISPOSITION,
-                        format!(
-                            "inline; filename=\"{}\"",
-                            &file_path.file_name().unwrap().to_str().unwrap()
-                        ),
-                    ))
-                    .insert_header((
-                        header::CONTENT_RANGE,
-                        format!(
-                            "bytes {}-{}/{}",
-                            byte_range.0,
-                            byte_range.1.unwrap_or(filesize - 1),
-                            filesize
-                        ), // We HAVE to subtract 1 from the actual file size
-                    ))
-                    .insert_header((header::VARY, "*"))
-                    .insert_header((header::ACCESS_CONTROL_ALLOW_ORIGIN, "*"))
-                    .insert_header((header::ACCESS_CONTROL_ALLOW_METHODS, "GET, HEAD, OPTIONS"))
-                    .insert_header((header::ACCESS_CONTROL_ALLOW_HEADERS, "Range"))
-                    .insert_header((header::CONTENT_LENGTH, buf.len()))
-                    .insert_header((
-                        header::CONTENT_TYPE,
-                        mime.unwrap_or("application/octet-stream".to_string()),
-                    ))
-                    .body(buf)
+            if let Some(right_limit) = byte_range.1 {
+                if right_limit > filesize {
+                    return HttpResponse::RangeNotSatisfiable()
+                        .json(ErrorCode::RightRangeTooHigh.as_error_message());
+                }
             }
+
+            let buffer_length = byte_range.1.unwrap_or(filesize) - byte_range.0;
+            let _ = reader.seek(SeekFrom::Start(byte_range.0 as u64));
+            let mut buf = vec![0; buffer_length]; // A buffer with the length buffer_length
+            reader.read_exact(&mut buf).unwrap();
+
+            HttpResponse::PartialContent()
+                .insert_header(header::ContentEncoding::Identity)
+                .insert_header((header::ACCEPT_RANGES, "bytes"))
+                .insert_header((
+                    header::CONTENT_DISPOSITION,
+                    format!(
+                        "inline; filename=\"{}\"",
+                        &requested_file_path.file_name().unwrap().to_str().unwrap()
+                    ),
+                ))
+                .insert_header((
+                    header::CONTENT_RANGE,
+                    format!(
+                        "bytes {}-{}/{}",
+                        byte_range.0,
+                        byte_range.1.unwrap_or(filesize - 1),
+                        filesize
+                    ), // We HAVE to subtract 1 from the actual file size
+                ))
+                .insert_header((header::VARY, "*"))
+                .insert_header((header::ACCESS_CONTROL_ALLOW_HEADERS, "Range"))
+                .insert_header((header::CONTENT_LENGTH, buf.len()))
+                .insert_header((
+                    header::CONTENT_TYPE,
+                    mime.unwrap_or("application/octet-stream".to_string()),
+                ))
+                .body(buf)
         }
-    } else {
-        HttpResponse::NotFound().body("The requested audio file is not on the server.")
     }
 }
 
-#[derive(Deserialize)]
-struct VideoSourceJson {
-    locations: Vec<(PathBuf, String, bool)>,
+#[derive(Deserialize, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct MediaSourcesSchema {
+    locations: Vec<models::MediaSource>,
 }
 
-#[post("/api/updateVideoSourceList")]
-async fn update_video_source_list(
-    session: Session,
-    state: Data<AppState>,
-    json: web::Json<VideoSourceJson>,
-) -> HttpResponse {
+#[utoipa::path(
+    post,
+    path = "/private/media/sources",
+    request_body = MediaSourcesSchema,
+    responses((status = 200)),
+    tags = ["media", "private"]
+)]
+/// Update media sources
+///
+/// Media sources control what content is shown to the user in Media Center and to which files the
+/// user has access.
+async fn update_media_source_list(json: web::Json<MediaSourcesSchema>) -> HttpResponse {
     use models::MediaSource;
     use schema::MediaSources::dsl::*;
-
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
 
     let connection = &mut establish_connection();
 
@@ -2900,74 +2884,71 @@ async fn update_video_source_list(
     // The frontend only sends an updated array of all resources.
     // It is easier to truncate the entire table and then rewrite its' contents.
 
-    if let Err(_e) = diesel::delete(MediaSources).execute(connection) {
-        return HttpResponse::InternalServerError().body("Failed to truncate sources table.");
+    if let Err(database_error) = diesel::delete(MediaSources).execute(connection) {
+        return HttpResponse::InternalServerError().json(
+            ErrorCode::DatabaseTruncateFailed(database_error.to_string()).as_error_message(),
+        );
     }
 
-    let deserialized_locations: Vec<MediaSource> = locations
+    let deserialized_locations: Vec<&MediaSource> = locations
         .iter()
-        .filter(|e| e.0.exists())
-        .map(|e| MediaSource {
-            directory_path: e.0.canonicalize().unwrap().to_string_lossy().to_string(),
-            alias: e.1.clone(),
-            enabled: e.2,
-        })
+        .filter(|&e| PathBuf::from(&e.directory_path).exists())
         .collect();
 
     for location in deserialized_locations {
-        diesel::insert_into(MediaSources)
-            .values(&location)
+        let database_update_execution = diesel::insert_into(MediaSources)
+            .values(location)
             .on_conflict(directory_path)
             .do_update()
-            .set(&location)
+            .set(location)
             .execute(connection);
+
+        if let Err(database_error) = database_update_execution {
+            return HttpResponse::InternalServerError().json(
+                ErrorCode::DatabaseUpdateFailed(database_error.to_string()).as_error_message(),
+            );
+        }
     }
 
-    HttpResponse::Ok().body("Updated video sources.")
+    HttpResponse::Ok().json(MessageRes::from("The media source have been updated."))
 }
 
-#[derive(Serialize)]
-struct VideoSourcesListResponseJson {
-    locations: Vec<(String, String, bool)>,
-}
-
-#[get("/api/getVideoSourceList")]
-async fn get_video_source_list(session: Session, state: Data<AppState>) -> HttpResponse {
+#[utoipa::path(
+    get,
+    path = "/private/media/sources",
+    responses((status = 200, body = MediaSourcesSchema)),
+    tags = ["media", "private"]
+)]
+/// List of media sources.
+///
+/// See [`update_media_source_list`] for reference.
+async fn get_media_source_list() -> HttpResponse {
     use models::MediaSource;
     use schema::MediaSources::dsl::*;
 
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
-    let rows: Vec<MediaSource> = MediaSources
+    let locations: Vec<MediaSource> = MediaSources
         .select(MediaSource::as_select())
         .get_results(&mut establish_connection())
         .unwrap();
 
-    let mut s = Vec::new();
-    for r in rows {
-        s.push((r.directory_path, r.alias, r.enabled));
-    }
-
-    HttpResponse::Ok().json(VideoSourcesListResponseJson { locations: s })
+    HttpResponse::Ok().json(MediaSourcesSchema { locations })
 }
 
-#[derive(Serialize)]
-struct MediaListResponseJson {
-    media: HashMap<PathBuf, (Option<String>, Option<String>, Option<String>, Option<String>)>,
+#[derive(Serialize, ToSchema)]
+struct MediaListRes {
+    media: Vec<models::MediaEntry>,
 }
 
-/// HashMap all media files including name, filename, cover and genre.
-/// A metadata file is used to keep track of values configured by the user.
-/// If no name is configured in the metadata file, the name is generated automatically.
-/// If no cover is configured, a default cover is sent.
-#[get("/api/getMediaList")]
-async fn get_media_list(session: Session, state: Data<AppState>) -> HttpResponse {
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
+#[utoipa::path(
+    get,
+    path = "/private/media/files",
+    responses((status = 200, body = MediaListRes), (status = 403, description = "Media center may be disabled.")),
+    tags = ["media", "private"]
+)]
+/// List of media files
+///
+/// This list is controlled by the active media sources.
+async fn get_media_list() -> HttpResponse {
     use schema::Media::dsl::*;
     use schema::MediaSources::dsl::*;
 
@@ -2975,203 +2956,96 @@ async fn get_media_list(session: Session, state: Data<AppState>) -> HttpResponse
 
     let connection = &mut establish_connection();
 
-    if !get_media_enabled() {
-        return HttpResponse::Forbidden().body("Media center has been disabled");
-    }
-
     let sources: Vec<PathBuf> = MediaSources
         .select(MediaSource::as_select())
         .get_results(connection)
         .unwrap()
         .into_iter()
-        .filter(|e| e.enabled)
-        .map(|x| PathBuf::from(x.directory_path))
+        .filter(|source| source.enabled)
+        .map(|source| PathBuf::from(source.directory_path))
+        .filter(|path| path.exists())
         .collect();
 
-    let media_files_vector: Vec<Vec<PathBuf>> = sources
-        .clone()
-        .into_iter()
-        .filter(|p| p.exists())
-        .map(|p| {
-            visit_dirs(p)
-                .unwrap()
-                .map(|x| x.path())
-                .filter(|x| x.is_file())
-                // Remove directories and metadata files.
-                .collect()
-        })
-        .collect();
+    let mut all_media_file_paths: Vec<PathBuf> = vec![];
 
-    let mut all_media_files: Vec<PathBuf> = Vec::new();
-
-    for mut paths in media_files_vector {
-        all_media_files.append(&mut paths);
+    for source in sources {
+        let source_specific_contents = visit_dirs(source).unwrap();
+        source_specific_contents
+            .map(|file| file.path())
+            .filter(|path| path.is_file())
+            .for_each(|path| all_media_file_paths.push(path));
     }
 
-    // Create hashmap of all metadata files
-
-    // Assume every directory contains a metadata file. If the file does not exists later on, the
-    // code will act as if it is empty "".
-
-    let mut media_info_hashmap: HashMap<PathBuf, (Option<String>, Option<String>, Option<String>, Option<String>)> = HashMap::new(); // Make empty hashmap
-                                                                                                     // Every media files' path is asigned the information from the metadata files.
-
-    // The metadata file is a file designed the same way as the source directory file.
-    // It is a line-separated file where every line corresponds to a media file.
-    // The individual segments are as follows:
-    // - path: The path in the server filesystem.
-    // - name: The corresponding name of the video (e.g., Big Buck Bunny).
-    // - path: The path the frontend has to ask for to get the media file.
-    // - cover: The filename the frontend has to ask for to get the cover image.
-    // - genre: The genre the media file belongs to (e.g., Animation).
-    // - artist: The name of the artist
-    // These segments are separated using semicolons.
-
-    let metadata_rows = Media
+    let mut media_metadata = Media
         .select(MediaEntry::as_select())
         .get_results(connection)
-        .unwrap();
+        .unwrap()
+        .into_iter();
 
-    for row in metadata_rows {
-        let entry_filepath = std::path::Path::new(&row.file_path);
+    let mut completed_media_entries: Vec<MediaEntry> = Vec::new();
 
-        if !entry_filepath.exists() {
-            diesel::delete(Media)
-                .filter(file_path.eq(row.file_path))
-                .execute(connection);
+    for media_file_path in all_media_file_paths {
+        let search = media_metadata
+            .find(|entry: &MediaEntry| PathBuf::from(entry.file_path.clone()) == media_file_path);
+        if let Some(defined_metadata) = search {
+            completed_media_entries.push(defined_metadata);
         } else {
-            let entry_filepath_canonicalized = entry_filepath.canonicalize().unwrap();
-
-            let mut a = false;
-            for path in &sources {
-                if a {
-                    continue;
-                }
-                if entry_filepath_canonicalized.starts_with(path) {
-                    a = true;
-                }
-            }
-
-            if !a {
-                continue;
-            }
-
-            media_info_hashmap.insert(
-                entry_filepath_canonicalized,
-                (
-                    row.name,
-                    row.cover,
-                    row.genre,
-                    row.artist,
-                ),
-            );
+            completed_media_entries.push(MediaEntry::default_with_file_path(media_file_path));
         }
     }
 
-    // For every file, check if it is in the hashmap, if it isn't add it by guessing a name, adding
-    // a blank cover, generating the source path and adding a blank genre.
-
-    for f in all_media_files {
-        if !media_info_hashmap.contains_key(&f) {
-            let entry_title = f
-                .file_name()
-                .unwrap()
-                .to_string_lossy()
-                .split(".")
-                .next()
-                .unwrap_or("")
-                .to_string()
-                .replace("_", " ")
-                .replace("-", " ")
-                .replace("HD", "")
-                .replace("4K", "")
-                .to_title_case();
-            // Automatically generates a name
-
-            media_info_hashmap.insert(
-                f.into(),
-                // Using playceholders.
-                // The cover can not actually exist in that way, so no user could accidentally
-                // create this cover name. The genre is possible, but it will not really do
-                // anything except be ignored on the frontend side.
-                (
-                    Some(entry_title),
-                    None,
-                    None,
-                    None,
-                ),
-            );
-        }
-    }
-
-    HttpResponse::Ok().json(MediaListResponseJson {
-        media: media_info_hashmap,
-        // The frontend is passed a hashmap with the percise path, name, cover and genre.
-    })
+    return HttpResponse::Ok().json(MediaListRes {
+        media: completed_media_entries,
+    });
 }
 
-#[get("/api/cover/{cover_uri}")]
-async fn get_cover(
-    session: Session,
-    state: Data<AppState>,
-    path: web::Path<String>,
-) -> HttpResponse {
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
+/// Media cover
+///
+/// Only media covers that are in an active media source will be shown.
+#[utoipa::path(get, path = "/private/media/cover", responses((status = 200, content_type = "image/"), (status = 404, description = "Media not found.")), tags = ["media", "private"], params(("path" = String, Query)))]
+async fn get_cover(info: Query<SinglePath>) -> HttpResponse {
     use models::MediaSource;
     use schema::MediaSources::dsl::*;
-
-    if !get_media_enabled() {
-        return HttpResponse::Forbidden().body("Media center has been disabled");
-    }
 
     let sources: Vec<MediaSource> = MediaSources
         .select(MediaSource::as_select())
         .get_results(&mut establish_connection())
         .unwrap();
 
-    let cover_uri = &url_decode::url_decode(&path);
+    let cover_uri = &info.path;
 
-    if cover_uri == "music" {
+    if cover_uri == &PathBuf::from("/music") {
         let cover = include_str!("../music_default.svg");
         HttpResponse::Ok()
             .insert_header((header::CONTENT_TYPE, "image/svg+xml".to_string()))
             .body(cover.bytes().collect::<Vec<u8>>())
-    } else if cover_uri == "video" {
-        let cover = include_str!("../video_default.svg");
-        HttpResponse::Ok()
-            .insert_header((header::CONTENT_TYPE, "image/svg+xml".to_string()))
-            .body(cover.bytes().collect::<Vec<u8>>())
-    } else if cover_uri == "badtype" {
-        let cover = include_str!("../unknown_default.svg");
-        HttpResponse::Ok()
-            .insert_header((header::CONTENT_TYPE, "image/svg+xml".to_string()))
-            .body(cover.bytes().collect::<Vec<u8>>())
     } else {
-        let cover_path = PathBuf::from(cover_uri)
+        if !cover_uri.exists() {
+            return HttpResponse::NotFound().json(ErrorCode::FileDoesNotExist.as_error_message());
+        }
+
+        let cover_path = cover_uri
             .canonicalize()
-            .unwrap_or(PathBuf::from(cover_uri));
+            .expect("Canonicalizing a path failed.");
 
         let allowed_cover_file_extensions = ["png", "jpg", "jpeg", "webp", "gif", "tiff"];
         if !allowed_cover_file_extensions
-            .contains(&cover_path.extension().unwrap_or_default().to_str().unwrap())
+            .contains(&cover_path.extension().unwrap().to_str().unwrap())
         {
-            return HttpResponse::Forbidden()
-                .body("The extension of the cover file is not allowed.");
+            return HttpResponse::UnsupportedMediaType()
+                .json(ErrorCode::ProtectedExtension.as_error_message());
         }
 
-        if !is_media_path_whitelisted(sources, cover_uri.into()) {
-            HttpResponse::Forbidden().body("This cover is not in a source folder.")
+        if !is_media_path_whitelisted(sources, cover_uri.to_path_buf()) {
+            HttpResponse::Forbidden().json(ErrorCode::MissingApiPermissions.as_error_message())
         } else {
-            let fh = fs::read(cover_path).unwrap_or("".into());
+            let fh = fs::read(cover_path).unwrap();
             HttpResponse::Ok().body(fh.bytes().map(|x| x.unwrap_or(0_u8)).collect::<Vec<u8>>())
         }
     }
 }
 
-fn get_media_enabled() -> bool {
+fn get_media_enabled_database() -> bool {
     use models::Configurations;
     use schema::Configuration::dsl::*;
 
@@ -3182,394 +3056,235 @@ fn get_media_enabled() -> bool {
         .media_enabled
 }
 
-#[derive(Serialize)]
-struct MediaEnabledResponseJson {
+#[derive(Serialize, Deserialize, ToSchema)]
+struct MediaEnabledSchema {
     enabled: bool,
 }
 
-#[get("/api/getEnableMedia")]
-async fn get_enable_media(session: Session, state: Data<AppState>) -> HttpResponse {
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
-    HttpResponse::Ok().json(MediaEnabledResponseJson {
-        enabled: get_media_enabled(),
+/// Is media center enabled?
+#[utoipa::path(get, path = "/private/media/enabled", responses((status = 200, body = MediaEnabledSchema)), tags = ["media", "private"])]
+async fn get_media_enabled_handler() -> HttpResponse {
+    HttpResponse::Ok().json(MediaEnabledSchema {
+        enabled: get_media_enabled_database(),
     })
 }
 
-#[get("/api/setEnableMedia/{value}")]
-async fn set_enable_media(
-    session: Session,
-    state: Data<AppState>,
-    e: web::Path<bool>,
-) -> HttpResponse {
+/// Set media center activation
+#[utoipa::path(post, path = "/private/media/enabled", responses((status = 200)), request_body = MediaEnabledSchema, tags = ["media", "private"])]
+async fn set_enable_media(e: web::Json<MediaEnabledSchema>) -> HttpResponse {
     use schema::Configuration::dsl::*;
 
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
-    // TODO: Simplify this if condition
-
     let connection = &mut establish_connection();
 
-    diesel::update(Configuration)
-        .set(media_enabled.eq(e.into_inner()))
+    let database_update_execution = diesel::update(Configuration)
+        .set(media_enabled.eq(e.enabled))
         .execute(connection);
 
-    return HttpResponse::Ok().body("Updated media center status");
+    if let Err(database_error) = database_update_execution {
+        return HttpResponse::InternalServerError()
+            .json(ErrorCode::DatabaseUpdateFailed(database_error.to_string()).as_error_message());
+    }
+
+    return HttpResponse::Ok().json(MessageRes::from(
+        "The media center status has been updated.",
+    ));
 }
 
-#[get("/api/rememberMusic/{songPath}")]
-async fn remember_music(
-    session: Session,
-    state: Data<AppState>,
-    e: web::Path<String>,
-) -> HttpResponse {
+#[derive(Serialize, ToSchema)]
+struct RecommendationsRes {
+    recommendations: Vec<RecommendedMediaEntry>,
+}
+
+/// Media files history
+#[utoipa::path(get, path = "/private/media/history", tags = ["private", "media"], responses((status = 200, body = RecommendationsRes)))]
+async fn read_full_media_history() -> HttpResponse {
     use models::RecommendedMediaEntry;
     use schema::RecommendedMedia::dsl::*;
-
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
-    let connection = &mut establish_connection();
-
-    if !get_media_enabled() {
-        return HttpResponse::Forbidden().body("Media center has been disabled");
-    }
-
-    let current_ts = std::time::SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap().as_millis() as i64;
-
-    let fp = e.into_inner();
-
-    diesel::insert_into(RecommendedMedia)
-        .values(RecommendedMediaEntry {
-            file_path: fp,
-            last_view: current_ts,
-            category: String::from("music"),
-        })
-        .on_conflict(file_path)
-        .do_update()
-        .set(last_view.eq(current_ts))
-        .execute(connection);
-
-    let recommendations = RecommendedMedia
-        .select(RecommendedMediaEntry::as_select())
-        .get_results(connection)
-        .unwrap();
-
-    recommendations.into_iter().for_each(|e| {
-        let path = PathBuf::from(&e.file_path);
-        if !path.exists() {
-            diesel::delete(RecommendedMedia)
-                .filter(file_path.eq(e.file_path))
-                .execute(connection);
-        }
-    });
-
-    HttpResponse::Ok().body("Stored music to be remembered")
-}
-
-#[get("/api/rememberVideo/{videoPath}")]
-async fn remember_video(
-    session: Session,
-    state: Data<AppState>,
-    e: web::Path<String>,
-) -> HttpResponse {
-    use models::RecommendedMediaEntry;
-    use schema::RecommendedMedia::dsl::*;
-
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
-    let connection = &mut establish_connection();
-
-    if !get_media_enabled() {
-        return HttpResponse::Forbidden().body("Media center has been disabled");
-    }
-
-    let current_ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("Time does not appear to be correct. Is your system's time configuration correct?");
-
-    let fp = e.into_inner();
-
-    diesel::insert_into(RecommendedMedia)
-        .values(RecommendedMediaEntry {
-            file_path: fp,
-            last_view: current_ts.as_millis() as i64,
-            category: String::from("music"),
-        })
-        .on_conflict(file_path)
-        .do_update()
-        .set(last_view.eq(current_ts.as_millis() as i64))
-        .execute(connection);
-
-    let recommendations = RecommendedMedia
-        .select(RecommendedMediaEntry::as_select())
-        .get_results(connection)
-        .unwrap();
-
-    recommendations.into_iter().for_each(|e| {
-        let path = PathBuf::from(&e.file_path);
-        if !path.exists() {
-            diesel::delete(RecommendedMedia)
-                .filter(file_path.eq(e.file_path))
-                .execute(connection);
-        }
-    });
-
-    HttpResponse::Ok().body("Stored video to be remembered")
-}
-
-#[derive(Serialize)]
-struct Recommendations {
-    rec: Vec<(String, i64)>,
-}
-
-#[get("/api/recommendedMusic")]
-async fn get_recomended_music(session: Session, state: Data<AppState>) -> HttpResponse {
-    use models::RecommendedMediaEntry;
-    use schema::RecommendedMedia::dsl::*;
-
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
-    if !get_media_enabled() {
-        return HttpResponse::Forbidden().body("Media center has been disabled");
-    }
 
     let connection = &mut establish_connection();
 
     let queried_entries = RecommendedMedia
         .select(RecommendedMediaEntry::as_select())
-        .filter(category.eq("music"))
         .get_results(connection)
         .unwrap();
 
-    let filtered_entries: Vec<(String, i64)> = queried_entries
+    let filtered_entries: Vec<RecommendedMediaEntry> = queried_entries
         .into_iter()
         .filter(|e| PathBuf::from(&e.file_path).exists())
-        .map(|e| (e.file_path, e.last_view))
         .collect();
 
-    return HttpResponse::Ok().json(Recommendations {
-        rec: filtered_entries,
-    });
-}
-
-#[get("/api/recommendedVideos")]
-async fn get_recomended_videos(session: Session, state: Data<AppState>) -> HttpResponse {
-    use models::RecommendedMediaEntry;
-    use schema::RecommendedMedia::dsl::*;
-
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
-    if !get_media_enabled() {
-        return HttpResponse::Forbidden().body("Media center has been disabled");
-    }
-
-    let connection = &mut establish_connection();
-
-    let queried_entries = RecommendedMedia
-        .select(RecommendedMediaEntry::as_select())
-        .filter(category.eq("video"))
-        .get_results(connection)
-        .unwrap();
-
-    let filtered_entries: Vec<(String, i64)> = queried_entries
-        .into_iter()
-        .filter(|e| PathBuf::from(&e.file_path).exists())
-        .map(|e| (e.file_path, e.last_view))
-        .collect();
-
-    return HttpResponse::Ok().json(Recommendations {
-        rec: filtered_entries,
+    return HttpResponse::Ok().json(RecommendationsRes {
+        recommendations: filtered_entries,
     });
 }
 
 #[derive(Deserialize)]
-struct MetadataJson {
+struct MetadataReq {
     name: Option<String>,
     genre: Option<String>,
     cover: Option<String>,
     artist: Option<String>,
-    filename: String,
 }
 
-#[post("/api/updateMetadata")]
-async fn update_metadata(
-    session: Session,
-    state: Data<AppState>,
-    data: web::Json<MetadataJson>,
+#[utoipa::path(get, path = "/private/media/metadata/{file}", params(("file" = String, Path)), tags = ["private", "media"], responses((status = 200, body = RecommendationsRes)))]
+/// Update media metadata
+async fn update_media_metadata(
+    path: web::Path<PathBuf>,
+    json: web::Json<MetadataReq>,
 ) -> HttpResponse {
     use models::MediaEntry;
     use schema::Media::dsl::*;
 
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
     let new_media_entry = MediaEntry {
-        file_path: data.filename.clone(),
-        genre: data.genre.clone(),
-        name: data.name.clone(),
-        artist: data.artist.clone(),
-        cover: data.cover.clone()
+        file_path: path.into_inner().to_string_lossy().to_string(),
+        genre: json.genre.clone(),
+        name: json.name.clone(),
+        artist: json.artist.clone(),
+        cover: json.cover.clone(),
     };
 
     let connection = &mut establish_connection();
-
-    dbg!(&new_media_entry);
 
     let wx = diesel::insert_into(Media)
         .values(&new_media_entry)
         .on_conflict(file_path)
         .do_update()
         .set((
-                        genre.eq(&new_media_entry.genre),
-        name.eq(&new_media_entry.name),
-        artist.eq(&new_media_entry.artist),
-        cover.eq(&new_media_entry.cover),
-                ))
+            genre.eq(&new_media_entry.genre),
+            name.eq(&new_media_entry.name),
+            artist.eq(&new_media_entry.artist),
+            cover.eq(&new_media_entry.cover),
+        ))
         .execute(connection);
 
-    if wx.is_err() {
-        return HttpResponse::InternalServerError().body("Failed to write to database");
+    if let Err(database_error) = wx {
+        return HttpResponse::InternalServerError()
+            .json(ErrorCode::DatabaseInsertFailed(database_error.to_string()));
     }
 
-    return HttpResponse::Ok().body("Wrote data.");
+    return HttpResponse::Ok().json(MessageRes::from("The media metadata has been updated."));
 }
 
 // Networking
 
 #[derive(Serialize)]
-struct NetworkInterfacesResponseJson {
+struct NetworkInterfacesRes {
     interfaces: Vec<MeasuredInterface>,
 }
 
-#[derive(Serialize)]
-struct NetworkRoutesResponseJson {
+#[derive(Serialize, ToSchema)]
+struct NetworkRoutesRes {
     routes: Vec<Route>,
 }
 
-#[get("/api/networkInterfaces")]
-async fn network_interfaces(session: Session, state: Data<AppState>) -> HttpResponse {
-    if !is_admin_state(&session, state.clone()) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
+/// List of known network interfaces
+#[utoipa::path(get, path = "/private/network/interfaces", tags = ["private", "network"], responses((status = 200, body = RecommendationsRes)))]
+async fn network_interfaces(state: Data<AppState>) -> HttpResponse {
     let interfaces = state.network_interfaces.lock().unwrap().clone();
 
-    return HttpResponse::Ok().json(NetworkInterfacesResponseJson { interfaces });
+    return HttpResponse::Ok().json(NetworkInterfacesRes { interfaces });
 }
 
-#[get("/api/networkRoutes")]
-async fn network_routes(session: Session, state: Data<AppState>) -> HttpResponse {
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
+#[utoipa::path(get, path = "/private/network/routes", tags = ["private", "network"], responses((status = 200, body = NetworkRoutesRes)))]
+/// List of network routes
+async fn network_routes() -> HttpResponse {
     let routes = net_data::get_routes();
 
-    return HttpResponse::Ok().json(NetworkRoutesResponseJson {
+    return HttpResponse::Ok().json(NetworkRoutesRes {
         routes: routes.unwrap(),
     });
 }
 
-#[derive(Deserialize, Debug)]
-struct DeleteNetworkRoutesJson {
+#[derive(Deserialize, ToSchema)]
+struct AdressRequestSchema {
+    adress: String,
+    subnet: Option<i32>,
+}
+
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct DeleteNetworkRouteReq {
     device: String,
-    destination: (bool, Option<String>, Option<i32>),
-    gateway: (bool, Option<String>, Option<i32>),
+    destination: Option<AdressRequestSchema>,
+    gateway: Option<AdressRequestSchema>,
     sudo_password: String,
 }
 
-#[post("/api/deleteNetworkRoute")]
-async fn delete_network_route(
-    session: Session,
-    state: Data<AppState>,
-    json: web::Json<DeleteNetworkRoutesJson>,
-) -> HttpResponse {
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
-    let del_route = DeletionRoute {
+#[utoipa::path(post, path = "/private/network/route/delete", request_body = DeleteNetworkRouteReq, responses((status = 200), (status = 401, description = "The provided sudo password was wrong.")), tags = ["private", "network"])]
+/// Delete network route
+async fn delete_network_route(json: web::Json<DeleteNetworkRouteReq>) -> HttpResponse {
+    let built_deletion_route = DeletionRoute {
         device: json.device.clone(),
         nexthop: None,
         gateway: {
-            if json.gateway.0 {
-                None
-            } else {
+            if let Some(gateway_adress) = &json.gateway {
                 Some(IpAddrWithSubnet {
-                    address: IpAddr::from_str(&json.gateway.1.clone().unwrap()).unwrap(),
-                    subnet: json.gateway.2,
+                    address: IpAddr::from_str(&gateway_adress.adress).unwrap(),
+                    subnet: gateway_adress.subnet,
                 })
+            } else {
+                None
             }
         },
         destination: {
-            if json.destination.0 {
-                Destination::Default
-            } else {
+            if let Some(destination_adress) = &json.destination {
                 Destination::Prefix(IpAddrWithSubnet {
-                    address: IpAddr::from_str(&json.destination.1.clone().unwrap()).unwrap(),
-                    subnet: json.destination.2,
+                    address: IpAddr::from_str(&destination_adress.adress).unwrap(),
+                    subnet: destination_adress.subnet,
                 })
+            } else {
+                Destination::Default
             }
         },
     };
 
-    net_data::delete_route(del_route, json.sudo_password.clone());
+    let deletion_execution =
+        net_data::delete_route(built_deletion_route, json.sudo_password.clone());
 
-    HttpResponse::Ok().finish()
+    match deletion_execution {
+        sudo::SudoExecutionOutput::Success(_) => {
+            HttpResponse::Ok().json(MessageRes::from("The route has been updated."))
+        }
+        sudo::SudoExecutionOutput::ExecutionError(err) => {
+            HttpResponse::InternalServerError().json(ErrorCode::CommandFailed(err))
+        }
+        _ => HttpResponse::Unauthorized().json(ErrorCode::BadSudoPassword),
+    }
 }
 
-#[derive(Deserialize)]
-struct NetworkingInterfaceActivityJson {
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct NetworkingInterfaceActivityReq {
     activity: bool,
     interface: String,
-    sudoPassword: String,
+    sudo_password: String,
 }
 
-#[post("/api/networkingInterfaceActive")]
-async fn networking_interface_active(
-    session: Session,
-    state: Data<AppState>,
-    json: web::Json<NetworkingInterfaceActivityJson>,
-) -> HttpResponse {
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
+/// Set activity of a network interface
+#[utoipa::path(post, path = "/private/network/interface/active", responses((status = 200)), request_body = NetworkingInterfaceActivityReq, tags = ["private", "network"])]
+async fn network_interface_active(json: web::Json<NetworkingInterfaceActivityReq>) -> HttpResponse {
     if json.activity {
-        net_data::enable_interface(json.sudoPassword.clone(), json.interface.clone());
+        net_data::enable_interface(json.sudo_password.clone(), json.interface.clone());
     } else {
-        net_data::disable_interface(json.sudoPassword.clone(), json.interface.clone());
+        net_data::disable_interface(json.sudo_password.clone(), json.interface.clone());
     }
-    return HttpResponse::Ok().finish();
+    return HttpResponse::Ok().json(MessageRes::from("The interface has been updated."));
 }
 
-#[derive(Serialize)]
-struct ListProcessesResponseJson {
+// Processes API
+
+#[derive(Serialize, ToSchema)]
+struct ListProcessesRes {
     processes: Vec<SerializableProcess>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 struct SerializableProcess {
     name: Option<String>,
     cpu_usage: f32,
     memory_usage_bytes: u64,
     username: Option<String>,
-    uid: Option<u32>,
     executable_path: Option<String>,
     pid: u32,
 }
@@ -3583,12 +3298,9 @@ fn os_string_array_to_string_vector(s: &[OsString]) -> Vec<String> {
         .collect::<Vec<String>>()
 }
 
-#[get("/api/listProcesses")]
-async fn list_processes(session: Session, state: Data<AppState>) -> HttpResponse {
-    if !is_admin_state(&session, state.clone()) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
+#[utoipa::path(get, path = "/private/processes/list", responses((status = 200, body = ListProcessesRes)), tags = ["processes", "private"])]
+/// List of processes
+async fn list_processes() -> HttpResponse {
     let process_refresh = ProcessRefreshKind::nothing()
         .without_tasks()
         .with_cpu()
@@ -3608,7 +3320,7 @@ async fn list_processes(session: Session, state: Data<AppState>) -> HttpResponse
 
     processes.iter().for_each(|x| {
         let memory_usage_bytes = x.1.memory();
-        let cpu_usage = x.1.cpu_usage();
+        let cpu_usage = x.1.cpu_usage() / 100_f32;
 
         let executable_path = match x.1.exe() {
             Some(v) => Some(v.to_str().unwrap().to_string()),
@@ -3616,39 +3328,35 @@ async fn list_processes(session: Session, state: Data<AppState>) -> HttpResponse
         };
 
         let mut username: Option<String> = None;
-        let mut uid_true: Option<u32> = None;
         if let Some(uid) = x.1.user_id() {
-            username = Some(
-                convert_uid_to_name(uid.div(1) as usize)
-                    .unwrap_or(format!("Missing username ({})", uid.div(1)).to_string()),
-            );
-            uid_true = Some(uid.div(1));
+            username = Some(NativeUser::from_uid(uid.div(1)).unwrap().username);
         }
 
         let pid = x.1.pid().as_u32();
         let name = Some(x.1.name().to_string_lossy().to_string());
         processes_for_response.push(SerializableProcess {
+            name,
             cpu_usage,
             memory_usage_bytes,
             executable_path,
-            name,
-            pid,
-            uid: uid_true,
             username,
+            pid,
         });
     });
 
-    return HttpResponse::Ok().json(ListProcessesResponseJson {
+    return HttpResponse::Ok().json(ListProcessesRes {
         processes: processes_for_response,
     });
 }
 
-#[get("/api/killProcess/{pid}")]
-async fn kill_process(session: Session, state: Data<AppState>, path: Path<u32>) -> HttpResponse {
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
+/// Kill process by PID.
+#[utoipa::path(post,
+    path = "/private/processes/kill/{pid}",
+    params(("pid" = u32, Path)),
+    responses((status = 200), (status = 404, description = "The pid was not found.")),
+    tags = ["processes", "private"]
+)]
+async fn kill_process(path: Path<u32>) -> HttpResponse {
     let process_refresh = ProcessRefreshKind::nothing()
         .without_tasks()
         .with_cpu()
@@ -3667,26 +3375,25 @@ async fn kill_process(session: Session, state: Data<AppState>, path: Path<u32>) 
     match processes.get(&Pid::from_u32(path.into_inner())) {
         Some(p) => {
             if p.kill() {
-                return HttpResponse::Ok().body("Signal sent successfully");
+                return HttpResponse::Ok()
+                    .json(MessageRes::from("The singal has been sent successfully."));
             } else {
-                return HttpResponse::InternalServerError().json(ErrorJson {
-                    error: "SignalError".to_string(),
-                });
+                return HttpResponse::InternalServerError()
+                    .json(ErrorCode::SignalError.as_error_message());
             }
         }
         None => {
-            return HttpResponse::InternalServerError().json(ErrorJson {
-                error: "WrongPID".to_string(),
-            })
+            return HttpResponse::NotFound().json(ErrorCode::UnknownPid.as_error_message());
         }
     }
 }
 
-#[derive(Serialize)]
-struct ProcessDetailsResponseJson {
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct ProcessDetailsRes {
     name: String,
     pid: u32,
-    username: String,
+    user: NativeUser,
     uid: u32,
     memory_usage_bytes: u64,
     cpu_usage: f32,
@@ -3698,11 +3405,15 @@ struct ProcessDetailsResponseJson {
     parent: String,
 }
 
-#[get("/api/detailsProcess/{pid}")]
-async fn details_process(session: Session, state: Data<AppState>, path: Path<u32>) -> HttpResponse {
-    if !is_admin_state(&session, state) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
+#[utoipa::path(get,
+    path = "/private/processes/details/{pid}",
+    params(("pid" = u32, Path)),
+    responses((status = 200, body = ProcessDetailsRes), (status = 404, description = "The pid was not found.")),
+    tags = ["processes", "private"]
+)]
+/// Details about process
+async fn details_process(path: Path<u32>) -> HttpResponse {
+    // NOTE Part of this should be moved into a helper library
 
     let process_refresh = ProcessRefreshKind::nothing()
         .without_tasks()
@@ -3711,22 +3422,25 @@ async fn details_process(session: Session, state: Data<AppState>, path: Path<u32
         .with_cmd(UpdateKind::OnlyIfNotSet)
         .with_user(UpdateKind::OnlyIfNotSet)
         .with_exe(UpdateKind::OnlyIfNotSet);
+
     let mut system = sysinfo::System::new_with_specifics(
         RefreshKind::nothing()
             .with_memory(MemoryRefreshKind::everything())
             .with_processes(process_refresh),
     );
+
     std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
     system.refresh_processes_specifics(sysinfo::ProcessesToUpdate::All, false, process_refresh);
+
     let processes = system.processes();
     let selected_process = processes.get(&Pid::from_u32(path.into_inner())).unwrap();
 
     let name = selected_process.name();
     let pid = selected_process.pid();
     let uid = selected_process.user_id().unwrap();
-    let username = convert_uid_to_name(uid.div(1) as usize);
+    let user = NativeUser::from_uid(uid.div(1) as u32).unwrap();
     let memory_usage_bytes = selected_process.memory();
-    let cpu_usage = selected_process.cpu_usage();
+    let cpu_usage = selected_process.cpu_usage() / 100_f32;
     let run_time = selected_process.run_time();
     let command_line = os_string_array_to_string_vector(selected_process.cmd());
     let executable_path_determination = selected_process.exe();
@@ -3743,6 +3457,7 @@ async fn details_process(session: Session, state: Data<AppState>, path: Path<u32
         .to_string();
 
     let mut executable_path = String::from("Unknown");
+
     if executable_path_determination.is_some() {
         executable_path = executable_path_determination
             .unwrap()
@@ -3750,6 +3465,7 @@ async fn details_process(session: Session, state: Data<AppState>, path: Path<u32
             .unwrap()
             .to_string();
     }
+
     let stat_file = fs::read_to_string(
         PathBuf::from("/")
             .join("proc")
@@ -3763,10 +3479,10 @@ async fn details_process(session: Session, state: Data<AppState>, path: Path<u32
 
     let thread_count = stat_file_split[19].parse::<isize>().unwrap_or(-1);
 
-    return HttpResponse::Ok().json(ProcessDetailsResponseJson {
+    return HttpResponse::Ok().json(ProcessDetailsRes {
         name: name.to_str().unwrap().to_string(),
         pid: pid.as_u32(),
-        username: username.unwrap_or(String::from("Unknown")),
+        user,
         uid: uid.div(1),
         memory_usage_bytes,
         cpu_usage,
@@ -3779,36 +3495,44 @@ async fn details_process(session: Session, state: Data<AppState>, path: Path<u32
     });
 }
 
-#[derive(Serialize)]
-struct ListCronjobsReturnJson {
+// Cronjob API
+
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+enum CronjobVariant {
+    /// A cronjob that runs at a specific time pattern (i.e. every Monday and Tuesday at 5am and)
+    Specific,
+    /// A cronjob that runs at an time interval (i.e. every day)
+    Interval,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct ListCronjobsRes {
     specific_jobs: Vec<SpecificCronJob>,
     interval_jobs: Vec<IntervalCronJob>,
     crontab_exists: bool,
 }
 
-#[get("/api/listCronjobs/{current}/{specific}")]
-async fn list_cronjobs(
-    session: Session,
-    state: Data<AppState>,
-    path: Path<(String, Option<String>)>,
-) -> HttpResponse {
-    if !is_admin_state(&session, state.clone()) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
+#[derive(Deserialize)]
+struct CronjobListReq {
+    specific: Option<String>,
+}
 
-    let path_segs = path.into_inner();
+/// List users' cronjobs
+#[utoipa::path(get, path = "/private/cronjobs/list", params(("specific" = Option<String>, Query)), responses((status = 200, body = ListCronjobsRes), (status = 404, description = "No crontab file was found."), (status = 500, description = "Cronjobs could not be read.")), tags = ["private", "cronjobs"])]
+async fn list_cronjobs(query: Query<CronjobListReq>) -> HttpResponse {
     let user: User;
-    if path_segs.0 == "current" {
-        user = User::Current
-    } else if path_segs.0 == "specific" {
-        user = User::Specific(path_segs.1.unwrap())
+
+    if let Some(specific_user) = &query.specific {
+        user = User::Specific(specific_user.clone());
     } else {
-        return HttpResponse::BadRequest().body(format!("Unknown variant {}", path_segs.0));
+        user = User::Current;
     }
 
     let crons = cron::list_cronjobs(user);
-    let mut interval_cronjobs: Vec<IntervalCronJob> = Vec::new();
-    let mut specific_cronjobs: Vec<SpecificCronJob> = Vec::new();
+    let mut interval_cronjobs: Vec<IntervalCronJob> = vec![];
+    let mut specific_cronjobs: Vec<SpecificCronJob> = vec![];
     match crons {
         Ok(crons_unwrapped) => {
             for ele in crons_unwrapped {
@@ -3819,38 +3543,38 @@ async fn list_cronjobs(
             }
         }
         Err(e) => match e {
-            cron::CronListingError::NoCronFile => {
-                return HttpResponse::Ok().json(ListCronjobsReturnJson {
-                    specific_jobs: specific_cronjobs,
-                    interval_jobs: interval_cronjobs,
-                    crontab_exists: false,
-                })
+            cron::CronError::NoCronFile => {
+                return HttpResponse::NotFound().json(ErrorCode::NoCronjobs.as_error_message());
             }
-            _ => return HttpResponse::InternalServerError().body("Failed to retrieve cronjobs"),
+            _ => {
+                return HttpResponse::InternalServerError()
+                    .json(ErrorCode::NoCronjobs.as_error_message());
+            }
         },
     }
 
-    return HttpResponse::Ok().json(ListCronjobsReturnJson {
+    return HttpResponse::Ok().json(ListCronjobsRes {
         specific_jobs: specific_cronjobs,
         interval_jobs: interval_cronjobs,
         crontab_exists: true,
     });
 }
 
-#[derive(serde::Deserialize)]
-struct CronjobCommandJson {
-    command: String,
+#[derive(Deserialize, ToSchema)]
+struct CronjobCommandReq {
+    index: usize,
+    variant: CronjobVariant,
+    user: Option<String>,
 }
 
-#[post("/api/runCronjobCommand")]
+/// Run cronjob command
+#[utoipa::path(post, path = "/private/cronjobs/runCommand", request_body = CronjobCommandReq, responses((status = 200)), tags = ["private", "cronjobs", "responding_job"])]
 async fn run_cronjob_command(
-    session: Session,
     state: Data<AppState>,
-    json: web::Json<CronjobCommandJson>,
+    json: web::Json<CronjobCommandReq>,
 ) -> HttpResponse {
-    if !is_admin_state(&session, state.clone()) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
+    // NOTE: The following could be improved.
+    // TODO Capture command output and store in Status code
 
     let uuid = Uuid::new_v4();
     state
@@ -3859,69 +3583,104 @@ async fn run_cronjob_command(
         .unwrap()
         .insert(uuid, BackgroundTaskState::Pending);
 
+    let user: cron::User;
+
+    if let Some(specified_user) = &json.user {
+        user = cron::User::Specific(specified_user.clone())
+    } else {
+        user = cron::User::Current
+    }
+
+    let cronjobs_list_request = cron::list_cronjobs(user);
+
+    let mut command_from_cronjob = None;
+
+    if let Ok(cronjobs) = cronjobs_list_request {
+        let relevant_cronjobs: Vec<&cron::CronJob> = match &json.variant {
+            CronjobVariant::Specific => cronjobs
+                .iter()
+                .filter(|e| match e {
+                    cron::CronJob::Specific(_c) => true,
+                    _ => false,
+                })
+                .collect(),
+            CronjobVariant::Interval => cronjobs
+                .iter()
+                .filter(|e| match e {
+                    cron::CronJob::Interval(_c) => true,
+                    _ => false,
+                })
+                .collect(),
+        };
+
+        if let Some(cronjob_at_index) = relevant_cronjobs.get(json.index) {
+            command_from_cronjob = Some(match cronjob_at_index {
+                cron::CronJob::Specific(c) => c.command.clone(),
+                cron::CronJob::Interval(c) => c.command.clone(),
+            });
+        }
+    } else {
+        HttpResponse::InternalServerError().json(ErrorCode::NoCronjobs.as_error_message());
+    }
+
+    if command_from_cronjob.is_none() {
+        return HttpResponse::NotFound().json(ErrorCode::NoSuchVariant.as_error_message());
+    }
+
     let _ = actix_web::web::block(move || {
+        let status;
+
         match Command::new("sh")
             .arg("-c")
-            .arg(&json.command)
+            .arg(command_from_cronjob.unwrap())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .stdin(Stdio::null())
             .spawn()
         {
             Ok(mut h) => {
-                let _ = h.wait();
-                state
-                    .background_jobs
-                    .lock()
-                    .unwrap()
-                    .insert(uuid, BackgroundTaskState::Success);
+                let waited = h.wait();
+                if let Ok(s) = waited {
+                    if s.success() {
+                        status = BackgroundTaskState::Success;
+                    } else {
+                        status = BackgroundTaskState::Fail;
+                    }
+                } else {
+                    status = BackgroundTaskState::Fail;
+                }
             }
-            Err(_) => {
-                state
-                    .background_jobs
-                    .lock()
-                    .unwrap()
-                    .insert(uuid, BackgroundTaskState::Fail);
-            }
-        }
+            Err(_) => status = BackgroundTaskState::Fail,
+        };
+
+        state.background_jobs.lock().unwrap().insert(uuid, status);
     });
 
     return HttpResponse::Ok().body(uuid.to_string());
 }
 
-#[derive(serde::Deserialize)]
-struct DeleteCronjobJson {
-    index: u32,
-    variant: String,
+/// Delete cronjob
+#[utoipa::path(post, path = "/private/cronjobs/delete/{index}/{variant}", params(("index" = u32, Path), ("variant" = CronjobVariant, Path)),responses((status = 200)), tags = ["private", "cronjobs"])]
+async fn delete_cronjob(path: web::Path<(u32, CronjobVariant)>) -> HttpResponse {
+    let index = path.0;
+    let variant = &path.1;
+
+    let _ = match variant {
+        &CronjobVariant::Specific => delete_specific_cronjob(index, User::Current),
+        &CronjobVariant::Interval => delete_interval_cronjob(index, User::Current),
+    };
+
+    HttpResponse::Ok().json(MessageRes::from("The cronjob has been deleted."))
 }
 
-#[post("/api/deleteCronjob")]
-async fn delete_cronjob(
-    session: Session,
-    state: Data<AppState>,
-    json: web::Json<DeleteCronjobJson>,
-) -> HttpResponse {
-    if !is_admin_state(&session, state.clone()) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
-    if &json.variant == "specific" {
-        let _ = delete_specific_cronjob(json.index, User::Current);
-    } else if &json.variant == "interval" {
-        let _ = delete_interval_cronjob(json.index, User::Current);
-    } else {
-        return HttpResponse::BadRequest()
-            .body(format!("Unknown cronjob variant {}", &json.variant));
-    }
-
-    HttpResponse::Ok().finish()
-}
-
-#[derive(serde::Deserialize)]
-struct CreateCronjobJson {
-    variant: String,
+/// TODO This all could be an enum containing struct
+/// -> Requires re-writing cronjob handling as well, thus staged for later
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct CreateCronjobReq {
+    variant: CronjobVariant,
     command: String,
-    interval: Option<String>,
+    interval: Option<cron::Interval>,
     minute: Option<String>,
     hour: Option<String>,
     day_of_month: Option<String>,
@@ -3929,90 +3688,93 @@ struct CreateCronjobJson {
     month: Option<String>,
 }
 
-#[post("/api/createCronjob")]
-async fn create_cronjob(
-    session: Session,
-    state: Data<AppState>,
-    json: web::Json<CreateCronjobJson>,
-) -> HttpResponse {
-    if !is_admin_state(&session, state.clone()) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
+/// Create new cronjob
+#[utoipa::path(post, path = "/private/cronjobs/new", request_body = CreateCronjobReq, responses((status = 200)), tags = ["private", "cronjobs"])]
+async fn create_cronjob(json: web::Json<CreateCronjobReq>) -> HttpResponse {
     let variant = &json.variant;
 
-    if variant == "interval" {
-        let json_interval = &json.interval.clone().unwrap();
+    match variant {
+        CronjobVariant::Specific => {
+            let day_of_month =
+                match cron::Digit::try_from(json.day_of_month.clone().unwrap().as_str()) {
+                    Ok(c) => c,
+                    Err(_) => {
+                        return HttpResponse::BadRequest()
+                            .json(ErrorCode::SanitizationError.as_error_message());
+                    }
+                };
 
-        let interval = match json_interval.as_str() {
-            "daily" => cron::Interval::Daily,
-            "weekly" => cron::Interval::Weekly,
-            "monthly" => cron::Interval::Monthly,
-            "yearly" => cron::Interval::Yearly,
-            "hourly" => cron::Interval::Hourly,
-            "reboot" => cron::Interval::Reboot,
-            _ => panic!("Unknown interval type {}", json_interval),
-        };
+            let day_of_week = cron::DayOfWeek::from(json.day_of_week.clone().unwrap().as_str());
+            let month = cron::Month::from(json.month.clone().unwrap().as_str());
+            let minute = match cron::Digit::try_from(json.minute.clone().unwrap().as_str()) {
+                Ok(c) => c,
+                Err(_) => {
+                    return HttpResponse::BadRequest()
+                        .json(ErrorCode::SanitizationError.as_error_message());
+                }
+            };
 
-        match cron::create_new_interval_cronjob(
-            cron::IntervalCronJob {
-                interval,
-                command: json.command.clone(),
-            },
-            User::Current,
-        ) {
-            Ok(_) => HttpResponse::Ok().finish(),
-            Err(_) => {
-                error!("Failed to create interval cronjob");
-                HttpResponse::InternalServerError().body("Failed to create new interval cronjob")
+            let hour = match cron::Digit::try_from(json.hour.clone().unwrap().as_str()) {
+                Ok(c) => c,
+                Err(_) => {
+                    return HttpResponse::BadRequest()
+                        .json(ErrorCode::SanitizationError.as_error_message());
+                }
+            };
+
+            match cron::create_new_specific_cronjob(
+                cron::SpecificCronJob {
+                    command: json.command.clone(),
+                    day_of_week,
+                    day_of_month,
+                    minute,
+                    hour,
+                    month,
+                },
+                User::Current,
+            ) {
+                Ok(_) => HttpResponse::Ok()
+                    .json(MessageRes::from("A new specific cronjob has been created.")),
+                Err(_) => {
+                    error!("Failed to create specific cronjob");
+                    HttpResponse::InternalServerError()
+                        .json(ErrorCode::CronjobCreationFailed.as_error_message())
+                }
             }
         }
-    } else if variant == "specific" {
-        let day_of_month = cron::Digit::from(json.day_of_month.clone().unwrap().as_str());
-        let day_of_week = cron::DayOfWeek::from(json.day_of_week.clone().unwrap().as_str());
-        let month = cron::Month::from(json.month.clone().unwrap().as_str());
-        let minute = cron::Digit::from(json.minute.clone().unwrap().as_str());
-        let hour = cron::Digit::from(json.hour.clone().unwrap().as_str());
-        match cron::create_new_specific_cronjob(
-            cron::SpecificCronJob {
-                command: json.command.clone(),
-                day_of_week,
-                day_of_month,
-                minute,
-                hour,
-                month,
-            },
-            User::Current,
-        ) {
-            Ok(_) => HttpResponse::Ok().finish(),
-            Err(_) => {
-                error!("Failed to create specific cronjob");
-                HttpResponse::InternalServerError().body("Failed to create new specific cronjob")
+        CronjobVariant::Interval => {
+            match cron::create_new_interval_cronjob(
+                cron::IntervalCronJob {
+                    interval: json.interval.clone().unwrap(),
+                    command: json.command.clone(),
+                },
+                User::Current,
+            ) {
+                Ok(_) => HttpResponse::Ok()
+                    .json(MessageRes::from("A new interval cronjob has been created.")),
+                Err(_) => {
+                    error!("Failed to create interval cronjob");
+                    HttpResponse::InternalServerError()
+                        .json(ErrorCode::CronjobCreationFailed.as_error_message())
+                }
             }
         }
-    } else {
-        HttpResponse::BadRequest().body("Unknown cronjob variant")
     }
 }
 
-#[derive(Deserialize)]
-struct FileSharingJson {
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct FileSharingReq {
+    #[schema(value_type = String)]
     file_path: PathBuf,
     password: Option<String>,
 }
 
-#[post("/api/shareFile")]
-async fn share_file(
-    session: Session,
-    state: Data<AppState>,
-    json: web::Json<FileSharingJson>,
-) -> HttpResponse {
+#[utoipa::path(post, path = "/private/sharing/new", request_body = FileSharingReq, responses((status = 200)), tags = ["private", "sharing"])]
+/// Create new file sharing
+async fn share_file(json: web::Json<FileSharingReq>) -> HttpResponse {
     use models::SharedFile;
     use schema::FileSharing;
-
-    if !is_admin_state(&session, state.clone()) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
 
     let code: String = rand::thread_rng()
         .sample_iter(&Alphanumeric)
@@ -4024,8 +3786,7 @@ async fn share_file(
     let password = &json.password.clone();
 
     if !file_path.exists() {
-        return HttpResponse::BadRequest()
-            .body("The requested file path does not exist on this file system.");
+        return HttpResponse::NotFound().json(ErrorCode::FileDoesNotExist.as_error_message());
     }
 
     let password_insert_value = match password {
@@ -4044,48 +3805,52 @@ async fn share_file(
         shared_since: std::time::SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
-            .as_secs() as i64,
+            .as_millis() as i64,
     };
 
-    diesel::insert_into(FileSharing::dsl::FileSharing)
+    let sharing_creation_database_execution = diesel::insert_into(FileSharing::dsl::FileSharing)
         .values(&new_shared_file)
         .on_conflict(FileSharing::dsl::code)
         .do_update()
         .set(&new_shared_file)
         .execute(&mut establish_connection());
 
+    if let Err(database_error) = sharing_creation_database_execution {
+        return HttpResponse::InternalServerError()
+            .json(ErrorCode::DatabaseInsertFailed(database_error.to_string()));
+    }
+
     return HttpResponse::Ok().body(code);
 }
 
-#[derive(Serialize)]
-struct SharedFilesListResponseJson {
+#[derive(Serialize, ToSchema)]
+struct SharedFilesListRes {
     files: Vec<SharedFile>,
 }
 
-#[get("/api/getSharedFilesList")]
-async fn get_shared_files_list(session: Session, state: Data<AppState>) -> HttpResponse {
+#[utoipa::path(get, path = "/private/sharing/list", responses((status = 200, body = SharedFilesListRes)), tags = ["private", "sharing"])]
+/// List of shared files
+async fn get_shared_files_list() -> HttpResponse {
     use models::SharedFile;
     use schema::FileSharing::dsl::*;
-
-    if !is_admin_state(&session, state.clone()) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
 
     let files: Vec<SharedFile> = FileSharing
         .select(SharedFile::as_select())
         .get_results(&mut establish_connection())
         .unwrap();
 
-    return HttpResponse::Ok().json(SharedFilesListResponseJson { files });
+    return HttpResponse::Ok().json(SharedFilesListRes { files });
 }
 
-#[derive(Deserialize)]
-struct SharedFileRequestJson {
+#[derive(Deserialize, ToSchema)]
+struct SharedFileReq {
     code: String,
     password: Option<String>,
 }
 
-async fn get_shared_file(json: web::Json<SharedFileRequestJson>) -> HttpResponse {
+#[utoipa::path(post, path = "/public/shared/get", request_body = SharedFileReq, responses((status = 200, content_type = "application/octet-stream")), tags = ["public", "sharing"])]
+/// Contents of shared file
+async fn get_shared_file(json: web::Json<SharedFileReq>) -> HttpResponse {
     use models::SharedFile;
     use schema::FileSharing;
 
@@ -4107,7 +3872,8 @@ async fn get_shared_file(json: web::Json<SharedFileRequestJson>) -> HttpResponse
         let database_hash = e_unwrap.password.clone();
 
         if password_checking && request_password.is_none() {
-            return HttpResponse::Forbidden().body("Missing password");
+            return HttpResponse::Forbidden()
+                .json(ErrorCode::MissingSharedFilePermissions.as_error_message());
         }
 
         let file_path = e_unwrap.file_path.clone();
@@ -4124,23 +3890,27 @@ async fn get_shared_file(json: web::Json<SharedFileRequestJson>) -> HttpResponse
                 return HttpResponse::Ok().body(file_contents);
             } else {
                 warn!("User entered wrong file sharing password.");
-                return HttpResponse::Forbidden().body("Wrong password");
+                return HttpResponse::Forbidden()
+                    .json(ErrorCode::MissingSharedFilePermissions.as_error_message());
             }
         }
 
         return HttpResponse::Ok().body(file_contents);
     }
-    return HttpResponse::BadRequest().body("Invalid code");
+    return HttpResponse::NotFound().json(ErrorCode::NoSuchSharedFile.as_error_message());
 }
 
-#[derive(Serialize)]
-struct SharedFileMetadataResponseJson {
-    filepath: String,
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct SharedFileMetadataRes {
+    file_path: String,
     use_password: bool,
     size: u32,
 }
 
-async fn get_shared_file_metadata(json: web::Json<SharedFileRequestJson>) -> HttpResponse {
+#[utoipa::path(get, path = "/private/shared/getMetadata", request_body = SharedFileReq, responses((status = 200, body = SharedFileMetadataRes)), tags = ["public", "sharing"])]
+/// Metadata of shared file
+async fn get_shared_file_metadata(json: web::Json<SharedFileReq>) -> HttpResponse {
     use models::SharedFile;
     use schema::FileSharing::dsl::*;
 
@@ -4151,64 +3921,214 @@ async fn get_shared_file_metadata(json: web::Json<SharedFileRequestJson>) -> Htt
         .unwrap();
 
     if f.is_empty() {
-        return HttpResponse::BadRequest().body("Invalid code");
+        return HttpResponse::BadRequest().json(ErrorCode::InsufficientData.as_error_message());
     }
 
     let p = PathBuf::from(f[0].file_path.clone());
 
     if !p.exists() {
-        return HttpResponse::BadRequest().body("Invalid code");
+        return HttpResponse::NotFound().json(ErrorCode::NoSuchSharedFile.as_error_message());
     }
 
     let size = p.metadata().unwrap().len();
 
-    return HttpResponse::Ok().json(SharedFileMetadataResponseJson {
-        filepath: f[0].file_path.clone(),
+    return HttpResponse::Ok().json(SharedFileMetadataRes {
+        file_path: f[0].file_path.clone(),
         use_password: f[0].use_password,
         size: size as u32,
     });
 }
 
-#[get("/api/unshareFile/{code}")]
-async fn unshare_file(
-    request_code: web::Path<String>,
-    session: Session,
-    state: Data<AppState>,
-) -> HttpResponse {
+#[utoipa::path(post, path = "/private/sharing/delete/{code}", params(("code" = String, Path)), responses((status = 200)), tags = ["private", "sharing"])]
+/// Delete file sharing
+async fn unshare_file(request_code: web::Path<String>) -> HttpResponse {
     use schema::FileSharing::dsl::*;
 
-    if !is_admin_state(&session, state.clone()) {
-        return HttpResponse::Forbidden().body("This resource is blocked.");
-    }
-
-    diesel::delete(FileSharing)
+    let delete_file_sharing_database_execution = diesel::delete(FileSharing)
         .filter(code.eq(request_code.into_inner()))
         .execute(&mut establish_connection());
 
-    return HttpResponse::Ok().body("Unshared file");
-}
-
-// ======================================================================
-// Blocks (Used to prevent users from accessing certain static resources)
-
-#[get("/dashboard.html")]
-async fn dashboard_asset_block(session: Session, state: Data<AppState>) -> HttpResponse {
-    if !is_admin_state(&session, state) {
-        HttpResponse::Forbidden().body("This resource is blocked.")
-    } else {
-        HttpResponse::build(StatusCode::OK)
-            .body(std::fs::read_to_string("static/dashboard.html").expect("Failed to read file"))
+    if let Err(database_error) = delete_file_sharing_database_execution {
+        return HttpResponse::InternalServerError().json(ErrorCode::DatabaseDeletionFailed(
+            database_error.to_string(),
+        ));
     }
-}
 
-// The main function
+    return HttpResponse::Ok().json(MessageRes::from("The file is no longer being shared."));
+}
 
 fn configure_multipart(cfg: &mut web::ServiceConfig) {
     // Configure multipart form settings
-    let multipart_config = MultipartFormConfig::default().total_limit(1024 * 1024 * 1024 * 32);
+    let multipart_config = MultipartFormConfig::default()
+        .total_limit(1024 * 1024 * 1024 * 32)
+        .error_handler(|err, _req| {
+            actix_web::error::InternalError::from_response(err, HttpResponse::Conflict().into())
+                .into()
+        });
 
     // Store the configuration in app data
     cfg.app_data(multipart_config);
+}
+
+/// This function leverages the `fn is_admin_state()` from admin.rs to verify if a request comes
+/// from a user authenticated as administrator. For this, it requires the current application state
+/// and request session.
+async fn authorization_middleware(
+    mut req: ServiceRequest,
+    next: Next<BoxBody>,
+) -> Result<ServiceResponse<impl MessageBody>, actix_web::Error> {
+    if is_admin_state(&req.get_session(), req.extract::<Data<AppState>>().await?) {
+        next.call(req).await
+    } else {
+        warn!("A request to a private route will be denied.");
+        Ok(req.into_response(
+            HttpResponse::Forbidden().json(ErrorCode::MissingApiPermissions.as_error_message()),
+        ))
+    }
+}
+
+async fn media_authorization_middleware(
+    req: ServiceRequest,
+    next: Next<BoxBody>,
+) -> Result<ServiceResponse<impl MessageBody>, actix_web::Error> {
+    if get_media_enabled_database() {
+        next.call(req).await
+    } else {
+        warn!("A request to a media route will be denied.");
+        Ok(req.into_response(
+            HttpResponse::Forbidden().json(ErrorCode::MediaCenterDisabled.as_error_message()),
+        ))
+    }
+}
+
+// TODO  When Zentrox has been split up into different crates, move this into a module.
+fn generate_openapi_contract(store_path: Option<&String>) {
+    println!("Generating OpenAPI contracg in pretty printed JSON format.");
+
+    #[derive(OpenApi)]
+    #[openapi(
+        paths(
+            verification,
+            logout,
+            use_otp,
+            otp_activation,
+            verify_sudo_password,
+            device_information,
+            package_database,
+            package_statistics,
+            update_package_database,
+            install_package,
+            remove_package,
+            update_package,
+            update_all_packages,
+            remove_orphaned_packages,
+            orphaned_packages,
+            fetch_job_status,
+            firewall_has_ufw,
+            firewall_information,
+            switch_ufw,
+            delete_firewall_rule,
+            new_firewall_rule,
+            download_file,
+            files_list,
+            delete_file,
+            move_path,
+            burn_file,
+            get_file_metadata,
+            upload_file,
+            list_drives,
+            drive_information,
+            is_vault_configured,
+            vault_configure,
+            vault_tree,
+            delete_vault_file,
+            vault_new_folder,
+            upload_vault,
+            vault_file_download,
+            rename_vault_file,
+            power_off,
+            cert_names,
+            upload_tls,
+            account_details,
+            update_account_details,
+            profile_picture,
+            upload_profile_picture,
+            logs_request,
+            get_media_list,
+            media_request,
+            get_media_source_list,
+            update_media_source_list,
+            get_cover,
+            get_media_enabled_handler,
+            set_enable_media,
+            read_full_media_history,
+            update_media_metadata,
+            network_interfaces,
+            network_routes,
+            delete_network_route,
+            network_interface_active,
+            list_processes,
+            kill_process,
+            details_process,
+            run_cronjob_command,
+            delete_cronjob,
+            create_cronjob,
+            list_cronjobs,
+            share_file,
+            get_shared_files_list,
+            unshare_file,
+            get_shared_file,
+            get_shared_file_metadata,
+        ),
+        tags(
+            (name = "private", description = "Routes are restricted to be admin-only."),
+            (name = "public", description = "Anyone can access these routes."),
+            (name = "account", description = "Administrator account settings and data"),
+            (name = "logs", description = "Connection to view logs"),
+            (name = "authentication", description = "Authenticate users and passwords."),
+            (name = "cronjobs", description = "Manage repetitive commands."),
+            (name = "responding_job", description = "Doesn't return the results of the execution but rather an UUID to request that current state of a job. This is useful for slow tasks."),
+            (name = "dashboard", description = "Information for the dashboard interface."),
+            (name = "drives", description = "Block device managment"),
+            (name = "files", description = "File system controls"),
+            (name = "firewall", description = "UFW control"),
+            (name = "jobs", description = "Job UUID status resolver"),
+            (name = "media", description = "Media center data"),
+            (name = "network", description = "Networking settings and information"),
+            (name = "packages", description = "Package manager connections"),
+            (name = "power", description = "Power settings"),
+            (name = "processes", description = "System process managment"),
+            (name = "sharing", description = "File sharing managment"),
+            (name = "tls", description = "TLS encryption settings"),
+            (name = "vault", description = "Encrypted data storage settings")
+        ),
+    )]
+    struct ApiDoc;
+
+    let mut document = ApiDoc::openapi();
+
+    document.servers = Some(vec![
+        ServerBuilder::new()
+            .url("https://localhost:8080/api")
+            .build(),
+    ]);
+    let json = document.to_pretty_json().unwrap();
+
+    if let Some(p) = store_path {
+        let _ = fs::write(p, json);
+    } else {
+        println!("{json}");
+    }
+
+    exit(0)
+}
+
+fn print_help() {
+    println!("Zentrox");
+    println!("--help:\t\tPrint this help.");
+    println!("--docs <Path | None>:\t\tGenerate OpenAPI docs.");
+
+    exit(0)
 }
 
 #[actix_web::main]
@@ -4217,13 +4137,21 @@ async fn main() -> std::io::Result<()> {
     use models::Configurations;
     use schema::Configuration::dsl::*;
 
+    let os_args = std::env::args().collect::<Vec<String>>();
+
+    match os_args.get(1) {
+        Some(arg) if arg == "--docs" => generate_openapi_contract(os_args.get(2)),
+        Some(arg) if arg == "--help" => print_help(),
+        _ => {}
+    }
+
     if !env::current_dir().unwrap().join("static").exists() {
         let _ = env::set_current_dir(dirs::home_dir().unwrap().join("zentrox"));
     }
 
     let mut gov_vars = std::env::vars();
 
-    env_logger::init_from_env(env_logger::Env::new().default_filter_or("debug"));
+    env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
 
     if !dirs::home_dir()
         .unwrap()
@@ -4277,9 +4205,6 @@ async fn main() -> std::io::Result<()> {
     let mut key_file =
         BufReader::new(File::open(data_path.join("certificates").join(tls_cert_filename)).unwrap());
 
-    // load TLS certs and key
-    // to create a self-signed temporary cert for testing:
-    // `openssl req -x509 -newkey rsa:4096 -nodes -keyout key.pem -out cert.pem -days 365 -subj '/CN=localhost'`
     let tls_certs = rustls_pemfile::certs(&mut certs_file)
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -4348,12 +4273,12 @@ async fn main() -> std::io::Result<()> {
             x == ("ZENTROX_MODE".to_string(), "NO_CORS".to_string())
                 || x == ("ZENTROX_MODE".to_string(), "DEV".to_string())
         });
+
         if cors_permissive {
-            warn!("CORS policy is set to permissive! This poses a high security risk.")
+            warn!("CORS policy is set to permissive! This poses a high security risk.");
         }
 
         App::new()
-            .app_data(Data::new(app_state.clone()))
             .configure(configure_multipart)
             .wrap(middleware::Logger::new("%a %U %s"))
             .wrap(
@@ -4371,125 +4296,194 @@ async fn main() -> std::io::Result<()> {
                 .build(),
             )
             .wrap(if cors_permissive {
-                Cors::permissive()
+                Cors::default()
+                    .allow_any_method()
+                    .allowed_origin("http://localhost:3000")
+                    .block_on_origin_mismatch(true)
             } else {
                 Cors::default()
             })
             .wrap(middleware::Compress::default())
             .wrap(Governor::new(&governor_conf))
-            // Landing
-            .service(dashboard)
-            .service(index)
-            .service(alerts_page)
-            .service(alerts_manifest)
-            // Login, OTP and Logout
-            .service(
-                web::scope("/login")
-                    .wrap(Governor::new(&harsh_governor_conf))
-                    .route("/verify", web::post().to(login)),
-            )
-            .service(use_otp)
-            .service(otp_secret_request)
-            .service(logout) // Remove admin status and redirect to /
-            .service(update_otp_status)
-            // Sudo
-            .service(verify_sudo_password)
-            // API Device Stats
-            .service(device_information) // General device information
-            // API Packages
-            .service(package_database)
-            .service(orphaned_packages)
-            .service(remove_orphaned_packages)
-            .service(install_package)
-            .service(remove_package)
-            .service(update_package)
-            .service(update_all_packages)
-            .service(update_package_database)
-            .service(fetch_job_status)
-            // API Firewall
-            .service(firewall_information)
-            .service(switch_ufw)
-            .service(new_firewall_rule)
-            .service(delete_firewall_rule)
-            .service(firewall_has_ufw)
-            // API Files
-            .service(call_file)
-            .service(files_list)
-            .service(delete_file)
-            .service(move_path)
-            .service(burn_file)
-            .service(upload_file)
-            .service(get_metadata)
-            // Block Device API
-            .service(list_drives)
-            .service(drive_information)
-            // Vault API
-            .service(vault_configure)
-            .service(is_vault_configured)
-            .service(vault_tree)
-            .service(vault_new_folder)
-            .service(upload_vault)
-            .service(delete_vault_file)
-            .service(rename_vault_file)
-            .service(vault_file_download)
-            // Power Off System
-            .service(power_off)
-            // Certificates
-            .service(upload_tls)
-            .service(cert_names)
-            // Account Details
-            .service(account_details)
-            .service(update_account_details)
-            .service(profile_picture)
-            .service(upload_profile_picture)
-            // Logs
-            .service(logs_request)
-            // Video
-            .service(media_page)
-            .service(media_request)
-            .service(get_enable_media)
-            .service(set_enable_media)
-            .service(get_video_source_list)
-            .service(update_video_source_list)
-            .service(get_media_list)
-            .service(get_cover)
-            .service(remember_music)
-            .service(remember_video)
-            .service(get_recomended_music)
-            .service(get_recomended_videos)
-            .service(update_metadata)
-            // Networking
-            .service(network_interfaces)
-            .service(network_routes)
-            .service(delete_network_route)
-            .service(networking_interface_active)
-            // Process manager
-            .service(list_processes)
-            .service(list_cronjobs)
-            .service(kill_process)
-            .service(details_process)
-            .service(delete_cronjob)
-            .service(run_cronjob_command)
-            .service(create_cronjob)
-            // File sharing
-            .service(
-                web::scope("/shared")
-                    .wrap(Governor::new(&shared_files_governor_conf))
-                    .route("", web::get().to(shared_page))
-                    .route("/get", web::post().to(get_shared_file))
-                    .route("/getMetadata", web::post().to(get_shared_file_metadata)),
-            )
-            .service(share_file)
-            .service(get_shared_files_list)
-            .service(unshare_file)
-            // General services and blocks
-            .service(dashboard_asset_block)
+            .app_data(Data::new(app_state.clone()))
+            .service(web::resource("/").route(web::get().to(index)))
+            .service(web::resource("/alerts").route(web::get().to(alerts_page)))
+            .service(web::resource("/alerts/manifest.json").route(web::get().to(alerts_manifest)))
+            .service(web::scope("/dashboard").route("", web::get().to(dashboard)))
             .service(robots_txt)
+            // API routes are separated into public and private, where public routes can be
+            // accessed from anyone without authorization prior to the request and private routes
+            // require you to be logged in as administrator.
+            //
+            // Public routes can be accessed under /api/public.
+            // Private routes can be accessed under /api/private.
+            .service(
+                web::scope("/api")
+                    .service(
+                        web::scope("/public")
+                            .service(
+                                web::scope("/auth")
+                                    .wrap(Governor::new(&harsh_governor_conf))
+                                    .route("/login", web::post().to(verification))
+                                    .route("/useOtp", web::get().to(use_otp)),
+                            )
+                            .service(
+                                web::scope("/shared")
+                                    .wrap(Governor::new(&shared_files_governor_conf))
+                                    .route("", web::get().to(shared_page))
+                                    .route("/get", web::post().to(get_shared_file))
+                                    .route(
+                                        "/getMetadata",
+                                        web::post().to(get_shared_file_metadata),
+                                    ),
+                            ),
+                    )
+                    .service(
+                        web::scope("/private")
+                            // The following guard protects from unauthorized access.
+                            .wrap(from_fn(authorization_middleware))
+                            .service(
+                                web::scope("/auth")
+                                    .route("/logout", web::post().to(logout))
+                                    .route("/useOtp", web::put().to(otp_activation))
+                                    .service(
+                                        web::scope("/sudo")
+                                            .route("/verify", web::post().to(verify_sudo_password)),
+                                    ),
+                            )
+                            .service(
+                                web::scope("/dashboard")
+                                    .route("/information", web::get().to(device_information)),
+                            )
+                            .service(
+                                web::scope("/packages")
+                                    .route("/database", web::get().to(package_database))
+                                    .route("/statistics", web::get().to(package_statistics))
+                                    .route(
+                                        "/updateDatabase",
+                                        web::post().to(update_package_database),
+                                    )
+                                    .route("/install", web::post().to(install_package))
+                                    .route("/remove", web::post().to(remove_package))
+                                    .route("/update", web::post().to(update_package))
+                                    .route("/updateAll", web::post().to(update_all_packages))
+                                    .route(
+                                        "/removeOrphaned",
+                                        web::post().to(remove_orphaned_packages),
+                                    )
+                                    .route("/orphaned", web::get().to(orphaned_packages)),
+                            )
+                            .service(
+                                web::scope("/jobs")
+                                    .route("status/{id}", web::get().to(fetch_job_status)),
+                            )
+                            .service(
+                                web::scope("/firewall")
+                                    .route("/ufwPresent", web::get().to(firewall_has_ufw))
+                                    .route("/rules", web::post().to(firewall_information))
+                                    .route("/enabled", web::post().to(switch_ufw))
+                                    .route("/rule/delete", web::post().to(delete_firewall_rule))
+                                    .route("/rule/new", web::post().to(new_firewall_rule)),
+                            )
+                            .service(
+                                web::scope("/files")
+                                    .route("/download", web::get().to(download_file))
+                                    .route("/directoryReading", web::get().to(files_list))
+                                    .route("/delete", web::post().to(delete_file))
+                                    .route("/move", web::post().to(move_path))
+                                    .route("/burn", web::post().to(burn_file))
+                                    .route("/metadata", web::get().to(get_file_metadata))
+                                    .route("/upload", web::post().to(upload_file)),
+                            )
+                            .service(
+                                web::scope("/drives")
+                                    .route("/list", web::get().to(list_drives))
+                                    .route("/statistics", web::get().to(drive_information)),
+                            )
+                            .service(
+                                web::scope("/vault")
+                                    .route("/active", web::get().to(is_vault_configured))
+                                    .route("/configuration", web::post().to(vault_configure))
+                                    .route("/tree", web::post().to(vault_tree))
+                                    .route("/delete", web::post().to(delete_vault_file))
+                                    .route("/directory", web::post().to(vault_new_folder))
+                                    .route("/file", web::post().to(upload_vault))
+                                    .route("/file", web::get().to(vault_file_download))
+                                    .route("/move", web::post().to(rename_vault_file)),
+                            )
+                            .service(web::scope("/power").route("/off", web::post().to(power_off)))
+                            .service(
+                                web::scope("/tls")
+                                    .route("/name", web::get().to(cert_names))
+                                    .route("/upload", web::post().to(upload_tls)),
+                            )
+                            .service(
+                                web::scope("/account")
+                                    .route("/details", web::get().to(account_details))
+                                    .route("/details", web::post().to(update_account_details))
+                                    .route("/profilePicture", web::get().to(profile_picture))
+                                    .route(
+                                        "/profilePicture",
+                                        web::post().to(upload_profile_picture),
+                                    ),
+                            )
+                            .route("/logs", web::post().to(logs_request))
+                            .service(
+                                web::scope("/media")
+                                    .route("/sources", web::get().to(get_media_source_list))
+                                    .route("/sources", web::post().to(update_media_source_list))
+                                    .route("/enabled", web::get().to(get_media_enabled_handler))
+                                    .route("/enabled", web::post().to(set_enable_media))
+                                    .wrap(from_fn(media_authorization_middleware))
+                                    .route("", web::get().to(media_page))
+                                    .route("/files", web::get().to(get_media_list))
+                                    .route("/download", web::get().to(media_request))
+                                    .route("/cover", web::get().to(get_cover))
+                                    .route("/history", web::get().to(read_full_media_history))
+                                    .route(
+                                        "/metadata/{file}",
+                                        web::post().to(update_media_metadata),
+                                    ),
+                            )
+                            .service(
+                                web::scope("/network")
+                                    .route("/interfaces", web::get().to(network_interfaces))
+                                    .route("/routes", web::get().to(network_routes))
+                                    .service(
+                                        web::scope("/route")
+                                            .route("/delete", web::post().to(delete_network_route)),
+                                    )
+                                    .service(web::scope("/interface").route(
+                                        "/active",
+                                        web::post().to(network_interface_active),
+                                    )),
+                            )
+                            .service(
+                                web::scope("/processes")
+                                    .route("/list", web::get().to(list_processes))
+                                    .route("/kill/{pid}", web::post().to(kill_process))
+                                    .route("/details/{pid}", web::get().to(details_process)),
+                            )
+                            .service(
+                                web::scope("/cronjobs")
+                                    .route("/runCommand", web::post().to(run_cronjob_command))
+                                    .route("/delete", web::post().to(delete_cronjob))
+                                    .route("/new", web::post().to(create_cronjob))
+                                    .route("/list", web::get().to(list_cronjobs)),
+                            )
+                            .service(
+                                web::scope("/sharing")
+                                    .route("/new", web::post().to(share_file))
+                                    .route("/list", web::get().to(get_shared_files_list))
+                                    .route("/delete/{code}", web::post().to(unshare_file)),
+                            ),
+                    ),
+            )
             .service(afs::Files::new("/", "static/"))
     })
     .workers(16)
     .keep_alive(std::time::Duration::from_secs(60 * 6))
-    .bind_rustls_0_23(("0.0.0.0", 8080), tls_config)?
+    .bind_rustls_0_23(("0.0.0.0", 8080), tls_config)? // TODO Allow user to decide port and IP
     .run()
     .await
 }

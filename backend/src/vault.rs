@@ -1,15 +1,15 @@
 use crate::crypto_utils;
 use aes_gcm::{
-    aead::{Aead, AeadCore, KeyInit, OsRng},
     Aes256Gcm,
+    aead::{Aead, AeadCore, KeyInit, OsRng},
 };
 use sha2::{Digest, Sha256};
-use std::fs;
+use std::{fs, path::PathBuf};
 
-/// Decrypts a file with a specefied key and writes the cleartext back to the file.
+/// Decrypts a file with a specified key and writes the clear text back to the file.
 /// * `file` - Path to the file to decrypt
 /// * `key` - Key to decrypt file
-pub fn decrypt_file(file: String, key: &str) -> Option<()> {
+pub fn decrypt_file(file: PathBuf, key: &str) -> Option<()> {
     let key_hashed = crypto_utils::argon2_derive_key(key);
 
     let value = fs::read(&file).unwrap();
@@ -26,7 +26,10 @@ pub fn decrypt_file(file: String, key: &str) -> Option<()> {
             Some(())
         }
         Err(e) => {
-            eprintln!("❌ Failed to decrypt file\n{e}");
+            log::error!(
+                "Decrypting the file {} failed with error: {e}",
+                file.to_string_lossy()
+            );
             None
         }
     }
@@ -122,10 +125,10 @@ pub fn encrypt_string_hash(string: String, key: &str) -> Option<String> {
     }
 }
 
-/// Encrypts a file with a specefied key and writes the ciphertext back to the file.
+/// Encrypts a file with a specified key and writes the ciphertext back to the file.
 /// * `file` - Path to the file to decrypt
 /// * `key` - Key to encrypt file
-pub fn encrypt_file(file: String, key: &str) {
+pub fn encrypt_file(file: PathBuf, key: &str) {
     let key_hashed = crypto_utils::argon2_derive_key(key);
 
     let value = fs::read(&file).unwrap();
@@ -144,13 +147,13 @@ pub fn encrypt_file(file: String, key: &str) {
     fs::write(&file, enc_data).unwrap();
 }
 
-pub fn encrypt_directory(directory: &str, key: &str) -> Result<(), String> {
+pub fn encrypt_directory(directory: PathBuf, key: &str) -> Result<(), String> {
     let dir_contents = fs::read_dir(directory).unwrap();
 
     for entry in dir_contents {
         let e_u = entry.unwrap();
         if e_u.metadata().unwrap().is_file() {
-            encrypt_file(e_u.path().to_string_lossy().to_string(), key);
+            encrypt_file(e_u.path(), key);
             let filename = e_u.file_name().to_string_lossy().to_string();
             if filename != ".vault" {
                 let mut encrypted_path = e_u.path();
@@ -161,7 +164,7 @@ pub fn encrypt_directory(directory: &str, key: &str) -> Result<(), String> {
                 );
             }
         } else {
-            let _ = encrypt_directory(e_u.path().to_string_lossy().as_ref(), key);
+            let _ = encrypt_directory(e_u.path(), key);
             let filename = e_u.file_name().to_string_lossy().to_string();
             let mut encrypted_path = e_u.path();
             encrypted_path.pop();
@@ -175,13 +178,13 @@ pub fn encrypt_directory(directory: &str, key: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn decrypt_directory(directory: &str, key: &str) -> Result<(), String> {
+pub fn decrypt_directory(directory: PathBuf, key: &str) -> Result<(), String> {
     let dir_contents = fs::read_dir(directory).unwrap();
 
     for entry in dir_contents {
         let e_u = entry.unwrap();
         if e_u.metadata().unwrap().is_file() {
-            decrypt_file(e_u.path().to_string_lossy().to_string(), key);
+            decrypt_file(e_u.path(), key);
 
             let filename = e_u.file_name().to_string_lossy().to_string();
 
@@ -194,7 +197,7 @@ pub fn decrypt_directory(directory: &str, key: &str) -> Result<(), String> {
                 );
             }
         } else {
-            let _ = decrypt_directory(e_u.path().to_string_lossy().as_ref(), key);
+            let _ = decrypt_directory(e_u.path(), key);
             let filename = e_u.file_name().to_string_lossy().to_string();
             let mut encrypted_path = e_u.path();
             encrypted_path.pop();
@@ -208,7 +211,7 @@ pub fn decrypt_directory(directory: &str, key: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn burn_file(path: String) -> Result<(), String> {
+pub fn burn_file(path: PathBuf) -> Result<(), String> {
     let mut i = 0;
     let file_size = fs::metadata(&path).unwrap().len();
 
@@ -216,14 +219,10 @@ pub fn burn_file(path: String) -> Result<(), String> {
         let random_data = (0..file_size)
             .map(|_| rand::random::<u8>())
             .collect::<Vec<u8>>();
-        match fs::write(&path, random_data) {
-            Ok(_) => {}
-            Err(e) => {
-                eprintln!("❌ Failed to burn file\n{e}");
-                return Err("Failed to burn file".to_string());
-            }
+        if let Err(_) = fs::write(&path, random_data) {
+            log::warn!("A file could not be properly burned.");
+            return Err("Failed to burn file".to_string());
         };
-
         i += 1;
     }
 
@@ -242,7 +241,7 @@ pub fn burn_directory(path: String) -> Result<(), String> {
                 let is_file = entry_metadata.is_file() || entry_metadata.is_symlink();
 
                 if is_file {
-                    burn_file(entry_unwrap.path().to_string_lossy().to_string())?
+                    burn_file(entry_unwrap.path())?
                 } else {
                     match burn_directory(entry_unwrap.path().to_string_lossy().to_string()) {
                         Ok(_) => return Ok(()),
@@ -253,7 +252,7 @@ pub fn burn_directory(path: String) -> Result<(), String> {
             Ok(())
         }
         Err(e) => {
-            eprintln!("❌ Failed to read directory\n{e}");
+            log::error!("Reading a directory failed");
             Err(e.to_string())
         }
     }

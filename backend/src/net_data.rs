@@ -1,4 +1,4 @@
-// Rust shorthands for linux commands to get information about network configuration on the system
+// Rust short-hands for Linux commands to get information about network configuration on the system
 // This library requires CAP_NET_ADMIN using `setcap` or admin permissions.
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
@@ -6,12 +6,13 @@ use std::fmt::Display;
 use std::net::IpAddr;
 use std::process::Command;
 use std::str::FromStr;
+use utoipa::{ToResponse, ToSchema};
 
 use crate::sudo::{SudoExecutionOutput, SudoExecutionResult, SwitchedUserCommand};
 
 /// Determines the current private IP address of the current active network interface.
 pub fn private_ip() -> Result<IpAddr, ()> {
-    #[derive(Debug, Serialize, Deserialize)]
+    #[derive(Serialize, Deserialize, ToSchema, ToResponse)]
     struct Route {
         dst: String,
         gateway: String,
@@ -58,7 +59,7 @@ pub struct TransmissionStatistics {
     pub collisions: Option<i64>,
 }
 
-#[derive(Serialize, Debug, Clone)]
+#[derive(Serialize, Debug, Clone, ToSchema)]
 pub enum OperationalState {
     Up,
     Down,
@@ -100,42 +101,32 @@ impl<'de> Deserialize<'de> for OperationalState {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
 /// Interface is a public struct to collect information about network interfaces.
-/// - `ifindex` {i64} - The index of the interface on the host system
-/// - `ifname` {String} - The name of the interface on the host system
-/// - `flags` {Vec<String>} - A vector of all flags the interface was given by the host system.
-///   These include:
-///    - `LOOPBACK` - The interface is active, but never connects to anything external
-///    - `NO_CARRIER` - The interface is active and external, but no data is transmitted
-///    - `BROADCAST` - The interface is active and external
-///    - `LOWER_UP` - `PHY` abstraction layer is enabled
-/// - `mtu` {i64} - The maximum amount of data that can be transmitted in bytes per package
-/// - `qdisc` {i64} - The quening discipline
-/// - `operstate {OperationalState} - The operational state/
-/// - `linkmode` {String} - How the device is connected with others
-/// - `group` {String} - The group of devices the interface belongs to
-/// - `txqlen` {Option<i64>} - The transmit queue length
-/// - `link_type` {String} - The type of link, for example `ether`, `loopback` or `none`
-/// - `address` {String} - The MAC address of the interface
-/// - `broadcast` {String} - MAC Address used to broadcast information to all devices
-/// - `stats64` {HashMap<String, TransmissionStatistics>} - The tx and rx values to calculate network statistics
-/// - `altnames` {Option<Vec<String>>>} - Alternative names for an interface
+#[derive(Debug, Deserialize)]
 pub struct Interface {
-    pub ifindex: i64,
-    pub ifname: String,
+    #[serde(rename(deserialize = "ifindex"))]
+    pub index: i64,
+    #[serde(rename(deserialize = "ifname"))]
+    pub name: String,
     pub flags: Vec<String>,
-    pub mtu: i64,
-    pub qdisc: String,
-    pub operstate: OperationalState,
-    pub linkmode: String,
+    #[serde(rename(deserialize = "mtu"))]
+    pub max_transmission_unit: u64,
+    #[serde(rename(deserialize = "qdisc"))]
+    pub queueing_discipline: String,
+    #[serde(rename(deserialize = "operstate"))]
+    pub operational_state: OperationalState,
+    #[serde(rename(deserialize = "linkmode"))]
+    pub link_mode: String,
     pub group: String,
-    pub txqlen: Option<i64>,
+    #[serde(rename(deserialize = "txqlen"))]
+    pub transmit_queue: Option<i64>,
     pub link_type: String,
     pub address: String,
     pub broadcast: String,
-    pub stats64: HashMap<String, TransmissionStatistics>,
-    pub altnames: Option<Vec<String>>,
+    #[serde(rename(deserialize = "stats64"))]
+    pub statistics: HashMap<String, TransmissionStatistics>,
+    #[serde(rename(deserialize = "altnames"))]
+    pub alternative_names: Option<Vec<String>>,
 }
 
 /// Get a vector of all network interfaces currently connected to the system, active or not.
@@ -217,7 +208,7 @@ impl Display for Destination {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 pub enum Scope {
     Global,
     Host,
@@ -298,14 +289,18 @@ fn is_clean<T: Display>(string: T) -> bool {
     true
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ToSchema, ToResponse)]
 #[allow(unused)]
 pub struct Route {
+    #[schema(value_type = String)]
     pub destination: Destination,
+    #[schema(value_type = Option<String>)]
     pub gateway: Option<IpAddrWithSubnet>,
+    #[schema(value_type = Option<String>)]
     pub nexthop: Option<Vec<IpAddrWithSubnet>>,
     pub device: Option<String>,
     pub protocol: Option<String>,
+    #[schema(value_type = Option<String>)]
     pub preferred_source: Option<IpAddr>,
     pub scope: Scope,
     pub table: Option<String>,
@@ -328,7 +323,7 @@ impl Route {
                     nexthop: Some(v),
                     device: self.device.unwrap(),
                 },
-                None => panic!("Neither nexthop nor unwrap were specified"),
+                None => panic!("Neither nexthop nor gateway were specified"),
             },
         }
     }

@@ -1,38 +1,105 @@
 use std::{fs, path::PathBuf};
 
-use log::error;
+use serde::Serialize;
+use utoipa::ToSchema;
 
-pub enum UidConversionError {
-    FailedToReadPasswd, // Failed to read the /etc/passwd file
-    UidNotInPasswd,     // The uid is not in the passwd file
+#[derive(Debug, Clone, Serialize, ToSchema, PartialEq)]
+pub struct NativeUser {
+    pub username: String,
+    pub password: Option<String>,
+    pub user_id: u32,
+    pub group_id: u32,
+    pub gecos: String,
+    #[schema(value_type = Option<String>)]
+    pub home_directory: Option<PathBuf>,
+    pub login_shell: Option<String>,
 }
 
-/// Convers a given Linux user id (UID) to the corresponding name of the user.
-/// It uses the /etc/passwd file to look up this information.
-/// If no username is found, an Err(UidNotInPasswd) is returned.
-/// If the /etc/passwd file could not be read, an Err(FailedToReadPasswd) is returned.
-pub fn convert_uid_to_name(uid: usize) -> Result<String, UidConversionError> {
+fn parse_passwd_file() -> Result<Vec<NativeUser>, std::io::Error> {
     let passwd_file_path = PathBuf::from("/etc/passwd");
-    let passwd_file_contents = fs::read_to_string(passwd_file_path);
-    match passwd_file_contents {
-        Ok(v) => {
-            let lines = v.lines();
-            let mut username: String = "".to_string();
-            lines.for_each(|x| {
-                if x.split(":").nth(2).unwrap() == uid.to_string() {
-                    username = x.split(":").next().unwrap().to_string();
-                }
-            });
-            if username.is_empty() {
-                error!("Did not find any username for the uid {uid}");
-                Err(UidConversionError::UidNotInPasswd)
-            } else {
-                Ok(username)
+    let passwd_file_contents = fs::read_to_string(passwd_file_path)?;
+
+    let passwd_file_lines = passwd_file_contents.lines();
+
+    Ok(passwd_file_lines
+        .map(|line| {
+            let line_split: Vec<String> = line.split(":").map(String::from).collect();
+
+            NativeUser {
+                username: line_split[0].clone(),
+                password: {
+                    if line_split[1] == String::from("x") || line_split[1].is_empty() {
+                        None
+                    } else {
+                        Some(line_split[1].clone())
+                    }
+                },
+                user_id: line_split[2].parse::<u32>().unwrap(),
+                group_id: line_split[3].parse::<u32>().unwrap(),
+                gecos: line_split[4].clone(),
+                home_directory: {
+                    match &line_split[5] {
+                        v if v.is_empty() => None,
+                        v => Some(PathBuf::from(v)),
+                    }
+                },
+                login_shell: {
+                    match &line_split[6] {
+                        v if v.is_empty() => None,
+                        v => Some(v.to_string()),
+                    }
+                },
             }
+        })
+        .collect::<Vec<NativeUser>>())
+}
+
+#[derive(Debug)]
+pub enum SearchError {
+    PasswdAccessFailed,
+    NotFound,
+}
+
+impl Default for NativeUser {
+    fn default() -> Self {
+        NativeUser {
+            username: String::from(""),
+            password: None,
+            user_id: 0,
+            group_id: 0,
+            gecos: String::from(""),
+            home_directory: None,
+            login_shell: None,
         }
-        Err(e) => {
-            error!("Failed to read /etc/passwd because of error {e}");
-            Err(UidConversionError::FailedToReadPasswd)
+    }
+}
+
+impl NativeUser {
+    pub fn from_uid(uid: u32) -> Result<NativeUser, SearchError> {
+        if let Ok(users) = parse_passwd_file() {
+            let search = users.iter().find(|user| user.user_id == uid);
+
+            if let Some(correct_user) = search {
+                Ok(correct_user.clone())
+            } else {
+                Err(SearchError::NotFound)
+            }
+        } else {
+            Err(SearchError::PasswdAccessFailed)
+        }
+    }
+
+    pub fn from_username(username: String) -> Result<NativeUser, SearchError> {
+        if let Ok(users) = parse_passwd_file() {
+            let search = users.iter().find(|user| user.username == username);
+
+            if let Some(correct_user) = search {
+                Ok(correct_user.clone())
+            } else {
+                Err(SearchError::NotFound)
+            }
+        } else {
+            Err(SearchError::PasswdAccessFailed)
         }
     }
 }

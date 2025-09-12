@@ -1,7 +1,6 @@
 CREATE TABLE Admin (
 	username TEXT NOT NULL,
 	use_otp INTEGER NOT NULL,
-	knows_otp INTEGER NOT NULL,
 	otp_secret TEXT,
 	password_hash TEXT NOT NULL,
 	created_at INTEGER NOT NULL,
@@ -38,7 +37,6 @@ CREATE TABLE Media (
 CREATE TABLE RecommendedMedia (
 	file_path TEXT NOT NULL, 
 	last_view INTEGER NOT NULL,
-	category TEXT NOT NULL,
 	PRIMARY KEY (file_path)
 );
 CREATE TABLE MediaSources (

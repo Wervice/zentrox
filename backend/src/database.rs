@@ -1,11 +1,8 @@
-use diesel::{prelude::*, Connection as _};
+use diesel::{Connection as _, prelude::*};
 use rusqlite::Connection;
 use std::path::PathBuf;
 
 use crate::models::AdminAccount;
-
-pub const ST_BOOL_TRUE: &str = "TRUE";
-pub const ST_BOOL_FALSE: &str = "FALSE";
 
 /// Get the absolute path for the database by joining ~/.local/share with zentrox/database.db.
 pub fn get_database_location() -> PathBuf {

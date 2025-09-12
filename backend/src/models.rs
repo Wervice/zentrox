@@ -1,4 +1,8 @@
+use std::path::PathBuf;
+
 use diesel::prelude::*;
+use serde::{Deserialize, Serialize};
+use utoipa::{ToResponse, ToSchema};
 
 #[derive(Queryable, Selectable, Insertable)]
 #[diesel(table_name = crate::schema::Admin)]
@@ -7,11 +11,10 @@ pub struct AdminAccount {
     pub id: i32,
     pub username: String,
     pub use_otp: bool,
-    pub knows_otp: bool,
     pub otp_secret: Option<String>,
     pub password_hash: String,
     pub created_at: i64,
-    pub updated_at: i64
+    pub updated_at: i64,
 }
 
 #[derive(Queryable, Selectable, Insertable)]
@@ -33,18 +36,20 @@ pub struct PackageAction {
     pub key: i32,
 }
 
-#[derive(Queryable, Selectable, Insertable, AsChangeset)]
+#[derive(Queryable, Selectable, Insertable, AsChangeset, Deserialize, Serialize, ToSchema)]
 #[diesel(table_name = crate::schema::MediaSources)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+#[serde(rename_all = "camelCase")]
 pub struct MediaSource {
     pub directory_path: String,
     pub alias: String,
     pub enabled: bool,
 }
 
-#[derive(Queryable, Selectable, Insertable, AsChangeset, Debug)]
+#[derive(Queryable, Selectable, Insertable, AsChangeset, Debug, Serialize, ToSchema)]
 #[diesel(table_name = crate::schema::Media)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+#[serde(rename_all = "camelCase")]
 pub struct MediaEntry {
     pub file_path: String,
     pub genre: Option<String>,
@@ -53,16 +58,28 @@ pub struct MediaEntry {
     pub cover: Option<String>,
 }
 
-#[derive(Queryable, Selectable, Insertable, AsChangeset)]
+impl MediaEntry {
+    pub fn default_with_file_path(file_path: PathBuf) -> Self {
+        MediaEntry {
+            file_path: file_path.to_string_lossy().to_string(),
+            genre: None,
+            name: None,
+            artist: None,
+            cover: None,
+        }
+    }
+}
+
+#[derive(Queryable, Selectable, Insertable, AsChangeset, Serialize, ToSchema, ToResponse)]
 #[diesel(table_name = crate::schema::RecommendedMedia)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+#[serde(rename_all = "camelCase")]
 pub struct RecommendedMediaEntry {
     pub file_path: String,
-    pub category: String,
     pub last_view: i64,
 }
 
-#[derive(Queryable, Selectable, Insertable, AsChangeset, serde::Serialize)]
+#[derive(Queryable, Selectable, Insertable, AsChangeset, Serialize, ToSchema)]
 #[diesel(table_name = crate::schema::FileSharing)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct SharedFile {
@@ -78,5 +95,5 @@ pub struct SharedFile {
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct Secrets {
     pub argon2_salt: String,
-    pub id: i32
+    pub id: i32,
 }

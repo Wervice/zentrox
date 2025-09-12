@@ -4,14 +4,17 @@ use std::fmt::Display;
 use std::fs;
 use std::process::{Command, Stdio};
 
+use log::{error, warn};
 use regex::Regex;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 use whoami::username;
 
 /// The enumeration Interval is used to denote an Interval present in (ana)cron.
 /// The enum variants are pretty self-explanatory.
 #[allow(unused)]
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Copy, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub enum Interval {
     Hourly,
     Daily,
@@ -37,20 +40,22 @@ pub enum Interval {
 ///     Digit variant otherwise. As Digit representations can be recursive/complex, this is
 ///     required to keep this code simple.
 #[allow(unused)]
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub enum Digit {
     Any,
     Range(usize, usize),
     List(Vec<usize>),
     Value(usize),
     Repeating(String, usize),
-    Composed(String),
+    Composed(String), // WARN This does not sanitize user input
 }
 
 /// All months supported by cron. Digit can be used as months can also be expressed using numbers
 /// (1-12) as well as names (jan-dec)
 #[allow(unused)]
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub enum Month {
     January,
     February,
@@ -70,7 +75,8 @@ pub enum Month {
 /// All days of the week. Digit can be used as months can also be expressed using numbers (0-6) as
 /// well as names (sun-sat).
 #[allow(unused)]
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub enum DayOfWeek {
     Monday,
     Tuesday,
@@ -176,12 +182,7 @@ impl Display for User {
     }
 }
 
-#[derive(Debug)]
-pub enum CronCreationError {
-    CronReadingError,
-    CronWritingError,
-}
-
+// FIX Run crontab -u with sudo
 pub fn write_cronfile(content: String, user: User) -> Option<()> {
     let random_uuid = uuid::Uuid::new_v4().to_string();
     let mut tmp_p = std::env::temp_dir();
@@ -235,7 +236,11 @@ fn get_cron_lines(user: User) -> Option<Vec<String>> {
     get_cron_contents(user).map(|v| v.lines().map(String::from).collect::<Vec<String>>())
 }
 
-fn crontab_exists(user: User) -> bool {
+/// Check if the crontab file exists.
+///
+/// Returns an error if the command to do so failed.
+/// This may likely be a permission error.
+fn crontab_exists(user: User) -> Result<bool, CronError> {
     let mut c = Command::new("crontab");
     if user != User::Current {
         c.arg("-u");
@@ -248,24 +253,33 @@ fn crontab_exists(user: User) -> bool {
         Ok(v) => {
             let err = v.stderr;
             let status = v.status;
-            status.success() && err.is_empty()
+            if status.success() {
+                // A crontab file is present
+                return Ok(true);
+            } else if err.starts_with(b"must") {
+                // The user does not have permissions to run crontab with -u
+                return Err(CronError::ReadingError);
+            } else if err.starts_with(b"no crontab") {
+                // No crontab file is present
+                return Ok(false);
+            } else {
+                // Unknown crontab -u response
+                Err(CronError::ReadingError)
+            }
         }
-        Err(_) => false,
+        Err(_) => Err(CronError::ReadingError),
     }
 }
 
-/// Creates a completly new cron job for a given user.
+/// Creates a completely new cron job for a given user.
 /// This function does not verify input values.
-pub fn create_new_specific_cronjob(
-    job: SpecificCronJob,
-    user: User,
-) -> Result<String, CronCreationError> {
+pub fn create_new_specific_cronjob(job: SpecificCronJob, user: User) -> Result<String, CronError> {
     let prompt = format!(
         "{} {} {} {} {} {}",
         job.minute, job.hour, job.day_of_month, job.month, job.day_of_week, job.command,
     );
 
-    if crontab_exists(user.clone()) {
+    if crontab_exists(user.clone())? {
         match get_cron_contents(user.clone()) {
             Some(cont) => {
                 let pad = if cont.ends_with("\n") {
@@ -278,28 +292,25 @@ pub fn create_new_specific_cronjob(
                 let new_cont = format!("{cont}{pad}{prompt}\n");
                 match write_cronfile(new_cont.clone(), user) {
                     Some(_) => Ok(prompt),
-                    None => Err(CronCreationError::CronWritingError),
+                    None => Err(CronError::WritingError),
                 }
             }
-            None => Err(CronCreationError::CronReadingError),
+            None => Err(CronError::ReadingError),
         }
     } else {
         match write_cronfile(prompt.clone(), user) {
             Some(_) => Ok(prompt),
-            None => Err(CronCreationError::CronWritingError),
+            None => Err(CronError::WritingError),
         }
     }
 }
 
-/// Creates a completly new cron job for a given user.
+/// Creates a completely new cron job for a given user.
 /// This function does not verify input values.
-pub fn create_new_interval_cronjob(
-    job: IntervalCronJob,
-    user: User,
-) -> Result<String, CronCreationError> {
+pub fn create_new_interval_cronjob(job: IntervalCronJob, user: User) -> Result<String, CronError> {
     let prompt = format!("{} {}", job.interval, job.command);
 
-    if crontab_exists(user.clone()) {
+    if crontab_exists(user.clone())? {
         match get_cron_contents(user.clone()) {
             Some(cont) => {
                 let pad = if cont.ends_with("\n") {
@@ -313,15 +324,15 @@ pub fn create_new_interval_cronjob(
 
                 match write_cronfile(new_cont.clone(), user) {
                     Some(_) => Ok(prompt),
-                    None => Err(CronCreationError::CronWritingError),
+                    None => Err(CronError::WritingError),
                 }
             }
-            None => Err(CronCreationError::CronReadingError),
+            None => Err(CronError::ReadingError),
         }
     } else {
         match write_cronfile(prompt.clone(), user) {
             Some(_) => Ok(prompt),
-            None => Err(CronCreationError::CronWritingError),
+            None => Err(CronError::WritingError),
         }
     }
 }
@@ -356,9 +367,13 @@ impl From<&str> for Interval {
     }
 }
 
-impl From<&str> for Digit {
-    fn from(value: &str) -> Self {
+impl TryFrom<&str> for Digit {
+    type Error = &'static str;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
         let mut modifiers = vec!['*', ',', '-', '/'];
+        let mut allowed = vec!['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'];
+        allowed.append(&mut modifiers);
         let mut matches = 0_i32;
         for c in value.chars() {
             if modifiers.contains(&c) {
@@ -366,34 +381,45 @@ impl From<&str> for Digit {
                 modifiers.remove(index);
                 matches += 1;
             }
+
+            // Sanitize user input
+            if !allowed.contains(&c) {
+                warn!(
+                    "A character that is not white-listed was detected, thus the input was not sanitized beforehand and can not be stored in a cronjob: {c}"
+                );
+                return Err("Digit contained illegal characters.");
+            }
         }
         if matches >= 2 {
-            return Self::Composed(value.to_string());
+            return Ok(Self::Composed(value.to_string()));
         }
 
         if value == "*" {
-            Digit::Any
+            Ok(Digit::Any)
         } else if value.contains(",") {
             let v = value
                 .split(",")
                 .filter(|v| !v.is_empty())
                 .map(|v| v.parse::<usize>().unwrap())
                 .collect();
-            Digit::List(v)
+            Ok(Digit::List(v))
         } else if value.contains("-") {
             let s = value
                 .split("-")
                 .map(|x| x.parse::<usize>().unwrap())
                 .collect::<Vec<usize>>();
-            Digit::Range(s[0], s[1])
+            Ok(Digit::Range(s[0], s[1]))
         } else if value.contains("/") {
             let s = value.split("/").collect::<Vec<&str>>();
-            Digit::Repeating(s[0].to_string(), s[1].parse::<usize>().unwrap())
+            Ok(Digit::Repeating(
+                s[0].to_string(),
+                s[1].parse::<usize>().unwrap(),
+            ))
         } else {
             let p = value.parse::<usize>();
             match p {
-                Ok(pv) => return Self::Value(pv),
-                Err(_) => return Self::Composed(value.to_string()),
+                Ok(pv) => return Ok(Self::Value(pv)),
+                Err(_) => return Ok(Self::Composed(value.to_string())),
             }
         }
     }
@@ -414,7 +440,7 @@ impl From<&str> for Month {
             "oct" | "october" | "10" => Self::October,
             "nov" | "november" | "11" => Self::November,
             "dec" | "december" | "12" => Self::December,
-            v => Self::Digit(Digit::from(v)),
+            v => Self::Digit(Digit::try_from(v).expect("Converting to digit failed.")),
         }
     }
 }
@@ -429,18 +455,18 @@ impl From<&str> for DayOfWeek {
             "thu" | "thursday" | "4" => Self::Thursday,
             "fri" | "friday" | "5" => Self::Friday,
             "sat" | "saturday" | "6" => Self::Saturday,
-            v => Self::Digit(Digit::from(v)),
+            v => Self::Digit(Digit::try_from(v).expect("Converting to digit failed.")),
         }
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct IntervalCronJob {
     pub interval: Interval,
     pub command: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct SpecificCronJob {
     pub minute: Digit,
     pub hour: Digit,
@@ -450,16 +476,17 @@ pub struct SpecificCronJob {
     pub command: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 pub enum CronJob {
     Interval(IntervalCronJob),
     Specific(SpecificCronJob),
 }
 
 #[derive(Debug, Serialize)]
-pub enum CronListingError {
-    CronReadingError,
+pub enum CronError {
+    ReadingError,
     NoCronFile,
+    WritingError,
 }
 
 fn cronjob_line_from_to(l: String, n: usize) -> String {
@@ -469,9 +496,11 @@ fn cronjob_line_from_to(l: String, n: usize) -> String {
         .to_string()
 }
 
-pub fn list_cronjobs(user: User) -> Result<Vec<CronJob>, CronListingError> {
-    if !crontab_exists(user.clone()) {
-        return Err(CronListingError::NoCronFile);
+pub fn list_cronjobs(user: User) -> Result<Vec<CronJob>, CronError> {
+    // NOTE This function could also return the file lines for the corresponding cronjobs.
+
+    if !crontab_exists(user.clone())? {
+        return Err(CronError::NoCronFile);
     }
 
     match get_cron_lines(user) {
@@ -479,9 +508,17 @@ pub fn list_cronjobs(user: User) -> Result<Vec<CronJob>, CronListingError> {
             let mut jobs = Vec::new();
             let re = Regex::new(r"\s+").unwrap();
             for l in lines {
+                // Lines starting with hashtags are regarded as comments
+                // Lines containing just spaces and/or tabs are ignored
+                if l.starts_with("#") || !l.chars().any(|c| c != '\t' || c != ' ') {
+                    continue;
+                }
                 let segments = re.split(l.trim()).collect::<Vec<&str>>();
                 if Interval::is(segments[0]) {
+                    // If the first segment is an interval prefix, the cronjob is considered an
+                    // interval cronjob (aka. anacron).
                     if segments.len() < 2 {
+                        // If the cronjob has less than two segments, it is malformed and ignored
                         continue;
                     }
                     let j = IntervalCronJob {
@@ -491,11 +528,15 @@ pub fn list_cronjobs(user: User) -> Result<Vec<CronJob>, CronListingError> {
                     jobs.push(CronJob::Interval(j))
                 } else {
                     if segments.len() < 6 {
+                        // If the cronjob has less than six segments, it is malformed and ignored
                         continue;
                     }
-                    let minute = Digit::from(segments[0]);
-                    let hour = Digit::from(segments[1]);
-                    let day_of_month = Digit::from(segments[2]);
+                    let minute =
+                        Digit::try_from(segments[0]).expect("Converting minute to digit failed.");
+                    let hour =
+                        Digit::try_from(segments[1]).expect("Converting hour to digit failed.");
+                    let day_of_month = Digit::try_from(segments[2])
+                        .expect("Converting day of month to digit failed.");
                     let month = Month::from(segments[3]);
                     let day_of_week = DayOfWeek::from(segments[4]);
                     let j = SpecificCronJob {
@@ -511,7 +552,7 @@ pub fn list_cronjobs(user: User) -> Result<Vec<CronJob>, CronListingError> {
             }
             Ok(jobs)
         }
-        None => Err(CronListingError::CronReadingError),
+        None => Err(CronError::ReadingError),
     }
 }
 
@@ -519,6 +560,8 @@ pub enum CronDeletionError {
     NoCronFile,
 }
 
+/// Deletes the line of the nth occurrence of a valid specific CronJob from a crontab file given the index
+/// and targeted user.
 pub fn delete_specific_cronjob(target_index: u32, user: User) -> Result<(), CronDeletionError> {
     let mut lines;
     match get_cron_lines(user.clone()) {
@@ -533,8 +576,12 @@ pub fn delete_specific_cronjob(target_index: u32, user: User) -> Result<(), Cron
     for l in lines.clone() {
         let segments = re.split(l.trim()).collect::<Vec<&str>>();
 
-        // Skip processing the line but aknowledge its existance if the line is a comment, interval
+        // Skip processing the line but acknowledge its existence if the line is a comment, interval,
         // or invalid length.
+
+        // Ignores lines with less than six segments as they would not be correctly formed specific
+        // cronjobs, lines starting with @ as this signifies an interval and lines starting
+        // hashtags as those introduce a comment.
         if segments.len() < 6 || l.starts_with("@") || l.starts_with("#") {
             file_line_index += 1;
             continue;
@@ -557,6 +604,8 @@ pub fn delete_specific_cronjob(target_index: u32, user: User) -> Result<(), Cron
     Ok(())
 }
 
+/// Deletes the line of the nth occurrence of a valid interval CronJob from a crontab file given the index
+/// and targeted user.
 pub fn delete_interval_cronjob(target_index: u32, user: User) -> Result<(), CronDeletionError> {
     let mut lines;
     match get_cron_lines(user.clone()) {
@@ -571,8 +620,9 @@ pub fn delete_interval_cronjob(target_index: u32, user: User) -> Result<(), Cron
     for l in lines.clone() {
         let segments = re.split(l.trim()).collect::<Vec<&str>>();
 
-        // Skip processing the line but aknowledge its existance if the line is a comment, interval
+        // Skip processing the line but acknowledge its existence if the line is a comment, interval,
         // or invalid length.
+
         if segments.len() < 2
             || !l.starts_with("@")
             || !Interval::is(segments[0].trim())

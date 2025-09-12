@@ -1,11 +1,14 @@
+use log::warn;
 use regex::Regex;
-use serde::Deserialize;
-use std::process::Command;
+use serde::{Deserialize, Serialize};
+use std::{path::PathBuf, process::Command};
+use utoipa::{ToResponse, ToSchema};
 
-#[derive(Deserialize, serde::Serialize)]
+#[derive(Deserialize, Serialize, Debug, ToSchema)]
 pub struct BlockDevice {
     pub name: String,
     pub mountpoint: Option<String>,
+    #[schema(value_type = Option<Vec<Object>>)]
     pub children: Option<Vec<BlockDevice>>,
 }
 
@@ -14,8 +17,8 @@ pub struct LsblkOutput {
     pub blockdevices: Vec<BlockDevice>,
 }
 
-#[derive(Deserialize, serde::Serialize)]
-pub struct Ussage {
+#[derive(Deserialize, serde::Serialize, ToSchema, ToResponse)]
+pub struct Usage {
     pub filesystem: String,
     pub size: u64,
     pub used: u64,
@@ -24,7 +27,7 @@ pub struct Ussage {
     pub mounted: String,
 }
 
-#[derive(Deserialize, serde::Serialize, Clone, Debug)]
+#[derive(Deserialize, serde::Serialize, Clone, Debug, ToSchema)]
 pub struct Drive {
     model: Option<String>,
     path: Option<String>,
@@ -33,12 +36,25 @@ pub struct Drive {
     mountpoint: Option<String>,
     fsused: Option<f64>,
     name: Option<String>,
+    #[schema(value_type = Option<Vec<Object>>)]
     children: Option<Vec<Drive>>,
 }
 
 #[derive(Deserialize, serde::Serialize)]
 pub struct LsblkOutputExhaustive {
     pub blockdevices: Vec<Drive>,
+}
+
+#[derive(Serialize, Debug, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DriveUsageStatistics {
+    pub filesystem: String,
+    #[schema(value_type = String)]
+    pub mountpoint: PathBuf,
+    pub capacity: f32,
+    pub free: u32,
+    pub total: u32,
+    pub in_use: u32,
 }
 
 /// List all block device on the system.
@@ -66,8 +82,8 @@ pub fn device_list() -> Option<LsblkOutput> {
 /// Return drive statistics about a drive.
 /// * `drive` - The drive name
 ///
-/// This function returns every entry where the specefied drive name is in the path.
-pub fn drive_statistics(drive: String) -> Option<Vec<(String, u64, u64, u64, f64, String)>> {
+/// This function returns every entry where the specified drive name is in the path.
+pub fn drive_statistics(drive: String) -> Option<DriveUsageStatistics> {
     let dfp_output = Command::new("df").arg("-P").output().unwrap().stdout;
     let re = Regex::new(r"\s+").unwrap();
 
@@ -78,33 +94,34 @@ pub fn drive_statistics(drive: String) -> Option<Vec<(String, u64, u64, u64, f64
         .map(|x| x.to_string())
         .collect();
 
-    let mut ussage_vector: Vec<(String, u64, u64, u64, f64, String)> = Vec::new();
+    let mut statistics: Option<DriveUsageStatistics> = None;
 
     for line in dfp_output_lines {
         let dfp_output_s = re.split(&line);
         let dfp_output_split = dfp_output_s.collect::<Vec<&str>>();
         if dfp_output_split[0].contains(&drive) {
-            ussage_vector.push((
-                dfp_output_split[0].to_string(),
-                dfp_output_split[1].to_string().parse().unwrap(),
-                dfp_output_split[2].to_string().parse().unwrap(),
-                dfp_output_split[3].to_string().parse().unwrap(),
-                dfp_output_split[4]
-                    .to_string()
-                    .replace("%", "")
-                    .to_string()
-                    .parse()
-                    .unwrap(),
-                dfp_output_split[5].to_string(),
-            ))
+            let total = dfp_output_split[1].parse::<u32>().unwrap() * 1024;
+            let in_use = dfp_output_split[2].parse::<u32>().unwrap() * 1024;
+            let free = dfp_output_split[3].parse::<u32>().unwrap() * 1024;
+            statistics = Some(DriveUsageStatistics {
+                filesystem: dfp_output_split[0].to_string(),
+                mountpoint: PathBuf::from(dfp_output_split[5]),
+                total,
+                free,
+                in_use,
+                capacity: in_use as f32 / total as f32,
+            });
+            break;
         }
     }
 
-    Some(ussage_vector)
+    statistics
 }
 
 /// Get information about a specified block device
 pub fn drive_information(device_name: String) -> Option<Drive> {
+    // NOTE Return Result<Drive>
+    // instead of Option<>
     let mut binding = Command::new("lsblk");
     let c = binding
         .arg("--bytes")
@@ -114,7 +131,7 @@ pub fn drive_information(device_name: String) -> Option<Drive> {
     let c_output = match c.output() {
         Ok(v) => v.stdout,
         Err(e) => {
-            eprintln!("❌ Failed to spawn lsblk --bytes --json -o NAME,MODEL,PATH,SIZE,OWNER,MOUNTPOINT,FSUSED when getting information about a specific drive.\n{}", e);
+            warn!("Failed to spawn command to view blockdevice metadata.");
             return None;
         }
     };

@@ -8,6 +8,8 @@ pub enum UptimeError {
     ParseError,
 }
 
+/// Provides the seconds since last boot.
+/// This may return an error if the value of `/proc/uptime` is malformed or could not be read.
 pub fn get() -> Result<Duration, UptimeError> {
     let read = fs::read_to_string(std::path::Path::new("/proc/uptime"));
     let d = match read {
