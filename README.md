@@ -21,7 +21,7 @@
 </p>
 
 ## Features and use-case
-Zentrox helps with controlling and surveilling Linux home servers and computers. It is equipped with tools designed for basic and advanced OS administration, file managing or device-specific network management.
+Zentrox helps with controlling and surveiling Linux home servers and computers. It is equipped with tools designed for basic and advanced OS administration, file managing or device-specific network management.
 
 Its features include:
 - Package installation, removal and updating using `apt`, `dnf` and `pacman`
@@ -34,6 +34,13 @@ Its features include:
 - Integrated media viewer (disabled by default)
 - Secure connection over HTTP
 - 2FA using OTP
+
+## Screenshots
+Just some pictures:
+
+<img src="pictures/login.png" width="400" />
+<img src="pictures/dashboard.png" width="400" />
+<img src="pictures/processes.png" width="400" />
 
 ## Installation
 
