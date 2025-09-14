@@ -20,6 +20,8 @@
 <img alt="GitHub forks" src="https://img.shields.io/github/forks/Wervice/zentrox">
 </p>
 
+# This is a work in progress - Code may not work as expected - Use with caution
+
 ## Features and use-case
 Zentrox helps with controlling and surveiling Linux home servers and computers. It is equipped with tools designed for basic and advanced OS administration, file managing or device-specific network management.
 
