@@ -58,26 +58,28 @@ use diesel::prelude::*;
 use log::{debug, error, info, warn};
 use utoipa::{OpenApi, ToSchema};
 
-mod cron;
-mod crypto_utils;
-mod database;
-mod drives;
+mod routes;
+
+use utils::cron;
+use utils::crypto_utils;
+use utils::database;
+use utils::drives;
 mod is_admin;
-mod logs;
-mod mime;
-mod models;
-mod net_data;
-mod otp;
-mod packages;
-mod schema;
 mod setup;
-mod status_com;
-mod sudo;
-mod ufw;
-mod uptime;
-mod users;
-mod vault;
-mod visit_dirs;
+use utils::logs;
+use utils::mime;
+use utils::models;
+use utils::net_data;
+use utils::otp;
+use utils::packages;
+use utils::schema;
+use utils::status_com;
+use utils::sudo;
+use utils::ufw;
+use utils::uptime;
+use utils::users;
+use utils::vault;
+use utils::visit_dirs;
 
 use is_admin::is_admin_state;
 use net_data::private_ip;
@@ -253,7 +255,7 @@ async fn shared_page() -> HttpResponse {
 }
 
 async fn alerts_manifest() -> HttpResponse {
-    HttpResponse::Ok().body(include_str!("../manifest.json"))
+    HttpResponse::Ok().body(include_str!("../../assets/manifest.json"))
 }
 
 /// The dashboard route.
@@ -481,140 +483,6 @@ async fn verify_sudo_password(json: web::Json<SudoPasswordReq>) -> HttpResponse 
     }
 
     return HttpResponse::Ok().json(MessageRes::from("Sudo password is correct"));
-}
-
-/// A single thermometer reading with a name
-#[derive(Serialize, ToSchema)]
-struct Thermometer {
-    label: String,
-    critical: Option<f32>,
-    reading: Option<f32>,
-}
-
-#[derive(Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-struct DeviceInformationRes {
-    hostname: Option<String>,
-    #[schema(value_type = Option<String>)]
-    ip: Option<IpAddr>,
-    /// Milliseconds since last boot
-    uptime: u128,
-    thermometers: Vec<Thermometer>,
-    zentrox_pid: u32,
-    network_bytes_up: Option<f64>,
-    network_bytes_down: Option<f64>,
-    most_active_network_interface: Option<String>,
-    network_interfaces_count: usize,
-    memory_total_bytes: u64,
-    memory_free_bytes: u64,
-    cpu_usage: f32,
-    os_name: Option<String>,
-}
-
-#[
-utoipa::path(
-    get,
-    path = "/private/dashboard/information",
-    tags = ["private", "dashboard"],
-    responses((status = 200, body = DeviceInformationRes))
-    )
-]
-/// Hardware and OS statistics
-async fn device_information(state: Data<AppState>) -> HttpResponse {
-    // Current machines host-name. i.e.: debian_pc or 192.168.1.3
-    let hostname = match fs::read_to_string("/etc/hostname") {
-        Ok(reading) => Some(reading.replace("\n", "")),
-        Err(_) => None,
-    };
-
-    let uptime = uptime::get().unwrap().as_millis();
-
-    // A refreshed list of all thermometer components in the system is obtained.
-    let thermometers_component_list = Components::new_with_refreshed_list();
-    let thermometers: Vec<Thermometer> = thermometers_component_list
-        .iter()
-        .map(|component| Thermometer {
-            label: component.label().to_string(),
-            reading: match component.temperature() {
-                Some(unwrapped_reading) => {
-                    if unwrapped_reading.is_nan() {
-                        None
-                    } else {
-                        Some(unwrapped_reading)
-                    }
-                }
-                None => None,
-            },
-            critical: match component.critical() {
-                Some(unwrapped_reading) => {
-                    if unwrapped_reading.is_nan() {
-                        None
-                    } else {
-                        Some(unwrapped_reading)
-                    }
-                }
-                None => None,
-            },
-        })
-        .collect();
-
-    // Refresh current data in the shared system instance.
-    let mut locked_system_instance = state.system.lock().unwrap();
-    locked_system_instance.refresh_memory();
-    locked_system_instance.refresh_cpu_usage();
-
-    // Obtain device statistics
-    let cpu_usage = locked_system_instance.global_cpu_usage() / 100_f32;
-    let memory_total_bytes = locked_system_instance.total_memory();
-    let memory_free_bytes = locked_system_instance.available_memory();
-
-    // Default values are None if no interface could be found to obtain the measurements from.
-    let mut network_bytes_down = None;
-    let mut network_bytes_up = None;
-    let mut most_active_network_interface = None;
-
-    let network_interfaces = state.network_interfaces.lock().unwrap();
-    let network_interfaces_count = &network_interfaces.iter().len();
-
-    let mut current_highest_interface_activity: f64 = 0.0;
-
-    for interface in network_interfaces.iter() {
-        let sum = interface.up + interface.down;
-        if sum > current_highest_interface_activity {
-            most_active_network_interface = Some(interface.name.clone());
-            network_bytes_up = Some(interface.up);
-            network_bytes_down = Some(interface.down);
-            current_highest_interface_activity = sum;
-        }
-    }
-
-    // Get operating system name from /etc/os-release
-    let os_release = fs::read_to_string("/etc/os-release");
-    let mut os_name = None;
-    if let Ok(s) = os_release {
-        s.lines().for_each(|l| {
-            if l.starts_with("PRETTY_NAME") {
-                // The operating system is named using this key
-                os_name = Some(l.split("=").nth(1).unwrap_or("").replace("\"", ""));
-            }
-        });
-    }
-
-    HttpResponse::Ok().json(DeviceInformationRes {
-        zentrox_pid: std::process::id(),
-        hostname,
-        uptime,
-        thermometers,
-        network_bytes_down,
-        network_bytes_up,
-        most_active_network_interface,
-        network_interfaces_count: *network_interfaces_count,
-        ip: private_ip().ok(),
-        memory_free_bytes,
-        memory_total_bytes,
-        cpu_usage,
-        os_name,
-    })
 }
 
 // Package API
@@ -2360,7 +2228,7 @@ async fn vault_file_download(json: web::Json<VaultFileDownloadReq>) -> HttpRespo
 #[get("/robots.txt")]
 /// Return the robots.txt file to prevent search engines from indexing this server.
 async fn robots_txt() -> HttpResponse {
-    HttpResponse::Ok().body(include_str!("../robots.txt"))
+    HttpResponse::Ok().body(include_str!("../../assets/robots.txt"))
 }
 
 // Upload TLS cert
@@ -3015,7 +2883,7 @@ async fn get_cover(info: Query<SinglePath>) -> HttpResponse {
     let cover_uri = &info.path;
 
     if cover_uri == &PathBuf::from("/music") {
-        let cover = include_str!("../music_default.svg");
+        let cover = include_str!("../../assets/music_default.svg");
         HttpResponse::Ok()
             .insert_header((header::CONTENT_TYPE, "image/svg+xml".to_string()))
             .body(cover.bytes().collect::<Vec<u8>>())
@@ -4013,7 +3881,7 @@ fn generate_openapi_contract(store_path: Option<&String>) {
             use_otp,
             otp_activation,
             verify_sudo_password,
-            device_information,
+            routes::dashboard::device_information,
             package_database,
             package_statistics,
             update_package_database,
@@ -4353,7 +4221,7 @@ async fn main() -> std::io::Result<()> {
                             )
                             .service(
                                 web::scope("/dashboard")
-                                    .route("/information", web::get().to(device_information)),
+                                    .route("/information", web::get().to(routes::dashboard::device_information)),
                             )
                             .service(
                                 web::scope("/packages")

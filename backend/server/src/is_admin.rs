@@ -11,12 +11,12 @@ use crate::{AppState, crypto_utils};
 /// * `session` - The current session from the handler
 /// * `state` - The current server state in form of the AppState struct.
 ///
-/// The function willthen compare the states login token to the token provided by the session.
+/// The function will then compare the states login token to the token provided by the session.
 /// In case no token is provided by the sessions, false is returned as default.
 ///
 /// The variable disable_auth_for_development can be used during development to disable
 /// authentication.
-/// If the function is left enabled a warning will be printend in the terminal. Otherwise
+/// If the function is left enabled a warning will be printed in the terminal. Otherwise,
 /// nothing is shown.
 pub fn is_admin_state(session: &Session, state: web::Data<AppState>) -> bool {
     let mut vars = std::env::vars();

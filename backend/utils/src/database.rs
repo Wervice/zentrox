@@ -14,7 +14,7 @@ pub fn get_database_location() -> PathBuf {
 
 pub fn base_database_setup() -> Result<(), String> {
     let connection = Connection::open(get_database_location().to_str().unwrap()).unwrap();
-    let s = connection.execute_batch(include_str!("../setup.sql"));
+    let s = connection.execute_batch(include_str!("../../assets/setup.sql"));
 
     match s {
         Ok(_) => Ok(()),
