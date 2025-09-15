@@ -1,1 +1,17 @@
+pub mod account;
+pub mod auth;
+pub mod cron;
 pub mod dashboard;
+pub mod drives;
+pub mod files;
+pub mod firewall;
+pub mod jobs;
+pub mod logs;
+pub mod media;
+pub mod network;
+pub mod packages;
+pub mod power;
+pub mod processes;
+pub mod sharing;
+pub mod tls;
+pub mod vault;

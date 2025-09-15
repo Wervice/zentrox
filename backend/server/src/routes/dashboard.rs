@@ -1,12 +1,13 @@
-use std::fs;
-use actix_web::{web::Data, HttpResponse};
-use std::net::IpAddr;
+use actix_session::Session;
+use actix_web::{HttpResponse, web::Data};
 use serde::Serialize;
+use std::fs;
+use std::net::IpAddr;
+use sysinfo::Components;
 use utils::net_data::private_ip;
 use utoipa::ToSchema;
-use sysinfo::Components;
 
-use crate::AppState;
+use crate::{AppState, is_admin::is_admin_state};
 
 /// A single thermometer reading with a name
 #[derive(Serialize, ToSchema)]
@@ -139,4 +140,20 @@ pub async fn device_information(state: Data<AppState>) -> HttpResponse {
         cpu_usage,
         os_name,
     })
+}
+
+/// The dashboard route.
+///
+/// If the user is logged in, the dashboard is shown, otherwise they get redirected to root.
+pub async fn page(session: Session, state: Data<AppState>) -> HttpResponse {
+    // is_admin session value is != true (None or false), the user is redirected to /
+    // otherwise, the user is served the dashboard.html file
+    if is_admin_state(&session, state) {
+        HttpResponse::Ok()
+            .body(std::fs::read_to_string("static/dashboard.html").expect("Failed to read file"))
+    } else {
+        HttpResponse::Found()
+            .append_header(("Location", "/"))
+            .body("You will soon be redirected")
+    }
 }
