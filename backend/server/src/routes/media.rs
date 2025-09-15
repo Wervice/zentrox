@@ -65,7 +65,7 @@ fn is_media_path_whitelisted(l: Vec<MediaSource>, p: PathBuf) -> bool {
     responses((status = 200, description = "Binary media file", content_type = "application/octet-stream"), (status = 404, description = "File not found."), (status = 416), (status = 403, description = "Media center may be disabled.")),
     tags = ["media", "private"]
 )]
-pub async fn media_request(info: Query<SinglePath>, req: HttpRequest) -> HttpResponse {
+pub async fn download(info: Query<SinglePath>, req: HttpRequest) -> HttpResponse {
     use models::MediaSource;
     use models::RecommendedMediaEntry;
     use schema::MediaSources::dsl::*;
@@ -210,7 +210,7 @@ pub struct MediaSourcesSchema {
 ///
 /// Media sources control what content is shown to the user in Media Center and to which files the
 /// user has access.
-pub async fn update_media_source_list(json: Json<MediaSourcesSchema>) -> HttpResponse {
+pub async fn update_sources(json: Json<MediaSourcesSchema>) -> HttpResponse {
     use models::MediaSource;
     use schema::MediaSources::dsl::*;
 
@@ -259,7 +259,7 @@ pub async fn update_media_source_list(json: Json<MediaSourcesSchema>) -> HttpRes
 /// List of media sources.
 ///
 /// See [`update_media_source_list`] for reference.
-pub async fn get_media_source_list() -> HttpResponse {
+pub async fn get_sources() -> HttpResponse {
     use models::MediaSource;
     use schema::MediaSources::dsl::*;
 
@@ -285,7 +285,7 @@ struct MediaListRes {
 /// List of media files
 ///
 /// This list is controlled by the active media sources.
-pub async fn get_media_list() -> HttpResponse {
+pub async fn get_contents() -> HttpResponse {
     use schema::Media::dsl::*;
     use schema::MediaSources::dsl::*;
 
@@ -340,7 +340,7 @@ pub async fn get_media_list() -> HttpResponse {
 ///
 /// Only media covers that are in an active media source will be shown.
 #[utoipa::path(get, path = "/private/media/cover", responses((status = 200, content_type = "image/"), (status = 404, description = "Media not found.")), tags = ["media", "private"], params(("path" = String, Query)))]
-pub async fn get_cover(info: Query<SinglePath>) -> HttpResponse {
+pub async fn cover(info: Query<SinglePath>) -> HttpResponse {
     use models::MediaSource;
     use schema::MediaSources::dsl::*;
 
@@ -408,7 +408,7 @@ pub async fn get_media_enabled_handler() -> HttpResponse {
 
 /// Set media center activation
 #[utoipa::path(post, path = "/private/media/enabled", responses((status = 200)), request_body = MediaEnabledSchema, tags = ["media", "private"])]
-pub async fn set_enable_media(e: Json<MediaEnabledSchema>) -> HttpResponse {
+pub async fn activate_media(e: Json<MediaEnabledSchema>) -> HttpResponse {
     use schema::Configuration::dsl::*;
 
     let connection = &mut establish_connection();
@@ -434,7 +434,7 @@ pub struct RecommendationsRes {
 
 /// Media files history
 #[utoipa::path(get, path = "/private/media/history", tags = ["private", "media"], responses((status = 200, body = RecommendationsRes)))]
-pub async fn read_full_media_history() -> HttpResponse {
+pub async fn read_history() -> HttpResponse {
     use models::RecommendedMediaEntry;
     use schema::RecommendedMedia::dsl::*;
 
@@ -465,7 +465,7 @@ pub struct MetadataReq {
 
 #[utoipa::path(get, path = "/private/media/metadata/{file}", params(("file" = String, Path)), tags = ["private", "media"], responses((status = 200, body = RecommendationsRes)))]
 /// Update media metadata
-pub async fn update_media_metadata(path: Path<PathBuf>, json: Json<MetadataReq>) -> HttpResponse {
+pub async fn update_metadata(path: Path<PathBuf>, json: Json<MetadataReq>) -> HttpResponse {
     use models::MediaEntry;
     use schema::Media::dsl::*;
 

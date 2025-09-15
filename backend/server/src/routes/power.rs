@@ -13,7 +13,7 @@ use utils::{
     responses((status = 200)),
     tags = ["private", "power"]
 )]
-pub async fn power_off(json: Json<SudoPasswordReq>) -> HttpResponse {
+pub async fn off(json: Json<SudoPasswordReq>) -> HttpResponse {
     let e =
         sudo::SwitchedUserCommand::new(json.sudo_password.clone(), "poweroff".to_string()).spawn();
 

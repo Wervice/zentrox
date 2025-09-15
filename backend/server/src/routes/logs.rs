@@ -31,7 +31,7 @@ pub struct LogReq {
     request_body = LogReq,
     tags = ["private", "logs"]
 )]
-pub async fn logs_request(json: Json<LogReq>) -> HttpResponse {
+pub async fn read(json: Json<LogReq>) -> HttpResponse {
     let since = &json.since;
     let until = &json.until;
 

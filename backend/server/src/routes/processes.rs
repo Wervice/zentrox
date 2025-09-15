@@ -34,7 +34,7 @@ fn os_string_array_to_string_vector(s: &[OsString]) -> Vec<String> {
 
 #[utoipa::path(get, path = "/private/processes/list", responses((status = 200, body = ListProcessesRes)), tags = ["processes", "private"])]
 /// List of processes
-pub async fn list_processes() -> HttpResponse {
+pub async fn list() -> HttpResponse {
     let process_refresh = ProcessRefreshKind::nothing()
         .without_tasks()
         .with_cpu()
@@ -90,7 +90,7 @@ pub async fn list_processes() -> HttpResponse {
     responses((status = 200), (status = 404, description = "The pid was not found.")),
     tags = ["processes", "private"]
 )]
-pub async fn kill_process(path: Path<u32>) -> HttpResponse {
+pub async fn kill(path: Path<u32>) -> HttpResponse {
     let process_refresh = ProcessRefreshKind::nothing()
         .without_tasks()
         .with_cpu()
@@ -146,7 +146,7 @@ struct ProcessDetailsRes {
     tags = ["processes", "private"]
 )]
 /// Details about process
-pub async fn details_process(path: Path<u32>) -> HttpResponse {
+pub async fn details(path: Path<u32>) -> HttpResponse {
     // NOTE Part of this should be moved into a helper library
 
     let process_refresh = ProcessRefreshKind::nothing()

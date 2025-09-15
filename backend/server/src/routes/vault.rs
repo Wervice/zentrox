@@ -49,7 +49,7 @@ fn get_vault_enabled() -> bool {
     tags = ["private", "vault"]
 )]
 // NOTE The following could use less indentations
-pub async fn vault_configure(json: Json<VaultConfigurationReq>) -> HttpResponse {
+pub async fn configure(json: Json<VaultConfigurationReq>) -> HttpResponse {
     use schema::Configuration::dsl::*;
     let vault_path = path::Path::new(&dirs::home_dir().unwrap())
         .join(".local")
@@ -140,7 +140,7 @@ pub async fn vault_configure(json: Json<VaultConfigurationReq>) -> HttpResponse 
     tags = ["private", "vault"]
 )]
 /// Is vault ready for use
-pub async fn is_vault_configured() -> HttpResponse {
+pub async fn is_configured() -> HttpResponse {
     return HttpResponse::Ok().body(get_vault_enabled().to_string());
 }
 
@@ -233,7 +233,7 @@ fn list_paths(directory: PathBuf, key: String) -> Vec<String> {
     responses((status = 200, body = VaultFsPathRes), (status = 403, description = "The new key could not be used to decrypt.")),
     tags = ["private", "vault"]
 )]
-pub async fn vault_tree(json: Json<VaultKeyReq>) -> HttpResponse {
+pub async fn tree(json: Json<VaultKeyReq>) -> HttpResponse {
     if get_vault_enabled() {
         let vault_path = path::Path::new(&dirs::home_dir().unwrap())
             .join(".local")
@@ -277,7 +277,7 @@ pub struct VaultDeleteReq {
     responses((status = 200, description = "The file is being deleted. This may take several seconds, thus a Job UUID is provided.")),
     tags = ["private", "vault", "responding_job"]
 )]
-pub async fn delete_vault_file(state: Data<AppState>, json: Json<VaultDeleteReq>) -> HttpResponse {
+pub async fn delete_file(state: Data<AppState>, json: Json<VaultDeleteReq>) -> HttpResponse {
     let uuid = Uuid::new_v4();
     state
         .background_jobs
@@ -374,7 +374,7 @@ pub struct VaultNewFolderReq {
     responses((status = 200), (status = 500, description = "Directory name too long.")),
     tags = ["private", "vault"]
 )]
-pub async fn vault_new_folder(json: Json<VaultNewFolderReq>) -> HttpResponse {
+pub async fn new_directory(json: Json<VaultNewFolderReq>) -> HttpResponse {
     let sent_path = &json.directory_name;
 
     if sent_path.split("/").last().unwrap().len() > 64 {
@@ -426,7 +426,7 @@ pub struct VaultUploadForm {
     responses((status = 200), (status = 409, description = "File with same path already exists.")),
     tags = ["private", "vault"]
     )]
-pub async fn upload_vault(MultipartForm(form): MultipartForm<VaultUploadForm>) -> HttpResponse {
+pub async fn upload(MultipartForm(form): MultipartForm<VaultUploadForm>) -> HttpResponse {
     let file_name = form
         .file
         .file_name
@@ -508,7 +508,7 @@ pub struct VaultRenameReq {
     responses((status = 404, description = "Origin not found."), (status = 400, description = "File can not be moved."), (status = 409, description = "Target path already exists.")),
     tags = ["private", "vault"]
 )]
-pub async fn rename_vault_file(json: Json<VaultRenameReq>) -> HttpResponse {
+pub async fn rename_file(json: Json<VaultRenameReq>) -> HttpResponse {
     let sent_path = &json.origin;
 
     if sent_path == "/.vault" {
@@ -596,7 +596,7 @@ fn append_file_extension(p: PathBuf, extension: &str) -> PathBuf {
     responses((status = 200, content_type = "application/octet-stream"), (status = 400, description = "File can not be read."), (status = 404, description = "File does not exist.")),
     tags = ["private", "vault"]
 )]
-pub async fn vault_file_download(json: Json<VaultFileDownloadReq>) -> HttpResponse {
+pub async fn download_file(json: Json<VaultFileDownloadReq>) -> HttpResponse {
     let sent_path = &json.path;
     let key = &json.key;
 

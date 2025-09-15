@@ -31,7 +31,7 @@ use utoipa::ToSchema;
     tags = ["private", "files"]
 )]
 /// Read file contents
-pub async fn download_file(info: Query<SinglePath>) -> HttpResponse {
+pub async fn download(info: Query<SinglePath>) -> HttpResponse {
     let path_for_logging = info.path.to_string_lossy();
 
     info!("File download started for {}", path_for_logging);
@@ -68,7 +68,7 @@ struct FilesListRes {
     params(("path" = String, Query)),
     tags = ["private", "files"]
 )]
-pub async fn files_list(info: Query<SinglePath>) -> HttpResponse {
+pub async fn list(info: Query<SinglePath>) -> HttpResponse {
     if !&info.path.exists() {
         return HttpResponse::NotFound().json(ErrorCode::DirectoryDoesNotExist.as_error_message());
     }
@@ -113,7 +113,7 @@ pub async fn files_list(info: Query<SinglePath>) -> HttpResponse {
     params(("path" = String, Query)),
     tags = ["private", "files"]
 )]
-pub async fn delete_file(info: Query<SinglePath>) -> HttpResponse {
+pub async fn delete(info: Query<SinglePath>) -> HttpResponse {
     let file_path = &info.path;
 
     if !std::path::Path::new(&file_path).exists() {
@@ -164,7 +164,7 @@ pub struct MovePathReq {
     request_body = inline(MovePathReq),
     tags = ["private", "files"]
 )]
-pub async fn move_path(json: Json<MovePathReq>) -> HttpResponse {
+pub async fn move_to(json: Json<MovePathReq>) -> HttpResponse {
     if !json.origin.exists() || json.destination.exists() {
         HttpResponse::NotFound().json(ErrorCode::FileDoesNotExist.as_error_message());
     }
@@ -197,7 +197,7 @@ pub async fn move_path(json: Json<MovePathReq>) -> HttpResponse {
     params(("path" = String, Query)),
     tags = ["private", "files"]
 )]
-pub async fn burn_file(info: Query<SinglePath>) -> HttpResponse {
+pub async fn burn(info: Query<SinglePath>) -> HttpResponse {
     let path = &info.path;
 
     if path.is_dir() {
@@ -280,7 +280,7 @@ fn recursive_size_of_directory(path: &PathBuf) -> u64 {
     params(("path" = String, Query)),
     tags = ["private", "files"]
 )]
-pub async fn get_file_metadata(info: Query<SinglePath>) -> HttpResponse {
+pub async fn metadata(info: Query<SinglePath>) -> HttpResponse {
     let constructed_path = &info.path;
     if !constructed_path.exists() {
         return HttpResponse::NotFound().json(ErrorCode::FileDoesNotExist.as_error_message());
@@ -374,7 +374,7 @@ pub struct UploadFileForm {
     request_body(content_type = "mutlipart/form-data", content = UploadFileForm,description = "The path and file to upload."),
     tags = ["private", "files"]
 )]
-pub async fn upload_file(MultipartForm(form): MultipartForm<UploadFileForm>) -> HttpResponse {
+pub async fn upload(MultipartForm(form): MultipartForm<UploadFileForm>) -> HttpResponse {
     let intended_path = PathBuf::from(form.path.to_string());
     let filename = match form.file.file_name {
         Some(v) => v,

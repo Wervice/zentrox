@@ -92,10 +92,7 @@ pub struct CronjobCommandReq {
 
 /// Run cronjob command
 #[utoipa::path(post, path = "/private/cronjobs/runCommand", request_body = CronjobCommandReq, responses((status = 200)), tags = ["private", "cronjobs", "responding_job"])]
-pub async fn run_cronjob_command(
-    state: Data<AppState>,
-    json: Json<CronjobCommandReq>,
-) -> HttpResponse {
+pub async fn run_command(state: Data<AppState>, json: Json<CronjobCommandReq>) -> HttpResponse {
     // NOTE: The following could be improved.
     // TODO Capture command output and store in Status code
 
@@ -184,7 +181,7 @@ pub async fn run_cronjob_command(
 
 /// Delete cronjob
 #[utoipa::path(post, path = "/private/cronjobs/delete/{index}/{variant}", params(("index" = u32, Path), ("variant" = CronjobVariant, Path)),responses((status = 200)), tags = ["private", "cronjobs"])]
-pub async fn delete_cronjob(path: Path<(u32, CronjobVariant)>) -> HttpResponse {
+pub async fn delete(path: Path<(u32, CronjobVariant)>) -> HttpResponse {
     let index = path.0;
     let variant = &path.1;
 
@@ -213,7 +210,7 @@ pub struct CreateCronjobReq {
 
 /// Create new cronjob
 #[utoipa::path(post, path = "/private/cronjobs/new", request_body = CreateCronjobReq, responses((status = 200)), tags = ["private", "cronjobs"])]
-pub async fn create_cronjob(json: Json<CreateCronjobReq>) -> HttpResponse {
+pub async fn create(json: Json<CreateCronjobReq>) -> HttpResponse {
     let variant = &json.variant;
 
     match variant {

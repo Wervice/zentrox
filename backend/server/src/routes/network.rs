@@ -26,7 +26,7 @@ struct NetworkRoutesRes {
 
 /// List of known network interfaces
 #[utoipa::path(get, path = "/private/network/interfaces", tags = ["private", "network"], responses((status = 200, body = NetworkInterfacesRes)))]
-pub async fn network_interfaces(state: Data<AppState>) -> HttpResponse {
+pub async fn interfaces(state: Data<AppState>) -> HttpResponse {
     let interfaces = state.network_interfaces.lock().unwrap().clone();
 
     return HttpResponse::Ok().json(NetworkInterfacesRes { interfaces });
@@ -34,7 +34,7 @@ pub async fn network_interfaces(state: Data<AppState>) -> HttpResponse {
 
 #[utoipa::path(get, path = "/private/network/routes", tags = ["private", "network"], responses((status = 200, body = NetworkRoutesRes)))]
 /// List of network routes
-pub async fn network_routes() -> HttpResponse {
+pub async fn routes() -> HttpResponse {
     let routes = net_data::get_routes();
 
     return HttpResponse::Ok().json(NetworkRoutesRes {
@@ -59,7 +59,7 @@ pub struct DeleteNetworkRouteReq {
 
 #[utoipa::path(post, path = "/private/network/route/delete", request_body = DeleteNetworkRouteReq, responses((status = 200), (status = 401, description = "The provided sudo password was wrong.")), tags = ["private", "network"])]
 /// Delete network route
-pub async fn delete_network_route(json: Json<DeleteNetworkRouteReq>) -> HttpResponse {
+pub async fn delete_route(json: Json<DeleteNetworkRouteReq>) -> HttpResponse {
     let built_deletion_route = DeletionRoute {
         device: json.device.clone(),
         nexthop: None,
@@ -109,7 +109,7 @@ pub struct NetworkingInterfaceActivityReq {
 
 /// Set activity of a network interface
 #[utoipa::path(post, path = "/private/network/interface/active", responses((status = 200)), request_body = NetworkingInterfaceActivityReq, tags = ["private", "network"])]
-pub async fn network_interface_active(json: Json<NetworkingInterfaceActivityReq>) -> HttpResponse {
+pub async fn activate_interface(json: Json<NetworkingInterfaceActivityReq>) -> HttpResponse {
     if json.activity {
         net_data::enable_interface(json.sudo_password.clone(), json.interface.clone());
     } else {

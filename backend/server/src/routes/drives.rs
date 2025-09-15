@@ -16,7 +16,7 @@ struct DriveListRes {
     tags = ["private", "drives"]
 )]
 /// List of connected block devices
-pub async fn list_drives() -> HttpResponse {
+pub async fn list() -> HttpResponse {
     let drives_out = drives::device_list();
 
     let drives = match drives_out {
@@ -49,7 +49,7 @@ pub struct DriveStatisticsQuery {
     params(("drive" = String, Query)),
     tags = ["private", "drives"]
 )]
-pub async fn drive_information(info: Query<DriveStatisticsQuery>) -> HttpResponse {
+pub async fn statistics(info: Query<DriveStatisticsQuery>) -> HttpResponse {
     let drive = &info.drive;
 
     let metadata = match drives::drive_information(drive.clone()) {

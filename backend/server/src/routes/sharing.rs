@@ -26,7 +26,7 @@ pub struct FileSharingReq {
 
 #[utoipa::path(post, path = "/private/sharing/new", request_body = FileSharingReq, responses((status = 200)), tags = ["private", "sharing"])]
 /// Create new file sharing
-pub async fn share_file(json: Json<FileSharingReq>) -> HttpResponse {
+pub async fn share(json: Json<FileSharingReq>) -> HttpResponse {
     use models::SharedFile;
     use schema::FileSharing;
 
@@ -84,7 +84,7 @@ struct SharedFilesListRes {
 
 #[utoipa::path(get, path = "/private/sharing/list", responses((status = 200, body = SharedFilesListRes)), tags = ["private", "sharing"])]
 /// List of shared files
-pub async fn get_shared_files_list() -> HttpResponse {
+pub async fn list() -> HttpResponse {
     use models::SharedFile;
     use schema::FileSharing::dsl::*;
 
@@ -104,7 +104,7 @@ pub struct SharedFileReq {
 
 #[utoipa::path(post, path = "/public/shared/get", request_body = SharedFileReq, responses((status = 200, content_type = "application/octet-stream")), tags = ["public", "sharing"])]
 /// Contents of shared file
-pub async fn get_shared_file(json: Json<SharedFileReq>) -> HttpResponse {
+pub async fn download_file(json: Json<SharedFileReq>) -> HttpResponse {
     use models::SharedFile;
     use schema::FileSharing;
 
@@ -164,7 +164,7 @@ struct SharedFileMetadataRes {
 
 #[utoipa::path(get, path = "/private/shared/getMetadata", request_body = SharedFileReq, responses((status = 200, body = SharedFileMetadataRes)), tags = ["public", "sharing"])]
 /// Metadata of shared file
-pub async fn get_shared_file_metadata(json: Json<SharedFileReq>) -> HttpResponse {
+pub async fn get_metadata(json: Json<SharedFileReq>) -> HttpResponse {
     use models::SharedFile;
     use schema::FileSharing::dsl::*;
 
@@ -195,7 +195,7 @@ pub async fn get_shared_file_metadata(json: Json<SharedFileReq>) -> HttpResponse
 
 #[utoipa::path(post, path = "/private/sharing/delete/{code}", params(("code" = String, Path)), responses((status = 200)), tags = ["private", "sharing"])]
 /// Delete file sharing
-pub async fn unshare_file(request_code: Path<String>) -> HttpResponse {
+pub async fn unshare(request_code: Path<String>) -> HttpResponse {
     use schema::FileSharing::dsl::*;
 
     let delete_file_sharing_database_execution = diesel::delete(FileSharing)

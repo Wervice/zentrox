@@ -44,7 +44,7 @@ struct PackageStatisticsRes {
 ///
 /// This includes the full names of installed packages. Updates can not be listed if the package
 /// manager is PacMan.
-pub async fn package_database() -> HttpResponse {
+pub async fn database() -> HttpResponse {
     use utils::models::PackageAction;
     use utils::schema::PackageActions::dsl::*;
     let connection = &mut establish_connection();
@@ -89,7 +89,7 @@ pub async fn package_database() -> HttpResponse {
     tags = ["private", "packages"]
 )]
 /// Package database counts
-pub async fn package_statistics() -> HttpResponse {
+pub async fn statistics() -> HttpResponse {
     use utils::models::PackageAction;
     use utils::schema::PackageActions::dsl::*;
     let connection = &mut establish_connection();
@@ -142,7 +142,7 @@ struct OrphanedPackagesRes {
     responses((status = 200, body = OrphanedPackagesRes)),
     tags = ["private", "packages"]
 )]
-pub async fn orphaned_packages() -> HttpResponse {
+pub async fn orphaned() -> HttpResponse {
     if let Ok(packages) = packages::list_orphaned_packages() {
         HttpResponse::Ok().json(OrphanedPackagesRes { packages })
     } else {
@@ -162,10 +162,7 @@ pub async fn orphaned_packages() -> HttpResponse {
 /// This action may take several minutes and is useful for discovering outdated packages.
 /// The task is ran asynchronous to the rest of the program and a job id is given which can be
 /// polled to get the state of the job.
-pub async fn update_package_database(
-    state: Data<AppState>,
-    json: Json<SudoPasswordReq>,
-) -> HttpResponse {
+pub async fn update_db(state: Data<AppState>, json: Json<SudoPasswordReq>) -> HttpResponse {
     use utils::models::PackageAction;
     use utils::schema::PackageActions::dsl::*;
     let job_id = Uuid::new_v4();
@@ -346,10 +343,7 @@ pub async fn update_package(state: Data<AppState>, json: Json<PackageActionReq>)
 ///
 /// It requires the package name along side the sudo password in the request body.
 /// This only works under apt, dnf and pacman.
-pub async fn update_all_packages(
-    state: Data<AppState>,
-    json: Json<SudoPasswordReq>,
-) -> HttpResponse {
+pub async fn update_all(state: Data<AppState>, json: Json<SudoPasswordReq>) -> HttpResponse {
     let sudo_password = json.sudo_password.clone();
     let job_id = Uuid::new_v4();
 
@@ -385,10 +379,7 @@ pub async fn update_all_packages(
     tags = ["private", "packages", "responding_job"]
 )]
 /// Auto-remove packages
-pub async fn remove_orphaned_packages(
-    json: Json<SudoPasswordReq>,
-    state: Data<AppState>,
-) -> HttpResponse {
+pub async fn remove_orphaned(json: Json<SudoPasswordReq>, state: Data<AppState>) -> HttpResponse {
     let sudo_password = json.sudo_password.clone();
     let job_id = Uuid::new_v4();
 

@@ -22,7 +22,7 @@ struct HasUfwReq {
     tags = ["private", "firewall"]
 )]
 /// Is UFW installed
-pub async fn firewall_has_ufw() -> HttpResponse {
+pub async fn has_ufw() -> HttpResponse {
     let check = utils::packages::list_installed_packages().contains(&String::from("ufw"));
     HttpResponse::Ok().json(HasUfwReq { has: check })
 }
@@ -42,7 +42,7 @@ struct FirewallInformationRes {
     ),
     tags = ["firewall", "private"])]
 /// UFW status
-pub async fn firewall_information(json: Json<SudoPasswordReq>) -> HttpResponse {
+pub async fn status(json: Json<SudoPasswordReq>) -> HttpResponse {
     let password = &json.sudo_password;
 
     match ufw::ufw_status(password.to_string()) {
@@ -75,7 +75,7 @@ pub struct SwitchUfwReq {
     ),
     tags = ["private", "firewall"])]
 /// Set UFW to be enabled or disabled
-pub async fn switch_ufw(json: Json<SwitchUfwReq>) -> HttpResponse {
+pub async fn switch(json: Json<SwitchUfwReq>) -> HttpResponse {
     let password = json.sudo_password.clone();
     let enabled = json.enabled;
 
@@ -171,7 +171,7 @@ pub struct NewFirewallRuleReq {
     request_body = NewFirewallRuleReq
 )]
 /// Create firewall rule.
-pub async fn new_firewall_rule(json: Json<NewFirewallRuleReq>) -> HttpResponse {
+pub async fn new_rule(json: Json<NewFirewallRuleReq>) -> HttpResponse {
     let mode = &json.mode;
     let sender = {
         if let Some(specific_address) = &json.sender_address {
@@ -225,7 +225,7 @@ pub struct FirewallDeleteRuleReq {
     request_body = FirewallDeleteRuleReq
 )]
 /// Delete firewall rule
-pub async fn delete_firewall_rule(json: Json<FirewallDeleteRuleReq>) -> HttpResponse {
+pub async fn delete_rule(json: Json<FirewallDeleteRuleReq>) -> HttpResponse {
     let password = &json.sudo_password;
 
     match ufw::delete_rule(password.to_string(), json.index) {

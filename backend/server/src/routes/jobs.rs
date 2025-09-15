@@ -20,7 +20,7 @@ use crate::{AppState, BackgroundTaskState};
     tags = ["private", "jobs"],
     params(("id" = String, Path))
 )]
-pub async fn fetch_job_status(state: Data<AppState>, path: Path<String>) -> HttpResponse {
+pub async fn status(state: Data<AppState>, path: Path<String>) -> HttpResponse {
     let requested_id = path.into_inner().to_string();
     let jobs = state.background_jobs.lock().unwrap().clone();
     let background_state = jobs.get(&uuid::Uuid::parse_str(&requested_id).unwrap());

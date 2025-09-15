@@ -45,7 +45,7 @@ utoipa::path(
     responses((status = 200, body = DeviceInformationRes))
     )
 ]
-pub async fn device_information(state: Data<AppState>) -> HttpResponse {
+pub async fn information(state: Data<AppState>) -> HttpResponse {
     // Current machines host-name. i.e.: debian_pc or 192.168.1.3
     let hostname = match fs::read_to_string("/etc/hostname") {
         Ok(reading) => Some(reading.replace("\n", "")),

@@ -21,7 +21,7 @@ pub struct LoginReq {
     otp: Option<String>,
 }
 
-pub fn setup_login_state(session: Session, state: Data<AppState>, provided_username: String) {
+fn setup_login_state(session: Session, state: Data<AppState>, provided_username: String) {
     let login_token: Vec<u8> = is_admin::generate_random_token();
     let _ = session.insert("login_token", hex::encode(&login_token).to_string());
 
@@ -47,11 +47,7 @@ pub fn setup_login_state(session: Session, state: Data<AppState>, provided_usern
     request_body = LoginReq,
     tags = ["public", "authentication"]
 )]
-pub async fn verification(
-    session: Session,
-    json: Json<LoginReq>,
-    state: Data<AppState>,
-) -> HttpResponse {
+pub async fn login(session: Session, json: Json<LoginReq>, state: Data<AppState>) -> HttpResponse {
     let request_username = &json.username;
     let request_password = &json.password;
     let request_otp_code = &json.otp;
@@ -144,7 +140,7 @@ pub struct OtpActivationReq {
     request_body = OtpActivationReq,
     tags = ["authentication", "private"]
 )]
-pub async fn otp_activation(json: Json<OtpActivationReq>) -> HttpResponse {
+pub async fn activate_otp(json: Json<OtpActivationReq>) -> HttpResponse {
     use utils::schema::Admin::dsl::*;
     let connection = &mut database::establish_connection();
 

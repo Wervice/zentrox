@@ -26,7 +26,7 @@ pub struct TlsUploadForm {
     responses((status = 200)),
     tags = ["private", "tls"]
 )]
-pub async fn upload_tls(MultipartForm(form): MultipartForm<TlsUploadForm>) -> HttpResponse {
+pub async fn upload(MultipartForm(form): MultipartForm<TlsUploadForm>) -> HttpResponse {
     use schema::Configuration::dsl::*;
 
     let file_name = form
@@ -81,7 +81,7 @@ struct CertNameRes {
     responses((status = 200, body = CertNameRes)),
     tags = ["private", "tls"]
 )]
-pub async fn cert_names() -> HttpResponse {
+pub async fn name() -> HttpResponse {
     use models::Configurations;
     use schema::Configuration::dsl::*;
     let name = Configuration

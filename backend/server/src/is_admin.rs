@@ -2,8 +2,9 @@ use actix_session::Session;
 use actix_web::web;
 use log::{debug, warn};
 use rand::Rng;
+use utils::crypto_utils;
 
-use crate::{AppState, crypto_utils};
+use crate::{AppState};
 
 /// Checks if a user is admin.
 ///

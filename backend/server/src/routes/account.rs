@@ -27,7 +27,7 @@ struct AccountDetailsRes {
     responses((status = 200, body = AccountDetailsRes)),
     tags = ["private", "account"]
 )]
-pub async fn account_details(state: Data<AppState>) -> HttpResponse {
+pub async fn details(state: Data<AppState>) -> HttpResponse {
     let state_username = match state.username.lock() {
         Ok(v) => v,
         Err(e) => e.into_inner(),
@@ -52,7 +52,7 @@ pub struct UpdateAccountReq {
     responses((status = 200)),
     tags = ["private", "account"]
 )]
-pub async fn update_account_details(json: Json<UpdateAccountReq>) -> HttpResponse {
+pub async fn update_details(json: Json<UpdateAccountReq>) -> HttpResponse {
     use schema::Admin::dsl::*;
     let connection = &mut establish_connection();
 
@@ -105,7 +105,7 @@ pub async fn update_account_details(json: Json<UpdateAccountReq>) -> HttpRespons
     responses((status = 200, body = &[u8], content_type = "image/")),
     tags = ["private", "account"]
 )]
-pub async fn profile_picture() -> HttpResponse {
+pub async fn picture() -> HttpResponse {
     let f = fs::read(
         path::Path::new(&dirs::home_dir().unwrap())
             .join(".local")
@@ -139,7 +139,7 @@ pub struct ProfilePictureUploadForm {
     responses((status = 200)),
     tags = ["private", "account"]
 )]
-pub async fn upload_profile_picture(
+pub async fn upload_picture(
     MultipartForm(form): MultipartForm<ProfilePictureUploadForm>,
 ) -> HttpResponse {
     let profile_picture_path = path::Path::new(&dirs::home_dir().unwrap())

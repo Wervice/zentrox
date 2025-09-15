@@ -1,7 +1,7 @@
-use crate::crypto_utils::argon2_derive_key;
-use crate::database::{self, establish_connection};
-use crate::otp::generate_otp_secret;
-use crate::sudo::{SudoExecutionResult, SwitchedUserCommand};
+use utils::crypto_utils::argon2_derive_key;
+use utils::database::{self, establish_connection};
+use utils::otp::generate_otp_secret;
+use utils::sudo::{SudoExecutionResult, SwitchedUserCommand};
 use diesel::RunQueryDsl;
 use dirs::{self, home_dir};
 use rcgen::{CertifiedKey, generate_simple_self_signed};
@@ -38,12 +38,12 @@ fn hostname() -> Option<String> {
 pub fn run_setup() -> Result<(), String> {
     // NOTE Prettier TUI would be reasonable
 
-    use crate::models::AdminAccount;
-    use crate::models::Configurations;
-    use crate::models::PackageAction;
-    use crate::schema::Admin::dsl::*;
-    use crate::schema::Configuration::dsl::*;
-    use crate::schema::PackageActions::dsl::*;
+    use utils::models::AdminAccount;
+    use utils::models::Configurations;
+    use utils::models::PackageAction;
+    use utils::schema::Admin::dsl::*;
+    use utils::schema::Configuration::dsl::*;
+    use utils::schema::PackageActions::dsl::*;
 
     let _installation_path = home_dir()
         .unwrap()

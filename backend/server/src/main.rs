@@ -13,8 +13,6 @@
 //! Documentation for the API can be obtained by running the executable with the {`--docs`} flag.
 //! This will produce an OpenAPI documentation in JSON format.
 
-// NOTE ~/Documents/Zentrox_Rust_Structure.drawio
-
 use actix_cors::Cors;
 use actix_files as afs;
 use actix_governor::{self, Governor, GovernorConfigBuilder};
@@ -28,40 +26,34 @@ use actix_web::dev::{ServiceRequest, ServiceResponse};
 use actix_web::middleware::{Next, from_fn};
 use actix_web::{App, HttpResponse, HttpServer, get, middleware, web, web::Data};
 use serde::{Deserialize, Serialize};
-use std::process::exit;
 use std::time::Duration;
 use std::{
     collections::HashMap,
     env,
-    fs::{File},
+    fs::File,
     io::BufReader,
     path::PathBuf,
     sync::{Arc, Mutex},
 };
+use utils::net_data::OperationalState;
 use uuid::Uuid;
 extern crate inflector;
 use diesel::prelude::*;
 use log::{debug, info, warn};
 use utoipa::ToSchema;
 
-mod routes;
 mod generate_contract;
-use utils::crypto_utils;
-use utils::database;
+mod help;
 mod is_admin;
+mod routes;
 mod setup;
-use utils::models;
-use utils::net_data::{self, OperationalState};
-use utils::otp;
-use utils::schema;
-use utils::status_com;
-use utils::sudo;
+use routes::*;
 
 use is_admin::is_admin_state;
-use status_com::ErrorCode;
+use utils::status_com::ErrorCode;
 
-use crate::database::establish_connection;
-use crate::routes::media::get_media_enabled_database;
+use routes::media::get_media_enabled_database;
+use utils::database::establish_connection;
 
 #[derive(Clone)]
 #[allow(unused)]
@@ -127,10 +119,10 @@ impl AppState {
         if (*self).username.lock().unwrap().is_empty() {
             return;
         }
-        let devices_a = net_data::get_network_interfaces().unwrap();
+        let devices_a = utils::net_data::get_network_interfaces().unwrap();
         std::thread::sleep(std::time::Duration::from_millis(1000));
-        let devices_b = net_data::get_network_interfaces().unwrap();
-        let devices_b_hashmap: HashMap<String, &net_data::Interface> =
+        let devices_b = utils::net_data::get_network_interfaces().unwrap();
+        let devices_b_hashmap: HashMap<String, &utils::net_data::Interface> =
             devices_b.iter().map(|d| (d.name.clone(), d)).collect();
         let mut result: Vec<MeasuredInterface> = Vec::new();
         for device in devices_a {
@@ -283,26 +275,17 @@ async fn media_authorization_middleware(
     }
 }
 
-// TODO  When Zentrox has been split up into different crates, move this into a module.
-fn print_help() {
-    println!("Zentrox");
-    println!("--help:\t\tPrint this help.");
-    println!("--docs <Path | None>:\t\tGenerate OpenAPI docs.");
-
-    exit(0)
-}
-
 #[actix_web::main]
 /// Prepares Zentrox and starts the server.
 async fn main() -> std::io::Result<()> {
-    use models::Configurations;
-    use schema::Configuration::dsl::*;
+    use utils::models::Configurations;
+    use utils::schema::Configuration::dsl::*;
 
     let os_args = std::env::args().collect::<Vec<String>>();
 
     match os_args.get(1) {
         Some(arg) if arg == "--docs" => generate_contract::generate(os_args.get(2)),
-        Some(arg) if arg == "--help" => print_help(),
+        Some(arg) if arg == "--help" => help::print(),
         _ => {}
     }
 
@@ -316,8 +299,7 @@ async fn main() -> std::io::Result<()> {
         .join("zentrox")
         .join("database.db");
 
-    if !zentrox_env_dir.join("database.db").exists()
-    {
+    if !zentrox_env_dir.join("database.db").exists() {
         let _ = setup::run_setup();
     } else {
         debug!("Found configurations in {}", zentrox_env_dir.display())
@@ -347,7 +329,12 @@ async fn main() -> std::io::Result<()> {
         .unwrap();
 
     let mut certs_file = BufReader::new(
-        File::open(zentrox_env_dir.join("certificates").join(&tls_cert_filename)).unwrap(),
+        File::open(
+            zentrox_env_dir
+                .join("certificates")
+                .join(&tls_cert_filename),
+        )
+        .unwrap(),
     );
     debug!(
         "Using certificate file from {}",
@@ -358,8 +345,9 @@ async fn main() -> std::io::Result<()> {
             .unwrap()
     );
 
-    let mut key_file =
-        BufReader::new(File::open(zentrox_env_dir.join("certificates").join(tls_cert_filename)).unwrap());
+    let mut key_file = BufReader::new(
+        File::open(zentrox_env_dir.join("certificates").join(tls_cert_filename)).unwrap(),
+    );
 
     let tls_certs = rustls_pemfile::certs(&mut certs_file)
         .collect::<Result<Vec<_>, _>>()
@@ -465,7 +453,7 @@ async fn main() -> std::io::Result<()> {
             .service(web::resource("/").route(web::get().to(index)))
             .service(web::resource("/alerts").route(web::get().to(alerts_page)))
             .service(web::resource("/alerts/manifest.json").route(web::get().to(alerts_manifest)))
-            .service(web::scope("/dashboard").route("", web::get().to(routes::dashboard::page)))
+            .service(web::scope("/dashboard").route("", web::get().to(dashboard::page)))
             .service(robots_txt)
             // API routes are separated into public and private, where public routes can be
             // accessed from anyone without authorization prior to the request and private routes
@@ -480,18 +468,15 @@ async fn main() -> std::io::Result<()> {
                             .service(
                                 web::scope("/auth")
                                     .wrap(Governor::new(&harsh_governor_conf))
-                                    .route("/login", web::post().to(routes::auth::verification))
-                                    .route("/useOtp", web::get().to(routes::auth::use_otp)),
+                                    .route("/login", web::post().to(auth::login))
+                                    .route("/useOtp", web::get().to(auth::use_otp)), // FIX Only respond if password was correct
                             )
                             .service(
                                 web::scope("/shared")
                                     .wrap(Governor::new(&shared_files_governor_conf))
                                     .route("", web::get().to(shared_page))
-                                    .route("/get", web::post().to(routes::sharing::get_shared_file))
-                                    .route(
-                                        "/getMetadata",
-                                        web::post().to(routes::sharing::get_shared_file_metadata),
-                                    ),
+                                    .route("/get", web::post().to(sharing::download_file))
+                                    .route("/getMetadata", web::post().to(sharing::get_metadata)),
                             ),
                     )
                     .service(
@@ -500,249 +485,135 @@ async fn main() -> std::io::Result<()> {
                             .wrap(from_fn(authorization_middleware))
                             .service(
                                 web::scope("/auth")
-                                    .route("/logout", web::post().to(routes::auth::logout))
-                                    .route("/useOtp", web::put().to(routes::auth::otp_activation))
+                                    .route("/logout", web::post().to(auth::logout))
+                                    .route("/useOtp", web::put().to(auth::activate_otp))
                                     .service(web::scope("/sudo").route(
                                         "/verify",
-                                        web::post().to(routes::auth::verify_sudo_password),
+                                        web::post().to(auth::verify_sudo_password),
                                     )),
                             )
-                            .service(web::scope("/dashboard").route(
-                                "/information",
-                                web::get().to(routes::dashboard::device_information),
-                            ))
+                            .service(
+                                web::scope("/dashboard")
+                                    .route("/information", web::get().to(dashboard::information)),
+                            )
                             .service(
                                 web::scope("/packages")
-                                    .route(
-                                        "/database",
-                                        web::get().to(routes::packages::package_database),
-                                    )
-                                    .route(
-                                        "/statistics",
-                                        web::get().to(routes::packages::package_statistics),
-                                    )
-                                    .route(
-                                        "/updateDatabase",
-                                        web::post().to(routes::packages::update_package_database),
-                                    )
-                                    .route(
-                                        "/install",
-                                        web::post().to(routes::packages::install_package),
-                                    )
-                                    .route(
-                                        "/remove",
-                                        web::post().to(routes::packages::remove_package),
-                                    )
-                                    .route(
-                                        "/update",
-                                        web::post().to(routes::packages::update_package),
-                                    )
-                                    .route(
-                                        "/updateAll",
-                                        web::post().to(routes::packages::update_all_packages),
-                                    )
+                                    .route("/database", web::get().to(packages::database))
+                                    .route("/statistics", web::get().to(packages::statistics))
+                                    .route("/updateDatabase", web::post().to(packages::update_db))
+                                    .route("/install", web::post().to(packages::install_package))
+                                    .route("/remove", web::post().to(packages::remove_package))
+                                    .route("/update", web::post().to(packages::update_package))
+                                    .route("/updateAll", web::post().to(packages::update_all))
                                     .route(
                                         "/removeOrphaned",
-                                        web::post().to(routes::packages::remove_orphaned_packages),
+                                        web::post().to(packages::remove_orphaned),
                                     )
-                                    .route(
-                                        "/orphaned",
-                                        web::get().to(routes::packages::orphaned_packages),
-                                    ),
+                                    .route("/orphaned", web::get().to(packages::orphaned)),
                             )
-                            .service(web::scope("/jobs").route(
-                                "status/{id}",
-                                web::get().to(routes::jobs::fetch_job_status),
-                            ))
+                            .service(
+                                web::scope("/jobs")
+                                    .route("status/{id}", web::get().to(jobs::status)),
+                            )
                             .service(
                                 web::scope("/firewall")
-                                    .route(
-                                        "/ufwPresent",
-                                        web::get().to(routes::firewall::firewall_has_ufw),
-                                    )
-                                    .route(
-                                        "/rules",
-                                        web::post().to(routes::firewall::firewall_information),
-                                    )
-                                    .route("/enabled", web::post().to(routes::firewall::switch_ufw))
-                                    .route(
-                                        "/rule/delete",
-                                        web::post().to(routes::firewall::delete_firewall_rule),
-                                    )
-                                    .route(
-                                        "/rule/new",
-                                        web::post().to(routes::firewall::new_firewall_rule),
-                                    ),
+                                    .route("/ufwPresent", web::get().to(firewall::has_ufw))
+                                    .route("/rules", web::post().to(firewall::status))
+                                    .route("/enabled", web::post().to(firewall::switch))
+                                    .route("/rule/delete", web::post().to(firewall::delete_rule))
+                                    .route("/rule/new", web::post().to(firewall::new_rule)),
                             )
                             .service(
                                 web::scope("/files")
-                                    .route("/download", web::get().to(routes::files::download_file))
-                                    .route(
-                                        "/directoryReading",
-                                        web::get().to(routes::files::files_list),
-                                    )
-                                    .route("/delete", web::post().to(routes::files::delete_file))
-                                    .route("/move", web::post().to(routes::files::move_path))
-                                    .route("/burn", web::post().to(routes::files::burn_file))
-                                    .route(
-                                        "/metadata",
-                                        web::get().to(routes::files::get_file_metadata),
-                                    )
-                                    .route("/upload", web::post().to(routes::files::upload_file)),
+                                    .route("/download", web::get().to(files::download))
+                                    .route("/directoryReading", web::get().to(files::list))
+                                    .route("/delete", web::post().to(files::delete))
+                                    .route("/move", web::post().to(files::move_to))
+                                    .route("/burn", web::post().to(files::burn))
+                                    .route("/metadata", web::get().to(files::metadata))
+                                    .route("/upload", web::post().to(files::upload)),
                             )
                             .service(
                                 web::scope("/drives")
-                                    .route("/list", web::get().to(routes::drives::list_drives))
-                                    .route(
-                                        "/statistics",
-                                        web::get().to(routes::drives::drive_information),
-                                    ),
+                                    .route("/list", web::get().to(drives::list))
+                                    .route("/statistics", web::get().to(drives::statistics)),
                             )
                             .service(
                                 web::scope("/vault")
-                                    .route(
-                                        "/active",
-                                        web::get().to(routes::vault::is_vault_configured),
-                                    )
-                                    .route(
-                                        "/configuration",
-                                        web::post().to(routes::vault::vault_configure),
-                                    )
-                                    .route("/tree", web::post().to(routes::vault::vault_tree))
-                                    .route(
-                                        "/delete",
-                                        web::post().to(routes::vault::delete_vault_file),
-                                    )
-                                    .route(
-                                        "/directory",
-                                        web::post().to(routes::vault::vault_new_folder),
-                                    )
-                                    .route("/file", web::post().to(routes::vault::upload_vault))
-                                    .route(
-                                        "/file",
-                                        web::get().to(routes::vault::vault_file_download),
-                                    )
-                                    .route(
-                                        "/move",
-                                        web::post().to(routes::vault::rename_vault_file),
-                                    ),
+                                    .route("/active", web::get().to(vault::is_configured))
+                                    .route("/configuration", web::post().to(vault::configure))
+                                    .route("/tree", web::post().to(vault::tree))
+                                    .route("/delete", web::post().to(vault::delete_file))
+                                    .route("/directory", web::post().to(vault::new_directory))
+                                    .route("/file", web::post().to(vault::upload))
+                                    .route("/file", web::get().to(vault::download_file))
+                                    .route("/move", web::post().to(vault::rename_file)),
                             )
-                            .service(
-                                web::scope("/power")
-                                    .route("/off", web::post().to(routes::power::power_off)),
-                            )
+                            .service(web::scope("/power").route("/off", web::post().to(power::off)))
                             .service(
                                 web::scope("/tls")
-                                    .route("/name", web::get().to(routes::tls::cert_names))
-                                    .route("/upload", web::post().to(routes::tls::upload_tls)),
+                                    .route("/name", web::get().to(tls::name))
+                                    .route("/upload", web::post().to(tls::upload)),
                             )
                             .service(
                                 web::scope("/account")
-                                    .route(
-                                        "/details",
-                                        web::get().to(routes::account::account_details),
-                                    )
-                                    .route(
-                                        "/details",
-                                        web::post().to(routes::account::update_account_details),
-                                    )
+                                    .route("/details", web::get().to(account::details))
+                                    .route("/details", web::post().to(account::update_details))
+                                    .route("/profilePicture", web::get().to(account::picture))
                                     .route(
                                         "/profilePicture",
-                                        web::get().to(routes::account::profile_picture),
-                                    )
-                                    .route(
-                                        "/profilePicture",
-                                        web::post().to(routes::account::upload_profile_picture),
+                                        web::post().to(account::upload_picture),
                                     ),
                             )
-                            .route("/logs", web::post().to(routes::logs::logs_request))
+                            .route("/logs", web::post().to(logs::read))
                             .service(
                                 web::scope("/media")
-                                    .route(
-                                        "/sources",
-                                        web::get().to(routes::media::get_media_source_list),
-                                    )
-                                    .route(
-                                        "/sources",
-                                        web::post().to(routes::media::update_media_source_list),
-                                    )
+                                    .route("/sources", web::get().to(media::get_sources))
+                                    .route("/sources", web::post().to(media::update_sources))
                                     .route(
                                         "/enabled",
-                                        web::get().to(routes::media::get_media_enabled_handler),
+                                        web::get().to(media::get_media_enabled_handler),
                                     )
-                                    .route(
-                                        "/enabled",
-                                        web::post().to(routes::media::set_enable_media),
-                                    )
+                                    .route("/enabled", web::post().to(media::activate_media))
                                     .wrap(from_fn(media_authorization_middleware))
                                     .route("", web::get().to(media_page))
-                                    .route("/files", web::get().to(routes::media::get_media_list))
-                                    .route("/download", web::get().to(routes::media::media_request))
-                                    .route("/cover", web::get().to(routes::media::get_cover))
-                                    .route(
-                                        "/history",
-                                        web::get().to(routes::media::read_full_media_history),
-                                    )
+                                    .route("/files", web::get().to(media::get_contents))
+                                    .route("/download", web::get().to(media::download))
+                                    .route("/cover", web::get().to(media::cover))
+                                    .route("/history", web::get().to(media::read_history))
                                     .route(
                                         "/metadata/{file}",
-                                        web::post().to(routes::media::update_media_metadata),
+                                        web::post().to(media::update_metadata),
                                     ),
                             )
                             .service(
                                 web::scope("/network")
+                                    .route("/interfaces", web::get().to(network::interfaces))
+                                    .route("/routes", web::get().to(network::routes))
+                                    .route("/route/delete", web::post().to(network::delete_route))
                                     .route(
-                                        "/interfaces",
-                                        web::get().to(routes::network::network_interfaces),
-                                    )
-                                    .route(
-                                        "/routes",
-                                        web::get().to(routes::network::network_routes),
-                                    )
-                                    .service(web::scope("/route").route(
-                                        "/delete",
-                                        web::post().to(routes::network::delete_network_route),
-                                    ))
-                                    .service(web::scope("/interface").route(
-                                        "/active",
-                                        web::post().to(routes::network::network_interface_active),
-                                    )),
+                                        "/interface/active",
+                                        web::post().to(network::activate_interface),
+                                    ),
                             )
                             .service(
                                 web::scope("/processes")
-                                    .route(
-                                        "/list",
-                                        web::get().to(routes::processes::list_processes),
-                                    )
-                                    .route(
-                                        "/kill/{pid}",
-                                        web::post().to(routes::processes::kill_process),
-                                    )
-                                    .route(
-                                        "/details/{pid}",
-                                        web::get().to(routes::processes::details_process),
-                                    ),
+                                    .route("/list", web::get().to(processes::list))
+                                    .route("/kill/{pid}", web::post().to(processes::kill))
+                                    .route("/details/{pid}", web::get().to(processes::details)),
                             )
                             .service(
                                 web::scope("/cronjobs")
-                                    .route(
-                                        "/runCommand",
-                                        web::post().to(routes::cron::run_cronjob_command),
-                                    )
-                                    .route("/delete", web::post().to(routes::cron::delete_cronjob))
-                                    .route("/new", web::post().to(routes::cron::create_cronjob))
-                                    .route("/list", web::get().to(routes::cron::list)),
+                                    .route("/runCommand", web::post().to(cron::run_command))
+                                    .route("/delete", web::post().to(cron::delete))
+                                    .route("/new", web::post().to(cron::create))
+                                    .route("/list", web::get().to(cron::list)),
                             )
                             .service(
                                 web::scope("/sharing")
-                                    .route("/new", web::post().to(routes::sharing::share_file))
-                                    .route(
-                                        "/list",
-                                        web::get().to(routes::sharing::get_shared_files_list),
-                                    )
-                                    .route(
-                                        "/delete/{code}",
-                                        web::post().to(routes::sharing::unshare_file),
-                                    ),
+                                    .route("/new", web::post().to(sharing::share))
+                                    .route("/list", web::get().to(sharing::list))
+                                    .route("/delete/{code}", web::post().to(sharing::unshare)),
                             ),
                     ),
             )
