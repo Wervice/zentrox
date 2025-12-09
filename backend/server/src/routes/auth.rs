@@ -2,9 +2,10 @@ use actix_session::Session;
 use actix_web::web::Json;
 use actix_web::{HttpResponse, web::Data};
 use diesel::prelude::*;
-use log::info;
+use log::warn;
 use serde::{Deserialize, Serialize};
 use utils::database;
+use utils::time::current;
 use utils::{
     database::get_administrator_account,
     otp,
@@ -12,7 +13,7 @@ use utils::{
 };
 use utoipa::ToSchema;
 
-use crate::{AppState, SudoPasswordReq, is_admin};
+use crate::{AppState, SudoPasswordReq, permissions};
 
 #[derive(Deserialize, ToSchema)]
 pub struct LoginReq {
@@ -22,11 +23,12 @@ pub struct LoginReq {
 }
 
 fn setup_login_state(session: Session, state: Data<AppState>, provided_username: String) {
-    let login_token: Vec<u8> = is_admin::generate_random_token();
+    let login_token: Vec<u8> = permissions::generate_random_token();
     let _ = session.insert("login_token", hex::encode(&login_token).to_string());
 
-    *state.login_token.lock().unwrap() = hex::encode(&login_token).to_string();
-    *state.username.lock().unwrap() = provided_username;
+    *state.login_token.lock().unwrap() = Some(hex::encode(&login_token).to_string());
+    *state.username.lock().unwrap() = Some(provided_username);
+    *state.last_login.lock().unwrap() = Some(current());
 
     let state_copy = state.clone();
     std::thread::spawn(move || {
@@ -55,27 +57,28 @@ pub async fn login(session: Session, json: Json<LoginReq>, state: Data<AppState>
     let database_admin_entry = get_administrator_account();
 
     if &database_admin_entry.username != request_username {
-        info!("A login with a wrong username will be denied.");
+        warn!("A login with a wrong username will be denied.");
         return HttpResponse::Unauthorized().json(ErrorCode::UnkownUsername.as_error_message());
     }
     let stored_password: String = database_admin_entry.password_hash;
     let hashes_correct =
-        is_admin::password_hash(request_password.to_string(), stored_password.to_string());
+        permissions::password_hash(request_password.to_string(), stored_password.to_string());
 
     if !hashes_correct {
-        info!("A login with a wrong password will be denied.");
+        warn!("A login with a wrong password will be denied.");
         return HttpResponse::Forbidden().json(ErrorCode::WrongPassword.as_error_message());
     }
+
     if database_admin_entry.use_otp {
         if json.otp.is_none() {
-            info!("The user is missing an otp code.");
+            warn!("The user is missing an otp code.");
             return HttpResponse::BadRequest().json(ErrorCode::MissingOtpCode.as_error_message());
         }
 
         let stored_otp_secret = database_admin_entry.otp_secret.unwrap();
 
         if otp::calculate_current_otp(&stored_otp_secret) != request_otp_code.clone().unwrap() {
-            info!("A login with a wrong OTP code will be denied.");
+            warn!("A login with a wrong OTP code will be denied.");
             return HttpResponse::Forbidden().json(ErrorCode::WrongOtpCode.as_error_message());
         }
         setup_login_state(session, state, database_admin_entry.username);
@@ -116,10 +119,9 @@ pub async fn use_otp(_state: Data<AppState>) -> HttpResponse {
 )]
 pub async fn logout(session: Session, state: Data<AppState>) -> HttpResponse {
     session.purge();
-    *state.username.lock().unwrap() = "".to_string();
-    // TODO Login token should be Option<String> and set to None if user is logged out
-    *state.login_token.lock().unwrap() =
-        hex::encode((0..64).map(|_| rand::random::<u8>()).collect::<Vec<u8>>()).to_string();
+    *state.username.lock().unwrap() = None;
+    *state.login_token.lock().unwrap() = None;
+    *state.last_login.lock().unwrap() = None;
     HttpResponse::Found()
         .append_header(("Location", "/"))
         .body("You will soon be redirected")
@@ -194,5 +196,5 @@ pub async fn verify_sudo_password(json: Json<SudoPasswordReq>) -> HttpResponse {
         return HttpResponse::Unauthorized().json(ErrorCode::BadSudoPassword.as_error_message());
     }
 
-    return HttpResponse::Ok().json(MessageRes::from("Sudo password is correct"));
+    HttpResponse::Ok().json(MessageRes::from("Sudo password is correct"))
 }
