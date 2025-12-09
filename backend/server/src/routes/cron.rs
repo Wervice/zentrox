@@ -1,10 +1,10 @@
 use crate::{AppState, BackgroundTaskState, routes::cron};
-use actix_web::web::{Json, Query};
+use actix_web::web::Json;
 use actix_web::{
     HttpResponse,
     web::{Data, Path},
 };
-use log::error;
+use log::{error, warn};
 use serde::{Deserialize, Serialize};
 use std::process::{Command, Stdio};
 use utils::cron::list_cronjobs;
@@ -12,13 +12,14 @@ use utils::status_com::ErrorCode;
 use utils::{
     cron::{
         CronError, CronJob, DayOfWeek, Digit, Interval, IntervalCronJob, Month, SpecificCronJob,
-        User, create_new_interval_cronjob, create_new_specific_cronjob, delete_interval_cronjob,
+        create_new_interval_cronjob, create_new_specific_cronjob, delete_interval_cronjob,
         delete_specific_cronjob,
     },
     status_com::MessageRes,
 };
 use utoipa::ToSchema;
 use uuid::Uuid;
+use log::{info, debug};
 
 #[derive(Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -37,23 +38,10 @@ struct ListCronjobsRes {
     crontab_exists: bool,
 }
 
-#[derive(Deserialize)]
-pub struct CronjobListReq {
-    specific: Option<String>,
-}
-
 /// List users' cronjobs
-#[utoipa::path(get, path = "/private/cronjobs/list", params(("specific" = Option<String>, Query)), responses((status = 200, body = ListCronjobsRes), (status = 404, description = "No crontab file was found."), (status = 500, description = "Cronjobs could not be read.")), tags = ["private", "cronjobs"])]
-pub async fn list(query: Query<CronjobListReq>) -> HttpResponse {
-    let user: User;
-
-    if let Some(specific_user) = &query.specific {
-        user = User::Specific(specific_user.clone());
-    } else {
-        user = User::Current;
-    }
-
-    let crons = cron::list_cronjobs(user);
+#[utoipa::path(get, path = "/private/cronjobs/list", responses((status = 200, body = ListCronjobsRes), (status = 404, description = "No crontab file was found."), (status = 500, description = "Cronjobs could not be read.")), tags = ["private", "cronjobs"])]
+pub async fn list() -> HttpResponse {
+    let crons = cron::list_cronjobs();
     let mut interval_cronjobs: Vec<IntervalCronJob> = vec![];
     let mut specific_cronjobs: Vec<SpecificCronJob> = vec![];
     match crons {
@@ -76,26 +64,23 @@ pub async fn list(query: Query<CronjobListReq>) -> HttpResponse {
         },
     }
 
-    return HttpResponse::Ok().json(ListCronjobsRes {
+    HttpResponse::Ok().json(ListCronjobsRes {
         specific_jobs: specific_cronjobs,
         interval_jobs: interval_cronjobs,
         crontab_exists: true,
-    });
+    })
 }
 
 #[derive(Deserialize, ToSchema)]
 pub struct CronjobCommandReq {
     index: usize,
     variant: CronjobVariant,
-    user: Option<String>,
 }
 
 /// Run cronjob command
 #[utoipa::path(post, path = "/private/cronjobs/runCommand", request_body = CronjobCommandReq, responses((status = 200)), tags = ["private", "cronjobs", "responding_job"])]
 pub async fn run_command(state: Data<AppState>, json: Json<CronjobCommandReq>) -> HttpResponse {
-    // NOTE: The following could be improved.
-    // TODO Capture command output and store in Status code
-
+    info!("Executing aribitrary cronjob command using runCommand.");
     let uuid = Uuid::new_v4();
     state
         .background_jobs
@@ -103,15 +88,7 @@ pub async fn run_command(state: Data<AppState>, json: Json<CronjobCommandReq>) -
         .unwrap()
         .insert(uuid, BackgroundTaskState::Pending);
 
-    let user: cron::User;
-
-    if let Some(specified_user) = &json.user {
-        user = cron::User::Specific(specified_user.clone())
-    } else {
-        user = cron::User::Current
-    }
-
-    let cronjobs_list_request = cron::list_cronjobs(user);
+    let cronjobs_list_request = cron::list_cronjobs();
 
     let mut command_from_cronjob = None;
 
@@ -119,17 +96,11 @@ pub async fn run_command(state: Data<AppState>, json: Json<CronjobCommandReq>) -
         let relevant_cronjobs: Vec<&cron::CronJob> = match &json.variant {
             CronjobVariant::Specific => cronjobs
                 .iter()
-                .filter(|e| match e {
-                    cron::CronJob::Specific(_c) => true,
-                    _ => false,
-                })
+                .filter(|e| matches!(e, cron::CronJob::Specific(_)))
                 .collect(),
             CronjobVariant::Interval => cronjobs
                 .iter()
-                .filter(|e| match e {
-                    cron::CronJob::Interval(_c) => true,
-                    _ => false,
-                })
+                .filter(|e| matches!(e, cron::CronJob::Interval(_)))
                 .collect(),
         };
 
@@ -147,9 +118,9 @@ pub async fn run_command(state: Data<AppState>, json: Json<CronjobCommandReq>) -
         return HttpResponse::NotFound().json(ErrorCode::NoSuchVariant.as_error_message());
     }
 
-    let _ = actix_web::web::block(move || {
+    drop(actix_web::web::block(move || {
         let status;
-
+        debug!("Cronjob command: {:?}", command_from_cronjob);
         match Command::new("sh")
             .arg("-c")
             .arg(command_from_cronjob.unwrap())
@@ -158,25 +129,35 @@ pub async fn run_command(state: Data<AppState>, json: Json<CronjobCommandReq>) -
             .stdin(Stdio::null())
             .spawn()
         {
-            Ok(mut h) => {
-                let waited = h.wait();
+            Ok(h) => {
+                let waited = h.wait_with_output();
                 if let Ok(s) = waited {
-                    if s.success() {
-                        status = BackgroundTaskState::Success;
+                    if s.status.success() {
+                        info!("Cronjob command exited sucessfully.");
+                        status = BackgroundTaskState::SuccessOutput(
+                            String::from_utf8(s.stdout).unwrap(),
+                        );
                     } else {
-                        status = BackgroundTaskState::Fail;
+                        warn!("Cronjob command failed with output.");
+                        status =
+                            BackgroundTaskState::FailOutput(String::from_utf8(s.stderr).unwrap());
                     }
                 } else {
+                    warn!("Cronjob command execution failed.");
                     status = BackgroundTaskState::Fail;
                 }
             }
-            Err(_) => status = BackgroundTaskState::Fail,
+            Err(_) => status = {
+                warn!("Cronjob command initiation failed.");
+                BackgroundTaskState::Fail
+            },
         };
 
+        debug!("Cronjob command execution was given task id {uuid}");
         state.background_jobs.lock().unwrap().insert(uuid, status);
-    });
+    }));
 
-    return HttpResponse::Ok().body(uuid.to_string());
+    HttpResponse::Ok().body(uuid.to_string())
 }
 
 /// Delete cronjob
@@ -186,15 +167,13 @@ pub async fn delete(path: Path<(u32, CronjobVariant)>) -> HttpResponse {
     let variant = &path.1;
 
     let _ = match variant {
-        &CronjobVariant::Specific => delete_specific_cronjob(index, User::Current),
-        &CronjobVariant::Interval => delete_interval_cronjob(index, User::Current),
+        CronjobVariant::Specific => delete_specific_cronjob(index),
+        CronjobVariant::Interval => delete_interval_cronjob(index),
     };
 
     HttpResponse::Ok().json(MessageRes::from("The cronjob has been deleted."))
 }
 
-/// TODO This all could be an enum containing struct
-/// -> Requires re-writing cronjob handling as well, thus staged for later
 #[derive(Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateCronjobReq {
@@ -242,17 +221,14 @@ pub async fn create(json: Json<CreateCronjobReq>) -> HttpResponse {
                 }
             };
 
-            match create_new_specific_cronjob(
-                SpecificCronJob {
-                    command: json.command.clone(),
-                    day_of_week,
-                    day_of_month,
-                    minute,
-                    hour,
-                    month,
-                },
-                User::Current,
-            ) {
+            match create_new_specific_cronjob(SpecificCronJob {
+                command: json.command.clone(),
+                day_of_week,
+                day_of_month,
+                minute,
+                hour,
+                month,
+            }) {
                 Ok(_) => HttpResponse::Ok()
                     .json(MessageRes::from("A new specific cronjob has been created.")),
                 Err(_) => {
@@ -263,13 +239,10 @@ pub async fn create(json: Json<CreateCronjobReq>) -> HttpResponse {
             }
         }
         CronjobVariant::Interval => {
-            match create_new_interval_cronjob(
-                cron::IntervalCronJob {
-                    interval: json.interval.clone().unwrap(),
-                    command: json.command.clone(),
-                },
-                User::Current,
-            ) {
+            match create_new_interval_cronjob(cron::IntervalCronJob {
+                interval: json.interval.unwrap(),
+                command: json.command.clone(),
+            }) {
                 Ok(_) => HttpResponse::Ok()
                     .json(MessageRes::from("A new interval cronjob has been created.")),
                 Err(_) => {

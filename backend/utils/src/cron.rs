@@ -4,13 +4,12 @@ use std::fmt::Display;
 use std::fs;
 use std::process::{Command, Stdio};
 
-use log::{error, warn};
+use log::{debug, error, warn};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-use whoami::username;
 
-/// The enumeration Interval is used to denote an Interval present in (ana)cron.
+/// The enumeration Interval is used to denote an Interval present in anacron.
 /// The enum variants are pretty self-explanatory.
 #[allow(unused)]
 #[derive(Copy, Clone, Serialize, Deserialize, ToSchema)]
@@ -48,7 +47,7 @@ pub enum Digit {
     List(Vec<usize>),
     Value(usize),
     Repeating(String, usize),
-    Composed(String), // WARN This does not sanitize user input
+    Composed(String)
 }
 
 /// All months supported by cron. Digit can be used as months can also be expressed using numbers
@@ -86,15 +85,6 @@ pub enum DayOfWeek {
     Saturday,
     Sunday,
     Digit(Digit),
-}
-
-/// The user to list/create cron jobs for. Specific selects a specific user while Current
-/// automatically gets converted to the current active user when transformed using the Display
-/// trait.
-#[derive(PartialEq, Eq, Clone)]
-pub enum User {
-    Specific(String),
-    Current,
 }
 
 impl Display for Interval {
@@ -171,29 +161,14 @@ impl Display for DayOfWeek {
     }
 }
 
-impl Display for User {
-    // Turns User into a string. User::Current is *not* predictable. It automatically adapts to the
-    // current user when executed.
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            User::Specific(s) => f.write_str(s.as_str()),
-            User::Current => f.write_str(username().as_str()),
-        }
-    }
-}
-
-// FIX Run crontab -u with sudo
-pub fn write_cronfile(content: String, user: User) -> Option<()> {
+pub fn write_cronfile(content: String) -> Option<()> {
+    debug!("Writing to cron file.");
     let random_uuid = uuid::Uuid::new_v4().to_string();
     let mut tmp_p = std::env::temp_dir();
     tmp_p.push(random_uuid);
     let pad = if !content.ends_with('\n') { "\n" } else { "" };
     let _ = fs::write(&tmp_p, format!("{content}{pad}"));
     let mut c = Command::new("crontab");
-    if user != User::Current {
-        c.arg("-u");
-        c.arg(user.to_string());
-    }
     c.stdin(Stdio::null());
     c.stdout(Stdio::null());
     c.arg(tmp_p.to_str().unwrap());
@@ -207,13 +182,10 @@ pub fn write_cronfile(content: String, user: User) -> Option<()> {
     Some(())
 }
 
-fn get_cron_contents(user: User) -> Option<String> {
+fn get_cron_contents() -> Option<String> {
+    debug!("Reading from cron file.");
     let mut c = Command::new("crontab");
     c.stdin(Stdio::null());
-    if user != User::Current {
-        c.arg("-u");
-        c.arg(user.to_string());
-    }
     c.arg("-l");
     let x = c.output();
 
@@ -232,20 +204,16 @@ fn get_cron_contents(user: User) -> Option<String> {
     }
 }
 
-fn get_cron_lines(user: User) -> Option<Vec<String>> {
-    get_cron_contents(user).map(|v| v.lines().map(String::from).collect::<Vec<String>>())
+fn get_cron_lines() -> Option<Vec<String>> {
+    get_cron_contents().map(|v| v.lines().map(String::from).collect::<Vec<String>>())
 }
 
 /// Check if the crontab file exists.
 ///
 /// Returns an error if the command to do so failed.
 /// This may likely be a permission error.
-fn crontab_exists(user: User) -> Result<bool, CronError> {
+fn crontab_exists() -> Result<bool, CronError> {
     let mut c = Command::new("crontab");
-    if user != User::Current {
-        c.arg("-u");
-        c.arg(user.to_string());
-    }
     c.arg("-l");
     let x = c.output();
 
@@ -255,13 +223,13 @@ fn crontab_exists(user: User) -> Result<bool, CronError> {
             let status = v.status;
             if status.success() {
                 // A crontab file is present
-                return Ok(true);
+                Ok(true)
             } else if err.starts_with(b"must") {
                 // The user does not have permissions to run crontab with -u
-                return Err(CronError::ReadingError);
+                Err(CronError::ReadingError)
             } else if err.starts_with(b"no crontab") {
                 // No crontab file is present
-                return Ok(false);
+                Ok(false)
             } else {
                 // Unknown crontab -u response
                 Err(CronError::ReadingError)
@@ -273,45 +241,53 @@ fn crontab_exists(user: User) -> Result<bool, CronError> {
 
 /// Creates a completely new cron job for a given user.
 /// This function does not verify input values.
-pub fn create_new_specific_cronjob(job: SpecificCronJob, user: User) -> Result<String, CronError> {
+pub fn create_new_specific_cronjob(job: SpecificCronJob) -> Result<String, CronError> {
+    debug!("Creating new specific cronjob.");
     let prompt = format!(
         "{} {} {} {} {} {}",
         job.minute, job.hour, job.day_of_month, job.month, job.day_of_week, job.command,
     );
 
-    if crontab_exists(user.clone())? {
-        match get_cron_contents(user.clone()) {
-            Some(cont) => {
-                let pad = if cont.ends_with("\n") {
-                    ""
-                } else if !cont.is_empty() {
-                    "\n"
-                } else {
-                    ""
-                };
-                let new_cont = format!("{cont}{pad}{prompt}\n");
-                match write_cronfile(new_cont.clone(), user) {
-                    Some(_) => Ok(prompt),
-                    None => Err(CronError::WritingError),
+    if crontab_exists()? {
+        if let Some(crontab_rules) = get_cron_contents() {
+            let pad = if crontab_rules.ends_with("\n") {
+                ""
+            } else if !crontab_rules.is_empty() {
+                "\n"
+            } else {
+                ""
+            };
+            let new_cont = format!("{crontab_rules}{pad}{prompt}\n");
+            match write_cronfile(new_cont.clone()) {
+                Some(_) => Ok(prompt),
+                None => {
+                    error!("Failed to write to cronfile.");
+                    Err(CronError::WritingError)
                 }
             }
-            None => Err(CronError::ReadingError),
+        } else {
+            error!("Failed to read cronfile");
+            Err(CronError::ReadingError)
         }
     } else {
-        match write_cronfile(prompt.clone(), user) {
+        match write_cronfile(prompt.clone()) {
             Some(_) => Ok(prompt),
-            None => Err(CronError::WritingError),
+            None => {
+                error!("Failed to write to cronfile.");
+                Err(CronError::WritingError)
+            }
         }
     }
 }
 
 /// Creates a completely new cron job for a given user.
 /// This function does not verify input values.
-pub fn create_new_interval_cronjob(job: IntervalCronJob, user: User) -> Result<String, CronError> {
+pub fn create_new_interval_cronjob(job: IntervalCronJob) -> Result<String, CronError> {
+    debug!("Creating new interval cronjob.");
     let prompt = format!("{} {}", job.interval, job.command);
 
-    if crontab_exists(user.clone())? {
-        match get_cron_contents(user.clone()) {
+    if crontab_exists()? {
+        match get_cron_contents() {
             Some(cont) => {
                 let pad = if cont.ends_with("\n") {
                     ""
@@ -322,17 +298,23 @@ pub fn create_new_interval_cronjob(job: IntervalCronJob, user: User) -> Result<S
                 };
                 let new_cont = format!("{cont}{pad}{prompt}\n");
 
-                match write_cronfile(new_cont.clone(), user) {
+                match write_cronfile(new_cont.clone()) {
                     Some(_) => Ok(prompt),
-                    None => Err(CronError::WritingError),
+                    None => {
+                        error!("Failed to write to cronfile.");
+                        Err(CronError::WritingError)
+                    }
                 }
             }
             None => Err(CronError::ReadingError),
         }
     } else {
-        match write_cronfile(prompt.clone(), user) {
+        match write_cronfile(prompt.clone()) {
             Some(_) => Ok(prompt),
-            None => Err(CronError::WritingError),
+            None => {
+                error!("Failed to write to cronfile.");
+                Err(CronError::WritingError)
+            }
         }
     }
 }
@@ -418,8 +400,8 @@ impl TryFrom<&str> for Digit {
         } else {
             let p = value.parse::<usize>();
             match p {
-                Ok(pv) => return Ok(Self::Value(pv)),
-                Err(_) => return Ok(Self::Composed(value.to_string())),
+                Ok(pv) => Ok(Self::Value(pv)),
+                Err(_) => Ok(Self::Composed(value.to_string())),
             }
         }
     }
@@ -496,14 +478,13 @@ fn cronjob_line_from_to(l: String, n: usize) -> String {
         .to_string()
 }
 
-pub fn list_cronjobs(user: User) -> Result<Vec<CronJob>, CronError> {
-    // NOTE This function could also return the file lines for the corresponding cronjobs.
-
-    if !crontab_exists(user.clone())? {
+pub fn list_cronjobs() -> Result<Vec<CronJob>, CronError> {
+    debug!("Listing cronjobs.");
+    if !crontab_exists()? {
         return Err(CronError::NoCronFile);
     }
 
-    match get_cron_lines(user) {
+    match get_cron_lines() {
         Some(lines) => {
             let mut jobs = Vec::new();
             let re = Regex::new(r"\s+").unwrap();
@@ -562,9 +543,10 @@ pub enum CronDeletionError {
 
 /// Deletes the line of the nth occurrence of a valid specific CronJob from a crontab file given the index
 /// and targeted user.
-pub fn delete_specific_cronjob(target_index: u32, user: User) -> Result<(), CronDeletionError> {
+pub fn delete_specific_cronjob(target_index: u32) -> Result<(), CronDeletionError> {
+    debug!("Deleting specific cronjob.");
     let mut lines;
-    match get_cron_lines(user.clone()) {
+    match get_cron_lines() {
         Some(v) => lines = v,
         None => return Err(CronDeletionError::NoCronFile),
     };
@@ -599,16 +581,17 @@ pub fn delete_specific_cronjob(target_index: u32, user: User) -> Result<(), Cron
         s = format!("{s}{l}\n");
     }
 
-    let _ = write_cronfile(s, user);
+    let _ = write_cronfile(s);
 
     Ok(())
 }
 
 /// Deletes the line of the nth occurrence of a valid interval CronJob from a crontab file given the index
 /// and targeted user.
-pub fn delete_interval_cronjob(target_index: u32, user: User) -> Result<(), CronDeletionError> {
+pub fn delete_interval_cronjob(target_index: u32) -> Result<(), CronDeletionError> {
+    debug!("Deleting interval cronjob.");
     let mut lines;
-    match get_cron_lines(user.clone()) {
+    match get_cron_lines() {
         Some(v) => lines = v,
         None => return Err(CronDeletionError::NoCronFile),
     };
@@ -644,7 +627,7 @@ pub fn delete_interval_cronjob(target_index: u32, user: User) -> Result<(), Cron
         s = format!("{s}{l}\n");
     }
 
-    let _ = write_cronfile(s, user);
+    let _ = write_cronfile(s);
 
     Ok(())
 }
