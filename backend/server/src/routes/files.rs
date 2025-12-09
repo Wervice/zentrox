@@ -1,11 +1,3 @@
-use std::{
-    fs,
-    io::Read,
-    os::unix::fs::{MetadataExt, PermissionsExt},
-    path::PathBuf,
-    time::UNIX_EPOCH,
-};
-
 use crate::SinglePath;
 use actix_multipart::form::{MultipartForm, tempfile::TempFile, text::Text};
 use actix_web::{
@@ -14,11 +6,27 @@ use actix_web::{
 };
 use log::{error, info};
 use serde::{Deserialize, Serialize};
+use std::{
+    fs,
+    io::Read,
+    os::unix::fs::{MetadataExt, PermissionsExt},
+    path::PathBuf,
+};
 use utils::{
     status_com::{ErrorCode, MessageRes},
+    time::time_to_unix,
     users::NativeUser,
 };
 use utoipa::ToSchema;
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+enum FileSystemEntry {
+    File,
+    Directory,
+    Symlink,
+    Unknown,
+}
 
 #[utoipa::path(
     get,
@@ -32,29 +40,24 @@ use utoipa::ToSchema;
 )]
 /// Read file contents
 pub async fn download(info: Query<SinglePath>) -> HttpResponse {
-    let path_for_logging = info.path.to_string_lossy();
+    info!("File download started for {:?}", info.path);
 
-    info!("File download started for {}", path_for_logging);
-
-    if std::path::Path::new(&info.path).exists() {
-        error!("File {} does not exist.", path_for_logging);
-        let f = fs::read(&info.path);
-        match f {
-            Ok(fh) => {
-                HttpResponse::Ok().body(fh.bytes().map(|x| x.unwrap_or(0_u8)).collect::<Vec<u8>>())
-            }
-            Err(_) => {
-                HttpResponse::InternalServerError().json(ErrorCode::FileError.as_error_message())
-            }
-        }
+    if !info.path.exists() {
+        error!("File {:?} does not exist.", info.path);
+        return HttpResponse::NotFound().json(ErrorCode::FileDoesNotExist.as_error_message());
+    }
+    let file = fs::read(&info.path);
+    if let Ok(handle) = file {
+        HttpResponse::Ok().body(handle.bytes().map(|x| x.unwrap()).collect::<Vec<u8>>())
     } else {
-        HttpResponse::NotFound().json(ErrorCode::FileDoesNotExist.as_error_message())
+        HttpResponse::InternalServerError().json(ErrorCode::FileError.as_error_message())
     }
 }
 
 #[derive(Serialize, ToSchema)]
 struct FilesListRes {
-    content: Vec<(String, FileSystemEntry)>,
+    #[schema(value_type = Vec<(String, FileSystemEntry)>)]
+    content: Vec<(PathBuf, FileSystemEntry)>,
 }
 
 /// List directory contents
@@ -69,39 +72,38 @@ struct FilesListRes {
     tags = ["private", "files"]
 )]
 pub async fn list(info: Query<SinglePath>) -> HttpResponse {
-    if !&info.path.exists() {
+    if !info.path.exists() {
         return HttpResponse::NotFound().json(ErrorCode::DirectoryDoesNotExist.as_error_message());
     }
 
-    match fs::read_dir(&info.path) {
-        Ok(contents) => {
-            let mut result: Vec<(String, FileSystemEntry)> = Vec::new();
-            for e in contents {
-                let e_unwrap = &e.unwrap();
-                let file_name = &e_unwrap.file_name().into_string().unwrap();
-                let is_file = e_unwrap.metadata().unwrap().is_file();
-                let is_dir = e_unwrap.metadata().unwrap().is_dir();
-                let is_symlink = e_unwrap.metadata().unwrap().is_symlink();
-
-                if is_file {
-                    result.push((file_name.to_string(), FileSystemEntry::File))
-                } else if is_dir {
-                    result.push((file_name.to_string(), FileSystemEntry::Directory))
-                } else if is_symlink {
-                    result.push((file_name.to_string(), FileSystemEntry::Symlink))
-                } else {
-                    result.push((file_name.to_string(), FileSystemEntry::Unknown))
-                }
-            }
-            HttpResponse::Ok().json(FilesListRes { content: result })
-        }
-        Err(_) => {
-            HttpResponse::InternalServerError().json(ErrorCode::DirectoryError.as_error_message())
-        }
+    if let Ok(reading) = fs::read_dir(&info.path) {
+        let serializable_contents = reading
+            .map(|entry| {
+                let e_unwraped = entry.unwrap();
+                let metadata = e_unwraped.metadata().unwrap();
+                let variant = {
+                    if metadata.is_dir() {
+                        FileSystemEntry::Directory
+                    } else if metadata.is_file() {
+                        FileSystemEntry::File
+                    } else if metadata.is_symlink() {
+                        FileSystemEntry::Symlink
+                    } else {
+                        FileSystemEntry::Unknown
+                    }
+                };
+                (e_unwraped.path(), variant)
+            })
+            .collect();
+        HttpResponse::Ok().json(FilesListRes {
+            content: serializable_contents,
+        })
+    } else {
+        HttpResponse::InternalServerError().json(ErrorCode::DirectoryError.as_error_message())
     }
 }
 
-/// Delete a file path
+/// Delete a file-path
 #[utoipa::path(
     post,
     path = "/private/files/delete",
@@ -114,33 +116,20 @@ pub async fn list(info: Query<SinglePath>) -> HttpResponse {
     tags = ["private", "files"]
 )]
 pub async fn delete(info: Query<SinglePath>) -> HttpResponse {
-    let file_path = &info.path;
-
-    if !std::path::Path::new(&file_path).exists() {
+    if !info.path.exists() {
         return HttpResponse::NotFound().json(ErrorCode::FileDoesNotExist.as_error_message());
     }
 
-    let metadata = fs::metadata(&file_path).unwrap();
-    let is_file = metadata.is_file();
-    let is_dir = metadata.is_dir();
-    let is_link = metadata.is_symlink();
-    let has_permissions = !metadata.permissions().readonly();
-
-    if (is_file || is_link) && has_permissions {
-        match fs::remove_file(&file_path) {
-            Ok(_) => HttpResponse::Ok().json(MessageRes::from("The file has been deleted.")),
-            Err(_) => {
-                HttpResponse::InternalServerError().json(ErrorCode::FileError.as_error_message())
-            }
+    if info.path.is_file() || info.path.is_symlink() {
+        if fs::remove_file(&info.path).is_ok() {
+            return HttpResponse::Ok().json(MessageRes::from("The file has been deleted."));
         }
-    } else if is_dir && has_permissions {
-        match fs::remove_dir_all(&file_path) {
-            Ok(_) => HttpResponse::Ok().json(MessageRes::from("The directory has been deleted.")),
-            Err(_) => HttpResponse::InternalServerError()
-                .json(ErrorCode::DirectoryError.as_error_message()),
-        }
+        HttpResponse::InternalServerError().json(ErrorCode::FileError.as_error_message())
     } else {
-        HttpResponse::Forbidden().json(ErrorCode::MissingSystemPermissions.as_error_message())
+        if fs::remove_dir_all(&info.path).is_ok() {
+            return HttpResponse::Ok().json(MessageRes::from("The directory has been deleted."));
+        }
+        HttpResponse::InternalServerError().json(ErrorCode::DirectoryError.as_error_message())
     }
 }
 
@@ -165,22 +154,18 @@ pub struct MovePathReq {
     tags = ["private", "files"]
 )]
 pub async fn move_to(json: Json<MovePathReq>) -> HttpResponse {
-    if !json.origin.exists() || json.destination.exists() {
+    if !json.origin.exists() {
         HttpResponse::NotFound().json(ErrorCode::FileDoesNotExist.as_error_message());
     }
 
-    let metadata = fs::metadata(&json.origin).unwrap();
-    let has_permissions = !metadata.permissions().readonly();
-    if has_permissions && !&json.destination.exists() {
-        match fs::rename(&json.origin, &json.destination) {
-            Ok(_) => HttpResponse::Ok().json(MessageRes::from("The directory has been renamed.")),
-            Err(_) => {
-                HttpResponse::InternalServerError().json(ErrorCode::FileError.as_error_message())
-            }
-        }
-    } else {
-        HttpResponse::Forbidden().json(ErrorCode::MissingSystemPermissions.as_error_message())
+    if json.destination.exists() {
+        return HttpResponse::Conflict().json(ErrorCode::FileError);
     }
+
+    if fs::rename(&json.origin, &json.destination).is_ok() {
+        return HttpResponse::Ok().json(MessageRes::from("The directory has been renamed."));
+    }
+    HttpResponse::InternalServerError().json(ErrorCode::FileError.as_error_message())
 }
 
 /// Delete file
@@ -198,75 +183,49 @@ pub async fn move_to(json: Json<MovePathReq>) -> HttpResponse {
     tags = ["private", "files"]
 )]
 pub async fn burn(info: Query<SinglePath>) -> HttpResponse {
-    let path = &info.path;
-
-    if path.is_dir() {
+    if info.path.is_dir() {
         return HttpResponse::UnprocessableEntity()
             .json(ErrorCode::DirectoryError.as_error_message());
     }
 
-    if !path.exists() {
-        return HttpResponse::NotFound().json(ErrorCode::FileDoesNotExist.as_error_message());
-    }
-
-    let metadata = fs::metadata(&path).unwrap();
-    let has_permissions = !metadata.permissions().readonly();
-
-    if !has_permissions {
-        return HttpResponse::Forbidden()
-            .json(ErrorCode::MissingSystemPermissions.as_error_message());
-    }
-
-    let size = metadata.len();
+    let size = fs::metadata(&info.path).unwrap().len();
     let r_s = (0..size).map(|_| rand::random::<u8>()).collect::<Vec<u8>>();
-    match fs::write(path.clone(), r_s) {
+    match fs::write(&info.path, r_s) {
         Ok(_) => {
-            let _ = fs::remove_file(&path);
+            let _ = fs::remove_file(&info.path);
             HttpResponse::Ok().json(MessageRes::from("The file has been burned."))
         }
         Err(_) => HttpResponse::InternalServerError().json(ErrorCode::FileError.as_error_message()),
     }
 }
 
-#[derive(Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-enum FileSystemEntry {
-    File,
-    Directory,
-    Symlink,
-    Unknown,
-}
-
-#[derive(Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-struct GetMetadataRes {
-    permissions: i32,
-    owner: NativeUser,
-    size: u64,
-    entry_type: FileSystemEntry,
-    created: Option<u64>,
-    modified: Option<u64>,
-    filename: String,
-    absolute_path: String,
-}
-
 fn recursive_size_of_directory(path: &PathBuf) -> u64 {
     let mut size = 0_u64;
     if let Ok(contents) = fs::read_dir(path) {
         contents.for_each(|f| {
-            if f.is_err() {
-                return;
-            }
             if let Ok(metadata) = f.as_ref().unwrap().metadata() {
-                if metadata.is_symlink() || metadata.is_file() {
-                    size += metadata.size();
-                } else {
+                if metadata.is_dir() {
                     size += recursive_size_of_directory(&f.unwrap().path());
+                } else {
+                    size += metadata.size();
                 }
             }
         });
     }
     size
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct GetMetadataRes {
+    permissions: u16,
+    owner: NativeUser,
+    size: u64,
+    entry_type: FileSystemEntry,
+    created: u128,
+    modified: u128,
+    filename: String,
+    absolute_path: String,
 }
 
 /// Metadata of path
@@ -281,12 +240,7 @@ fn recursive_size_of_directory(path: &PathBuf) -> u64 {
     tags = ["private", "files"]
 )]
 pub async fn metadata(info: Query<SinglePath>) -> HttpResponse {
-    let constructed_path = &info.path;
-    if !constructed_path.exists() {
-        return HttpResponse::NotFound().json(ErrorCode::FileDoesNotExist.as_error_message());
-    }
-
-    let metadata = match fs::metadata(constructed_path.clone()) {
+    let metadata = match fs::metadata(&info.path) {
         Ok(m) => m,
         Err(_) => {
             return HttpResponse::InternalServerError()
@@ -296,64 +250,36 @@ pub async fn metadata(info: Query<SinglePath>) -> HttpResponse {
 
     let permissions = metadata.permissions().mode() & 0o777;
     let permissions_octal_string = format!("{permissions:o}");
-    let permissions_octal: i32 = permissions_octal_string.parse().unwrap();
+    let permissions_octal: u16 = permissions_octal_string.parse().unwrap();
 
-    // UNIX timestamp in seconds at which this file was created
-    let created_stamp = match metadata.created() {
-        Ok(v) => Some(
-            v.duration_since(UNIX_EPOCH)
-                .expect("Time went backwards.")
-                .as_secs(),
-        ),
-        Err(_) => None,
-    };
+    let created_stamp = time_to_unix(metadata.created().unwrap());
+    let modified_stamp = time_to_unix(metadata.modified().unwrap());
 
-    // UNIX timestamp in seconds at which this file was last modified
-    let modified_stamp = match metadata.modified() {
-        Ok(v) => Some(
-            v.duration_since(UNIX_EPOCH)
-                .expect("Time went backwards.")
-                .as_secs(),
-        ),
-        Err(_) => None,
-    };
-
-    let is_file = metadata.is_file();
-    let is_dir = metadata.is_dir();
-    let is_symlink = metadata.is_symlink();
-
-    let size = if is_file || is_symlink {
-        metadata.size()
+    let size = if metadata.is_dir() {
+        recursive_size_of_directory(&info.path)
     } else {
-        recursive_size_of_directory(&constructed_path)
+        metadata.size()
     };
-
-    let owner = NativeUser::from_uid(metadata.uid()).unwrap();
 
     HttpResponse::Ok().json(GetMetadataRes {
         permissions: permissions_octal,
         size,
-        owner,
+        owner: NativeUser::from_uid(metadata.uid()).unwrap(),
         modified: modified_stamp,
         created: created_stamp,
         entry_type: {
-            if is_dir {
+            if metadata.is_dir() {
                 FileSystemEntry::Directory
-            } else if is_file {
+            } else if metadata.is_file() {
                 FileSystemEntry::File
-            } else if is_symlink {
+            } else if metadata.is_symlink() {
                 FileSystemEntry::Symlink
             } else {
                 FileSystemEntry::Unknown
             }
         },
-        absolute_path: constructed_path.to_str().unwrap().to_string(),
-        filename: constructed_path
-            .file_name()
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .to_string(),
+        absolute_path: info.path.to_string_lossy().to_string(),
+        filename: info.path.file_name().unwrap().to_string_lossy().to_string(),
     })
 }
 
@@ -363,7 +289,7 @@ pub struct UploadFileForm {
     #[schema(value_type = [u8])]
     file: TempFile,
     #[schema(value_type = String)]
-    path: Text<String>,
+    path: Text<PathBuf>,
 }
 
 /// Uploads a file to the host system.
@@ -375,14 +301,13 @@ pub struct UploadFileForm {
     tags = ["private", "files"]
 )]
 pub async fn upload(MultipartForm(form): MultipartForm<UploadFileForm>) -> HttpResponse {
-    let intended_path = PathBuf::from(form.path.to_string());
     let filename = match form.file.file_name {
         Some(v) => v,
         None => {
             return HttpResponse::BadRequest().json(ErrorCode::InsufficientData.as_error_message());
         }
     };
-    let intended_path = intended_path.join(filename);
+    let intended_path = form.path.join(filename);
     let temp_path = form.file.file.path();
     let cpy = fs::copy(temp_path, &intended_path);
     let unk = fs::remove_file(temp_path);
