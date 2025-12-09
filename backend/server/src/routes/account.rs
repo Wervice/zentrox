@@ -11,7 +11,7 @@ use std::{fs, io::Read, path, time::UNIX_EPOCH};
 use utils::{
     database::establish_connection,
     schema,
-    status_com::{ErrorCode, MessageRes},
+    status_com::{self, ErrorCode, MessageRes},
 };
 use utoipa::ToSchema;
 
@@ -33,9 +33,13 @@ pub async fn details(state: Data<AppState>) -> HttpResponse {
         Err(e) => e.into_inner(),
     };
 
-    HttpResponse::Ok().json(AccountDetailsRes {
-        username: state_username.to_string(),
-    })
+    if let Some(username) = state_username.clone() {
+        HttpResponse::Ok().json(AccountDetailsRes {
+            username,
+        }) 
+    } else {
+        HttpResponse::Forbidden().json(status_com::ErrorCode::MissingApiPermissions)
+    }
 }
 
 #[derive(Deserialize, ToSchema)]
