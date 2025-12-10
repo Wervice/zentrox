@@ -1,14 +1,7 @@
+use crate::time::{self, current_timestamp_unix};
 /// Communicating the status of the request to the frontend either through error codes or through a
 /// single written message.
 use serde::Serialize;
-use std::time::UNIX_EPOCH;
-
-fn current_time() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_millis()
-}
 
 /// Struct notifying the receiver of having successfully finished a request and providing a small
 /// description for developing purposes.
@@ -26,7 +19,7 @@ pub struct MessageRes {
 impl From<String> for MessageRes {
     fn from(value: String) -> Self {
         MessageRes {
-            time: current_time(),
+            time: time::current_timestamp_unix(),
             message: value,
         }
     }
@@ -35,7 +28,7 @@ impl From<String> for MessageRes {
 impl From<&str> for MessageRes {
     fn from(value: &str) -> Self {
         MessageRes {
-            time: current_time(),
+            time: time::current_timestamp_unix(),
             message: value.to_string(),
         }
     }
@@ -56,7 +49,7 @@ impl ErrorRes {
     /// Given an error code, construct an ErrorRes with the current time
     fn with_code(code: ErrorCode) -> Self {
         ErrorRes {
-            time: current_time(),
+            time: current_timestamp_unix(),
             code,
         }
     }
@@ -93,7 +86,7 @@ pub enum ErrorCode {
     /// The error contains the written error message from UFW.
     UfwExecutionFailed(String),
     /// Like UfwExecutionFailed, but only with a status code and no error message
-    UfwExecutionFailedWithStatus(i32),
+    UfwExecutionFailedWithStatus(Option<i32>),
     /// While sending a signal to a process, an error was encountered. Most likely it was a
     /// permission error.
     SignalError,
@@ -178,4 +171,16 @@ pub enum ErrorCode {
     CommandFailed(String),
     /// A value was not properly sanitized
     SanitizationError,
+    /// A creation rule was malformed
+    BadRule,
+    /// The rule was not created because it already exited
+    RuleSkipped,
+    /// Creating a rule failed
+    RuleCreationFailed,
+    /// Rule deletion failed.
+    RuleDeletionFailed,
+    /// UFW failed, getting the program into an unknown state
+    UfwError(String, String, Vec<String>),
+    /// No such rule exists
+    NoSuchRule,
 }
