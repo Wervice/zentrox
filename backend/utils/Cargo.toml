@@ -22,3 +22,4 @@ log = "0.4.27"
 diesel = { version = "2.2.12", features = ["sqlite", "returning_clauses_for_sqlite_3_35"] }
 base32 = "0.5.1"
 utoipa = { version = "5.4.0", features = ["macros"] }
+chrono = "0.4.42"

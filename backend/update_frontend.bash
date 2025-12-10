@@ -1,4 +1,4 @@
 cd ../frontend/
-npm run build
+pnpm run build
 rm -rf ../backend/static
 cp -r ../frontend/out ../backend/static 
