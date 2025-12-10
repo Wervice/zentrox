@@ -3,7 +3,7 @@ use std::{fs, path::PathBuf};
 use serde::Serialize;
 use utoipa::ToSchema;
 
-#[derive(Debug, Clone, Serialize, ToSchema, PartialEq)]
+#[derive(Debug, Clone, Serialize, ToSchema, PartialEq, Default)]
 pub struct NativeUser {
     pub username: String,
     pub password: Option<String>,
@@ -28,7 +28,7 @@ fn parse_passwd_file() -> Result<Vec<NativeUser>, std::io::Error> {
             NativeUser {
                 username: line_split[0].clone(),
                 password: {
-                    if line_split[1] == String::from("x") || line_split[1].is_empty() {
+                    if line_split[1] == "x" || line_split[1].is_empty() {
                         None
                     } else {
                         Some(line_split[1].clone())
@@ -58,20 +58,6 @@ fn parse_passwd_file() -> Result<Vec<NativeUser>, std::io::Error> {
 pub enum SearchError {
     PasswdAccessFailed,
     NotFound,
-}
-
-impl Default for NativeUser {
-    fn default() -> Self {
-        NativeUser {
-            username: String::from(""),
-            password: None,
-            user_id: 0,
-            group_id: 0,
-            gecos: String::from(""),
-            home_directory: None,
-            login_shell: None,
-        }
-    }
 }
 
 impl NativeUser {

@@ -219,7 +219,7 @@ pub fn burn_file(path: PathBuf) -> Result<(), String> {
         let random_data = (0..file_size)
             .map(|_| rand::random::<u8>())
             .collect::<Vec<u8>>();
-        if let Err(_) = fs::write(&path, random_data) {
+        if fs::write(&path, random_data).is_err() {
             log::warn!("A file could not be properly burned.");
             return Err("Failed to burn file".to_string());
         };
