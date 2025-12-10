@@ -14,10 +14,9 @@ use utils::{
     tags = ["private", "power"]
 )]
 pub async fn off(json: Json<SudoPasswordReq>) -> HttpResponse {
-    let e =
-        sudo::SwitchedUserCommand::new(json.sudo_password.clone(), "poweroff".to_string()).spawn();
+    let e = sudo::SudoCommand::new(json.sudo_password.clone(), "poweroff".to_string()).output();
 
-    if let sudo::SudoExecutionResult::Success(_) = e {
+    if e.is_ok() {
         HttpResponse::Ok().json(MessageRes::from("The computer is shutting down."))
     } else {
         HttpResponse::InternalServerError().json(ErrorCode::PowerOffFailed.as_error_message())

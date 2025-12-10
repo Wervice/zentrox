@@ -56,11 +56,7 @@ pub async fn list() -> HttpResponse {
         let memory_usage_bytes = x.1.memory();
         let cpu_usage = x.1.cpu_usage() / 100_f32;
 
-        let executable_path = match x.1.exe() {
-            Some(v) => Some(v.to_str().unwrap().to_string()),
-            None => None,
-        };
-
+        let executable_path = x.1.exe().map(|x| x.to_str().unwrap().to_string());
         let mut username: Option<String> = None;
         if let Some(uid) = x.1.user_id() {
             username = Some(NativeUser::from_uid(uid.div(1)).unwrap().username);
@@ -78,9 +74,9 @@ pub async fn list() -> HttpResponse {
         });
     });
 
-    return HttpResponse::Ok().json(ListProcessesRes {
+    HttpResponse::Ok().json(ListProcessesRes {
         processes: processes_for_response,
-    });
+    })
 }
 
 /// Kill process by PID.
@@ -109,16 +105,12 @@ pub async fn kill(path: Path<u32>) -> HttpResponse {
     match processes.get(&Pid::from_u32(path.into_inner())) {
         Some(p) => {
             if p.kill() {
-                return HttpResponse::Ok()
-                    .json(MessageRes::from("The singal has been sent successfully."));
+                HttpResponse::Ok().json(MessageRes::from("The singal has been sent successfully."))
             } else {
-                return HttpResponse::InternalServerError()
-                    .json(ErrorCode::SignalError.as_error_message());
+                HttpResponse::InternalServerError().json(ErrorCode::SignalError.as_error_message())
             }
         }
-        None => {
-            return HttpResponse::NotFound().json(ErrorCode::UnknownPid.as_error_message());
-        }
+        None => HttpResponse::NotFound().json(ErrorCode::UnknownPid.as_error_message()),
     }
 }
 
@@ -133,7 +125,7 @@ struct ProcessDetailsRes {
     cpu_usage: f32,
     run_time: u64,
     command_line: Vec<String>,
-    executable_path: String,
+    executable_path: Option<String>,
     priority: isize,
     threads: isize,
     parent: String,
@@ -147,8 +139,6 @@ struct ProcessDetailsRes {
 )]
 /// Details about process
 pub async fn details(path: Path<u32>) -> HttpResponse {
-    // NOTE Part of this should be moved into a helper library
-
     let process_refresh = ProcessRefreshKind::nothing()
         .without_tasks()
         .with_cpu()
@@ -172,7 +162,7 @@ pub async fn details(path: Path<u32>) -> HttpResponse {
     let name = selected_process.name();
     let pid = selected_process.pid();
     let uid = selected_process.user_id().unwrap();
-    let user = NativeUser::from_uid(uid.div(1) as u32).unwrap();
+    let user = NativeUser::from_uid(uid.div(1)).unwrap();
     let memory_usage_bytes = selected_process.memory();
     let cpu_usage = selected_process.cpu_usage() / 100_f32;
     let run_time = selected_process.run_time();
@@ -190,15 +180,8 @@ pub async fn details(path: Path<u32>) -> HttpResponse {
         .unwrap()
         .to_string();
 
-    let mut executable_path = String::from("Unknown");
-
-    if executable_path_determination.is_some() {
-        executable_path = executable_path_determination
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .to_string();
-    }
+    let executable_path =
+        executable_path_determination.map(|det| det.to_str().unwrap().to_string());
 
     let stat_file = fs::read_to_string(
         PathBuf::from("/")
@@ -213,7 +196,7 @@ pub async fn details(path: Path<u32>) -> HttpResponse {
 
     let thread_count = stat_file_split[19].parse::<isize>().unwrap_or(-1);
 
-    return HttpResponse::Ok().json(ProcessDetailsRes {
+    HttpResponse::Ok().json(ProcessDetailsRes {
         name: name.to_str().unwrap().to_string(),
         pid: pid.as_u32(),
         user,
@@ -226,5 +209,5 @@ pub async fn details(path: Path<u32>) -> HttpResponse {
         run_time,
         executable_path,
         parent: parent_name,
-    });
+    })
 }

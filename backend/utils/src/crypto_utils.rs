@@ -8,7 +8,7 @@ use diesel::dsl::insert_into;
 use diesel::prelude::*;
 use diesel::{self, RunQueryDsl};
 
-/// Derive a key using Argon2. The keylength is set to 32 bytes.
+/// Derive a key using Argon2. The key length is set to 32 bytes.
 /// It uses the salt stored in the config file under a2_salt.
 pub fn argon2_derive_key(password: &str) -> Option<[u8; 32]> {
     let salt: SaltString;
@@ -22,14 +22,14 @@ pub fn argon2_derive_key(password: &str) -> Option<[u8; 32]> {
 
     if secrets_query.is_empty() {
         salt = SaltString::generate(&mut OsRng);
-        insert_into(Encryption)
+        let _ = insert_into(Encryption)
             .values(Secrets {
                 argon2_salt: salt.to_string(),
                 id: 0_i32,
             })
             .execute(connection);
     } else {
-        salt = SaltString::from_b64(&secrets_query.get(0).unwrap().argon2_salt).unwrap();
+        salt = SaltString::from_b64(&secrets_query.first().unwrap().argon2_salt).unwrap();
     }
 
     let params = argon2::Params::new(4096, 3, 1, Some(32)).unwrap();

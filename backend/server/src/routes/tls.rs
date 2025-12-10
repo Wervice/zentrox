@@ -23,7 +23,7 @@ pub struct TlsUploadForm {
     post,
     path = "/private/tls/upload",
     request_body(content = TlsUploadForm, content_type = "multipart/form-data"),
-    responses((status = 200)),
+    responses((status = 200), (status = 409, description = "Certificate with same name already exists.")),
     tags = ["private", "tls"]
 )]
 pub async fn upload(MultipartForm(form): MultipartForm<TlsUploadForm>) -> HttpResponse {
@@ -36,7 +36,8 @@ pub async fn upload(MultipartForm(form): MultipartForm<TlsUploadForm>) -> HttpRe
         .replace("..", "")
         .replace("/", "");
 
-    let base_path = path::Path::new(&dirs::home_dir().unwrap())
+    let base_path = dirs::home_dir()
+        .unwrap()
         .join(".local")
         .join("share")
         .join("zentrox")
@@ -52,6 +53,11 @@ pub async fn upload(MultipartForm(form): MultipartForm<TlsUploadForm>) -> HttpRe
     }
 
     let tmp_file_path = form.file.file.path().to_owned();
+
+    if !base_path.exists() {
+        return HttpResponse::Conflict().json(ErrorCode::FileError);
+    }
+
     let _ = fs::copy(&tmp_file_path, &base_path);
 
     match fs::remove_file(&tmp_file_path) {

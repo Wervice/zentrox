@@ -74,7 +74,7 @@ pub async fn share(json: Json<FileSharingReq>) -> HttpResponse {
             .json(ErrorCode::DatabaseInsertFailed(database_error.to_string()));
     }
 
-    return HttpResponse::Ok().body(code);
+    HttpResponse::Ok().body(code)
 }
 
 #[derive(Serialize, ToSchema)]
@@ -93,7 +93,7 @@ pub async fn list() -> HttpResponse {
         .get_results(&mut establish_connection())
         .unwrap();
 
-    return HttpResponse::Ok().json(SharedFilesListRes { files });
+    HttpResponse::Ok().json(SharedFilesListRes { files })
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -103,7 +103,9 @@ pub struct SharedFileReq {
 }
 
 #[utoipa::path(post, path = "/public/shared/get", request_body = SharedFileReq, responses((status = 200, content_type = "application/octet-stream")), tags = ["public", "sharing"])]
-/// Contents of shared file
+/// Selects the file with the specified code, verifying if the password is correct, if a password
+/// was required and returns its contents.
+// TODO Add rate-limiting
 pub async fn download_file(json: Json<SharedFileReq>) -> HttpResponse {
     use models::SharedFile;
     use schema::FileSharing;
@@ -117,20 +119,19 @@ pub async fn download_file(json: Json<SharedFileReq>) -> HttpResponse {
         .get_results(connection)
         .unwrap();
 
-    let file_with_code = shared_files.into_iter().find(|e| e.code == json.code);
+    let file_query = shared_files.into_iter().find(|e| e.code == json.code);
 
     // Check if the requested code even exists
-    if file_with_code.is_some() {
-        let e_unwrap = file_with_code.unwrap();
-        let password_checking = e_unwrap.use_password;
-        let database_hash = e_unwrap.password.clone();
+    if let Some(correct_file) = file_query {
+        let password_checking = correct_file.use_password;
+        let database_hash = correct_file.password.clone();
 
         if password_checking && request_password.is_none() {
             return HttpResponse::Forbidden()
                 .json(ErrorCode::MissingSharedFilePermissions.as_error_message());
         }
 
-        let file_path = e_unwrap.file_path.clone();
+        let file_path = correct_file.file_path.clone();
         let file_contents = fs::read(file_path).unwrap();
 
         if password_checking {
@@ -151,7 +152,7 @@ pub async fn download_file(json: Json<SharedFileReq>) -> HttpResponse {
 
         return HttpResponse::Ok().body(file_contents);
     }
-    return HttpResponse::NotFound().json(ErrorCode::NoSuchSharedFile.as_error_message());
+    HttpResponse::NotFound().json(ErrorCode::NoSuchSharedFile.as_error_message())
 }
 
 #[derive(Serialize, ToSchema)]
@@ -186,11 +187,11 @@ pub async fn get_metadata(json: Json<SharedFileReq>) -> HttpResponse {
 
     let size = p.metadata().unwrap().len();
 
-    return HttpResponse::Ok().json(SharedFileMetadataRes {
+    HttpResponse::Ok().json(SharedFileMetadataRes {
         file_path: f[0].file_path.clone(),
         use_password: f[0].use_password,
         size: size as u32,
-    });
+    })
 }
 
 #[utoipa::path(post, path = "/private/sharing/delete/{code}", params(("code" = String, Path)), responses((status = 200)), tags = ["private", "sharing"])]
@@ -208,5 +209,5 @@ pub async fn unshare(request_code: Path<String>) -> HttpResponse {
         ));
     }
 
-    return HttpResponse::Ok().json(MessageRes::from("The file is no longer being shared."));
+    HttpResponse::Ok().json(MessageRes::from("The file is no longer being shared."))
 }

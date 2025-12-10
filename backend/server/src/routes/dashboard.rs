@@ -1,4 +1,3 @@
-use actix_session::Session;
 use actix_web::{HttpResponse, web::Data};
 use serde::Serialize;
 use std::fs;
@@ -7,7 +6,7 @@ use sysinfo::Components;
 use utils::net_data::private_ip;
 use utoipa::ToSchema;
 
-use crate::{AppState, is_admin::is_admin_state};
+use crate::AppState;
 
 /// A single thermometer reading with a name
 #[derive(Serialize, ToSchema)]
@@ -60,26 +59,12 @@ pub async fn information(state: Data<AppState>) -> HttpResponse {
         .iter()
         .map(|component| Thermometer {
             label: component.label().to_string(),
-            reading: match component.temperature() {
-                Some(unwrapped_reading) => {
-                    if unwrapped_reading.is_nan() {
-                        None
-                    } else {
-                        Some(unwrapped_reading)
-                    }
-                }
-                None => None,
-            },
-            critical: match component.critical() {
-                Some(unwrapped_reading) => {
-                    if unwrapped_reading.is_nan() {
-                        None
-                    } else {
-                        Some(unwrapped_reading)
-                    }
-                }
-                None => None,
-            },
+            reading: component
+                .temperature()
+                .filter(|&unwrapped_reading| !unwrapped_reading.is_nan()),
+            critical: component
+                .critical()
+                .filter(|&unwrapped_reading| !unwrapped_reading.is_nan()),
         })
         .collect();
 
@@ -104,11 +89,11 @@ pub async fn information(state: Data<AppState>) -> HttpResponse {
     let mut current_highest_interface_activity: f64 = 0.0;
 
     for interface in network_interfaces.iter() {
-        let sum = interface.up + interface.down;
+        let sum = interface.delta_up.unwrap() + interface.delta_down.unwrap();
         if sum > current_highest_interface_activity {
             most_active_network_interface = Some(interface.name.clone());
-            network_bytes_up = Some(interface.up);
-            network_bytes_down = Some(interface.down);
+            network_bytes_up = interface.delta_up;
+            network_bytes_down = interface.delta_down;
             current_highest_interface_activity = sum;
         }
     }
@@ -134,26 +119,10 @@ pub async fn information(state: Data<AppState>) -> HttpResponse {
         network_bytes_up,
         most_active_network_interface,
         network_interfaces_count: *network_interfaces_count,
-        ip: private_ip().ok(),
+        ip: private_ip(),
         memory_free_bytes,
         memory_total_bytes,
         cpu_usage,
         os_name,
     })
-}
-
-/// The dashboard route.
-///
-/// If the user is logged in, the dashboard is shown, otherwise they get redirected to root.
-pub async fn page(session: Session, state: Data<AppState>) -> HttpResponse {
-    // is_admin session value is != true (None or false), the user is redirected to /
-    // otherwise, the user is served the dashboard.html file
-    if is_admin_state(&session, state) {
-        HttpResponse::Ok()
-            .body(std::fs::read_to_string("static/dashboard.html").expect("Failed to read file"))
-    } else {
-        HttpResponse::Found()
-            .append_header(("Location", "/"))
-            .body("You will soon be redirected")
-    }
 }

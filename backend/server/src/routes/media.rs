@@ -135,7 +135,7 @@ pub async fn download(info: Query<SinglePath>, req: HttpRequest) -> HttpResponse
         }
         Some(e) => {
             let byte_range = parse_range(e.clone());
-            let file = File::open(&requested_file_path).unwrap();
+            let file = File::open(requested_file_path).unwrap();
             let mut reader = BufReader::new(file);
             let filesize: usize = reader
                 .get_ref()
@@ -150,11 +150,11 @@ pub async fn download(info: Query<SinglePath>, req: HttpRequest) -> HttpResponse
                     .json(ErrorCode::LeftRangeTooHigh.as_error_message());
             }
 
-            if let Some(right_limit) = byte_range.1 {
-                if right_limit > filesize {
-                    return HttpResponse::RangeNotSatisfiable()
-                        .json(ErrorCode::RightRangeTooHigh.as_error_message());
-                }
+            if let Some(right_limit) = byte_range.1
+                && right_limit > filesize
+            {
+                return HttpResponse::RangeNotSatisfiable()
+                    .json(ErrorCode::RightRangeTooHigh.as_error_message());
             }
 
             let buffer_length = byte_range.1.unwrap_or(filesize) - byte_range.0;
@@ -322,8 +322,8 @@ pub async fn get_contents() -> HttpResponse {
     let mut completed_media_entries: Vec<MediaEntry> = Vec::new();
 
     for media_file_path in all_media_file_paths {
-        let search = media_metadata
-            .find(|entry: &MediaEntry| PathBuf::from(entry.file_path.clone()) == media_file_path);
+        let search =
+            media_metadata.find(|entry: &MediaEntry| entry.file_path.clone() == media_file_path);
         if let Some(defined_metadata) = search {
             completed_media_entries.push(defined_metadata);
         } else {
@@ -331,9 +331,9 @@ pub async fn get_contents() -> HttpResponse {
         }
     }
 
-    return HttpResponse::Ok().json(MediaListRes {
+    HttpResponse::Ok().json(MediaListRes {
         media: completed_media_entries,
-    });
+    })
 }
 
 /// Media cover
@@ -422,9 +422,9 @@ pub async fn activate_media(e: Json<MediaEnabledSchema>) -> HttpResponse {
             .json(ErrorCode::DatabaseUpdateFailed(database_error.to_string()).as_error_message());
     }
 
-    return HttpResponse::Ok().json(MessageRes::from(
+    HttpResponse::Ok().json(MessageRes::from(
         "The media center status has been updated.",
-    ));
+    ))
 }
 
 #[derive(Serialize, ToSchema)]
@@ -450,9 +450,9 @@ pub async fn read_history() -> HttpResponse {
         .filter(|e| PathBuf::from(&e.file_path).exists())
         .collect();
 
-    return HttpResponse::Ok().json(RecommendationsRes {
+    HttpResponse::Ok().json(RecommendationsRes {
         recommendations: filtered_entries,
-    });
+    })
 }
 
 #[derive(Deserialize)]
@@ -496,5 +496,5 @@ pub async fn update_metadata(path: Path<PathBuf>, json: Json<MetadataReq>) -> Ht
             .json(ErrorCode::DatabaseInsertFailed(database_error.to_string()));
     }
 
-    return HttpResponse::Ok().json(MessageRes::from("The media metadata has been updated."));
+    HttpResponse::Ok().json(MessageRes::from("The media metadata has been updated."))
 }

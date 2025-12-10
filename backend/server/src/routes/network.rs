@@ -4,19 +4,18 @@ use actix_web::{
 };
 use serde::{Deserialize, Serialize};
 use std::{net::IpAddr, str::FromStr};
-use utils::status_com::ErrorCode;
+use utils::{net_data::Interface, status_com::ErrorCode};
 use utils::{
     net_data::{self, DeletionRoute, Destination, IpAddrWithSubnet, Route},
     status_com::MessageRes,
-    sudo,
 };
 use utoipa::ToSchema;
 
-use crate::{AppState, MeasuredInterface};
+use crate::AppState;
 
 #[derive(Serialize, ToSchema)]
 struct NetworkInterfacesRes {
-    interfaces: Vec<MeasuredInterface>,
+    interfaces: Vec<Interface>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -29,7 +28,7 @@ struct NetworkRoutesRes {
 pub async fn interfaces(state: Data<AppState>) -> HttpResponse {
     let interfaces = state.network_interfaces.lock().unwrap().clone();
 
-    return HttpResponse::Ok().json(NetworkInterfacesRes { interfaces });
+    HttpResponse::Ok().json(NetworkInterfacesRes { interfaces })
 }
 
 #[utoipa::path(get, path = "/private/network/routes", tags = ["private", "network"], responses((status = 200, body = NetworkRoutesRes)))]
@@ -37,13 +36,13 @@ pub async fn interfaces(state: Data<AppState>) -> HttpResponse {
 pub async fn routes() -> HttpResponse {
     let routes = net_data::get_routes();
 
-    return HttpResponse::Ok().json(NetworkRoutesRes {
+    HttpResponse::Ok().json(NetworkRoutesRes {
         routes: routes.unwrap(),
-    });
+    })
 }
 
 #[derive(Deserialize, ToSchema)]
-struct AdressRequestSchema {
+struct AddressRequestSchema {
     adress: String,
     subnet: Option<i32>,
 }
@@ -52,8 +51,8 @@ struct AdressRequestSchema {
 #[serde(rename_all = "camelCase")]
 pub struct DeleteNetworkRouteReq {
     device: String,
-    destination: Option<AdressRequestSchema>,
-    gateway: Option<AdressRequestSchema>,
+    destination: Option<AddressRequestSchema>,
+    gateway: Option<AddressRequestSchema>,
     sudo_password: String,
 }
 
@@ -63,16 +62,10 @@ pub async fn delete_route(json: Json<DeleteNetworkRouteReq>) -> HttpResponse {
     let built_deletion_route = DeletionRoute {
         device: json.device.clone(),
         nexthop: None,
-        gateway: {
-            if let Some(gateway_adress) = &json.gateway {
-                Some(IpAddrWithSubnet {
-                    address: IpAddr::from_str(&gateway_adress.adress).unwrap(),
-                    subnet: gateway_adress.subnet,
-                })
-            } else {
-                None
-            }
-        },
+        gateway: json.gateway.as_ref().map(|x| IpAddrWithSubnet {
+            address: IpAddr::from_str(&x.adress).unwrap(),
+            subnet: x.subnet,
+        }),
         destination: {
             if let Some(destination_adress) = &json.destination {
                 Destination::Prefix(IpAddrWithSubnet {
@@ -89,12 +82,7 @@ pub async fn delete_route(json: Json<DeleteNetworkRouteReq>) -> HttpResponse {
         net_data::delete_route(built_deletion_route, json.sudo_password.clone());
 
     match deletion_execution {
-        sudo::SudoExecutionOutput::Success(_) => {
-            HttpResponse::Ok().json(MessageRes::from("The route has been updated."))
-        }
-        sudo::SudoExecutionOutput::ExecutionError(err) => {
-            HttpResponse::InternalServerError().json(ErrorCode::CommandFailed(err))
-        }
+        Ok(_) => HttpResponse::Ok().json(MessageRes::from("The route has been updated.")),
         _ => HttpResponse::Unauthorized().json(ErrorCode::BadSudoPassword),
     }
 }
@@ -111,9 +99,9 @@ pub struct NetworkingInterfaceActivityReq {
 #[utoipa::path(post, path = "/private/network/interface/active", responses((status = 200)), request_body = NetworkingInterfaceActivityReq, tags = ["private", "network"])]
 pub async fn activate_interface(json: Json<NetworkingInterfaceActivityReq>) -> HttpResponse {
     if json.activity {
-        net_data::enable_interface(json.sudo_password.clone(), json.interface.clone());
+        let _ = net_data::enable_interface(json.sudo_password.clone(), json.interface.clone());
     } else {
-        net_data::disable_interface(json.sudo_password.clone(), json.interface.clone());
+        let _ = net_data::disable_interface(json.sudo_password.clone(), json.interface.clone());
     }
-    return HttpResponse::Ok().json(MessageRes::from("The interface has been updated."));
+    HttpResponse::Ok().json(MessageRes::from("The interface has been updated."))
 }
