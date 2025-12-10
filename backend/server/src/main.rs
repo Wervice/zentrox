@@ -2,12 +2,6 @@
 //! It support various tasks ranging from sharing and managing files to installing system packages
 //! and basic network configuration tasks.
 //!
-//! The project uses actix_web together with serde_json for API communication.
-//! To provide a session a CookieSession is used. Authentication is handled by Zentrox and does not
-//! use a dedicated library.
-//!
-//! Interactions with the SQLite database are handled through diesel.rs.
-//!
 //! Most interactions between Zentrox and the operating system are handled through commands or files.
 //!
 //! Documentation for the API can be obtained by running the executable with the {`--docs`} flag.
@@ -17,16 +11,28 @@ use actix_cors::Cors;
 use actix_files as afs;
 use actix_governor::{self, Governor, GovernorConfigBuilder};
 use actix_multipart::form::MultipartFormConfig;
-use actix_session::SessionExt;
-use actix_session::config::CookieContentSecurity;
-use actix_session::{Session, SessionMiddleware, storage::CookieSessionStore};
+use actix_session::config::PersistentSession;
+use actix_session::{
+    Session, SessionExt, SessionMiddleware, config::CookieContentSecurity,
+    storage::CookieSessionStore,
+};
+use actix_web::Responder;
 use actix_web::body::{BoxBody, MessageBody};
 use actix_web::cookie::Key;
 use actix_web::dev::{ServiceRequest, ServiceResponse};
 use actix_web::middleware::{Next, from_fn};
-use actix_web::{App, HttpResponse, HttpServer, get, middleware, web, web::Data};
+use actix_web::{
+    App, HttpResponse, HttpServer, cookie::time::Duration as ActixDuration, get, middleware, web,
+    web::Data,
+};
+use diesel::prelude::*;
+use log::{debug, info, warn};
+use permissions::is_admin_state;
+use routes::media::get_media_enabled_database;
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
+use simplelog::{
+    self, ColorChoice, CombinedLogger, Config, LevelFilter, TermLogger, TerminalMode, WriteLogger,
+};
 use std::{
     collections::HashMap,
     env,
@@ -34,26 +40,21 @@ use std::{
     io::BufReader,
     path::PathBuf,
     sync::{Arc, Mutex},
+    time::{Duration, SystemTime},
 };
-use utils::net_data::OperationalState;
-use uuid::Uuid;
-extern crate inflector;
-use diesel::prelude::*;
-use log::{debug, info, warn};
+use utils::database::establish_connection;
+use utils::net_data::Interface;
+use utils::status_com::ErrorCode;
 use utoipa::ToSchema;
-
+use uuid::Uuid;
 mod generate_contract;
 mod help;
-mod is_admin;
+mod permissions;
 mod routes;
 mod setup;
 use routes::*;
 
-use is_admin::is_admin_state;
-use utils::status_com::ErrorCode;
-
-use routes::media::get_media_enabled_database;
-use utils::database::establish_connection;
+const SERVER_PORT: u16 = 8080;
 
 #[derive(Clone)]
 #[allow(unused)]
@@ -65,38 +66,15 @@ enum BackgroundTaskState {
     Pending,
 }
 
-/// A network interface with an up/down data transfer rate relative to a time.
-/// The struct implements Serialize.
-#[derive(Clone, Serialize, ToSchema)]
-#[allow(unused)]
-#[serde(rename_all = "camelCase")]
-struct MeasuredInterface {
-    pub index: i64,
-    pub name: String,
-    pub flags: Vec<String>,
-    pub max_tranmission_unit: u64,
-    pub queuing_discipline: String,
-    pub operational_state: OperationalState,
-    pub link_mode: String,
-    pub group: String,
-    pub transmit_queue: Option<i64>,
-    pub link_type: String,
-    pub address: String,
-    pub broadcast: String,
-    pub up: f64,
-    pub down: f64,
-    pub alternative_names: Option<Vec<String>>,
-}
-
 /// Current state of the application
 /// This AppState is meant to be accessible for every route in the system
 #[derive(Clone)]
 struct AppState {
-    login_token: Arc<Mutex<String>>, // TODO Use Option
-    // TODO Make the token be invalidated after some time
+    login_token: Arc<Mutex<Option<String>>>,
+    last_login: Arc<Mutex<Option<SystemTime>>>,
     system: Arc<Mutex<sysinfo::System>>,
-    username: Arc<Mutex<String>>, // TODO Use Option
-    network_interfaces: Arc<Mutex<Vec<MeasuredInterface>>>,
+    username: Arc<Mutex<Option<String>>>,
+    network_interfaces: Arc<Mutex<Vec<Interface>>>,
     background_jobs: Arc<Mutex<HashMap<Uuid, BackgroundTaskState>>>,
 }
 
@@ -105,49 +83,35 @@ impl AppState {
     fn new() -> Self {
         let random_string: Arc<[u8]> = (0..128).map(|_| rand::random::<u8>()).collect();
         AppState {
-            login_token: Arc::new(Mutex::new(
+            login_token: Arc::new(Mutex::new(Some(
                 String::from_utf8_lossy(&random_string).to_string(),
-            )),
+            ))),
+            last_login: Arc::new(Mutex::new(None)),
             system: Arc::new(Mutex::new(sysinfo::System::new())),
-            username: Arc::new(Mutex::new(String::new())),
+            username: Arc::new(Mutex::new(None)),
             network_interfaces: Arc::new(Mutex::new(Vec::new())),
             background_jobs: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
     fn update_network_statistics(&self) {
-        if (*self).username.lock().unwrap().is_empty() {
+        if self.username.lock().unwrap().is_none() {
             return;
         }
         let devices_a = utils::net_data::get_network_interfaces().unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(1000));
+        std::thread::sleep(Duration::from_millis(1000));
         let devices_b = utils::net_data::get_network_interfaces().unwrap();
-        let devices_b_hashmap: HashMap<String, &utils::net_data::Interface> =
-            devices_b.iter().map(|d| (d.name.clone(), d)).collect();
-        let mut result: Vec<MeasuredInterface> = Vec::new();
+        let mut result: Vec<Interface> = Vec::new();
         for device in devices_a {
-            if let Some(v) = devices_b_hashmap.get(&device.name) {
-                let a_up = device.statistics.get("tx").unwrap().bytes;
-                let a_down = device.statistics.get("rx").unwrap().bytes;
-                let b_up = v.statistics.get("tx").unwrap().bytes;
-                let b_down = v.statistics.get("rx").unwrap().bytes;
-
-                result.push(MeasuredInterface {
-                    name: device.name,
-                    index: device.index,
-                    flags: device.flags,
-                    max_tranmission_unit: device.max_transmission_unit,
-                    queuing_discipline: device.queueing_discipline,
-                    operational_state: device.operational_state,
-                    link_mode: device.link_mode,
-                    address: device.address,
-                    alternative_names: device.alternative_names,
-                    broadcast: device.broadcast,
-                    down: (b_down - a_down) / 5_f64,
-                    up: (b_up - a_up) / 5_f64,
-                    group: device.group,
-                    link_type: device.link_type,
-                    transmit_queue: device.transmit_queue,
+            if let Some(v) = devices_b.iter().find(|straw| straw.index == device.index) {
+                let a_up = device.statistics.transmitted.bytes;
+                let a_down = device.statistics.recieved.bytes;
+                let b_up = v.statistics.transmitted.bytes;
+                let b_down = v.statistics.recieved.bytes;
+                result.push(Interface {
+                    delta_down: Some(b_down - a_down),
+                    delta_up: Some(b_up - a_up),
+                    ..device
                 })
             }
         }
@@ -158,36 +122,25 @@ impl AppState {
         let network_clone = self.clone();
         std::thread::spawn(move || {
             loop {
-                std::thread::sleep(std::time::Duration::from_millis(5 * 1000));
+                std::thread::sleep(Duration::from_millis(5 * 1000));
                 network_clone.update_network_statistics();
             }
         });
     }
 }
 
+#[get("/")]
 async fn index(session: Session, state: Data<AppState>) -> HttpResponse {
     if is_admin_state(&session, state) {
-        HttpResponse::Found()
+        return HttpResponse::Found()
             .append_header(("Location", "/dashboard"))
-            .body("You will soon be redirected.")
-    } else {
-        HttpResponse::Ok()
-            .body(std::fs::read_to_string("static/index.html").expect("Failed to read file"))
+            .body("You will soon be redirected.");
     }
+    HttpResponse::Ok()
+        .body(std::fs::read_to_string("static/index.html").expect("Failed to read file"))
 }
 
-async fn alerts_page(session: Session, state: Data<AppState>) -> HttpResponse {
-    if is_admin_state(&session, state) {
-        HttpResponse::Ok().body(
-            std::fs::read_to_string("static/alerts.html").expect("Failed to read alerts page"),
-        )
-    } else {
-        HttpResponse::Found()
-            .append_header(("Location", "/?app=true"))
-            .body("You will soon be redirected")
-    }
-}
-
+#[get("/media")]
 async fn media_page() -> HttpResponse {
     if !get_media_enabled_database() {
         return HttpResponse::Forbidden().json(ErrorCode::MediaCenterDisabled.as_error_message());
@@ -196,35 +149,34 @@ async fn media_page() -> HttpResponse {
         .body(std::fs::read_to_string("static/media.html").expect("Failed to read alerts page"))
 }
 
-async fn shared_page() -> HttpResponse {
-    HttpResponse::Ok()
-        .body(std::fs::read_to_string("static/shared.html").expect("Failed to read shared page"))
+#[get("/shared")]
+async fn shared_page() -> impl Responder {
+    std::fs::read_to_string("static/shared.html").unwrap()
 }
 
 #[get("/robots.txt")]
-/// Return the robots.txt file to prevent search engines from indexing this server.
-async fn robots_txt() -> HttpResponse {
-    HttpResponse::Ok().body(include_str!("../../assets/robots.txt"))
+async fn robots_txt() -> impl Responder {
+    include_str!("../../assets/robots.txt")
 }
 
-async fn alerts_manifest() -> HttpResponse {
-    HttpResponse::Ok().body(include_str!("../../assets/manifest.json"))
+#[get("/dashboard")]
+pub async fn dashboard_page(session: Session, state: Data<AppState>) -> HttpResponse {
+    if !is_admin_state(&session, state) {
+        return HttpResponse::Found()
+            .append_header(("Location", "/"))
+            .body("You will soon be redirected");
+    }
+    HttpResponse::Ok()
+        .body(std::fs::read_to_string("static/dashboard.html").expect("Failed to read file"))
 }
 
 /// Single path schema
-///
-/// This struct implements serde::Serialize and Deserialize. It is intended for handling query
-/// parameters, request bodies or response bodies that only contain a single file path that can be
-/// expressed as a PathBuf.
 #[derive(Deserialize, Serialize)]
 struct SinglePath {
     path: PathBuf,
 }
 
-/// Request that only contains a sudo password for the backend.
-///
-/// This struct implements serde::Deserialize. It can be used to parse a single sudoPassword from
-/// the user. It only has the String filed sudoPassword.
+/// Only contains a sudo password
 #[derive(Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 struct SudoPasswordReq {
@@ -232,21 +184,10 @@ struct SudoPasswordReq {
 }
 
 fn configure_multipart(cfg: &mut web::ServiceConfig) {
-    // Configure multipart form settings
-    let multipart_config = MultipartFormConfig::default()
-        .total_limit(1024 * 1024 * 1024 * 32)
-        .error_handler(|err, _req| {
-            actix_web::error::InternalError::from_response(err, HttpResponse::Conflict().into())
-                .into()
-        });
-
-    // Store the configuration in app data
-    cfg.app_data(multipart_config);
+    cfg.app_data(MultipartFormConfig::default().total_limit(1024 * 1024 * 1024 * 32));
 }
 
-/// This function leverages the `fn is_admin_state()` from admin.rs to verify if a request comes
-/// from a user authenticated as administrator. For this, it requires the current application state
-/// and request session.
+/// Restricts private routes to the administrator
 async fn authorization_middleware(
     mut req: ServiceRequest,
     next: Next<BoxBody>,
@@ -276,10 +217,28 @@ async fn media_authorization_middleware(
 }
 
 #[actix_web::main]
-/// Prepares Zentrox and starts the server.
 async fn main() -> std::io::Result<()> {
     use utils::models::Configurations;
     use utils::schema::Configuration::dsl::*;
+
+    CombinedLogger::init(vec![
+        TermLogger::new(
+            LevelFilter::Info,
+            Config::default(),
+            TerminalMode::Mixed,
+            ColorChoice::Auto,
+        ),
+        WriteLogger::new(
+            LevelFilter::Debug,
+            Config::default(),
+            File::create(format!(
+                "zentrox_{}.log",
+                utils::time::current_timestamp_iso()
+            ))
+            .unwrap(),
+        ),
+    ])
+    .unwrap();
 
     let os_args = std::env::args().collect::<Vec<String>>();
 
@@ -289,17 +248,14 @@ async fn main() -> std::io::Result<()> {
         _ => {}
     }
 
-    let mut gov_vars = std::env::vars();
-    env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
-
     let zentrox_env_dir = dirs::home_dir()
         .unwrap()
         .join(".local")
         .join("share")
-        .join("zentrox")
-        .join("database.db");
+        .join("zentrox");
 
     if !zentrox_env_dir.join("database.db").exists() {
+        debug!("No configuration found, running setup.");
         let _ = setup::run_setup();
     } else {
         debug!("Found configurations in {}", zentrox_env_dir.display())
@@ -309,8 +265,7 @@ async fn main() -> std::io::Result<()> {
         let _ = env::set_current_dir(&zentrox_env_dir);
     }
 
-    let secret_session_key = Key::try_generate().expect("Failed to generate session key");
-    let app_state = AppState::new();
+    let app_state = Data::new(AppState::new());
     app_state.start_interval_tasks();
     debug!("Started interval tasks");
 
@@ -328,22 +283,13 @@ async fn main() -> std::io::Result<()> {
         .install_default()
         .unwrap();
 
-    let mut certs_file = BufReader::new(
-        File::open(
-            zentrox_env_dir
-                .join("certificates")
-                .join(&tls_cert_filename),
-        )
-        .unwrap(),
-    );
-    debug!(
-        "Using certificate file from {}",
-        zentrox_env_dir
-            .join("certificates")
-            .join(&tls_cert_filename)
-            .to_str()
-            .unwrap()
-    );
+    let cert_file_path = zentrox_env_dir
+        .join("certificates")
+        .join(&tls_cert_filename);
+
+    let mut certs_file = BufReader::new(File::open(&cert_file_path).unwrap());
+
+    debug!("Using certificate file from {}", cert_file_path.display());
 
     let mut key_file = BufReader::new(
         File::open(zentrox_env_dir.join("certificates").join(tls_cert_filename)).unwrap(),
@@ -358,58 +304,30 @@ async fn main() -> std::io::Result<()> {
         .unwrap()
         .unwrap();
 
-    // set up TLS config options
     let tls_config = rustls::ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(tls_certs, rustls::pki_types::PrivateKeyDer::Pkcs8(tls_key))
         .unwrap();
 
-    let governor_strict: bool = !gov_vars.any(|x| {
-        x == ("ZENTROX_MODE".to_string(), "NO_LIMITING".to_string())
-            || x == ("ZENTROX_MODE".to_string(), "DEV".to_string())
-    });
+    let governor_conf = GovernorConfigBuilder::default()
+        .burst_size(100)
+        .period(Duration::from_millis(250))
+        .finish()
+        .unwrap();
 
-    let governor_conf = if governor_strict {
-        GovernorConfigBuilder::default()
-            .burst_size(100)
-            .period(Duration::from_millis(250))
-            .finish()
-            .unwrap()
-    } else {
-        warn!("Using permissive governor configuration");
-        GovernorConfigBuilder::default()
-            .permissive(true)
-            .finish()
-            .unwrap()
-    };
+    let harsh_governor_conf = GovernorConfigBuilder::default()
+        .requests_per_minute(2)
+        .finish()
+        .unwrap();
 
-    let harsh_governor_conf = if governor_strict {
-        GovernorConfigBuilder::default()
-            .requests_per_minute(2)
-            .finish()
-            .unwrap()
-    } else {
-        warn!("Using permissive governor configuration");
-        GovernorConfigBuilder::default()
-            .permissive(true)
-            .finish()
-            .unwrap()
-    };
+    let shared_files_governor_conf = GovernorConfigBuilder::default()
+        .requests_per_minute(9) // ~3 downloads / minute
+        .finish()
+        .unwrap();
 
-    let shared_files_governor_conf = if governor_strict {
-        GovernorConfigBuilder::default()
-            .requests_per_minute(9) // ~3 downloads / minute
-            .finish()
-            .unwrap()
-    } else {
-        warn!("Using permissive governor configuration");
-        GovernorConfigBuilder::default()
-            .permissive(true)
-            .finish()
-            .unwrap()
-    };
+    info!("Zentrox is being serverd on port {}", SERVER_PORT);
 
-    info!("Zentrox is being serverd on port 8080");
+    let secret_session_key = Key::try_generate().expect("Failed to generate session key.");
 
     HttpServer::new(move || {
         let mut cors_vars = std::env::vars();
@@ -418,12 +336,7 @@ async fn main() -> std::io::Result<()> {
                 || x == ("ZENTROX_MODE".to_string(), "DEV".to_string())
         });
 
-        if cors_permissive {
-            warn!("CORS policy is set to permissive! This poses a high security risk.");
-        }
-
         App::new()
-            .configure(configure_multipart)
             .wrap(middleware::Logger::new("%a %U %s"))
             .wrap(
                 SessionMiddleware::builder(
@@ -432,14 +345,14 @@ async fn main() -> std::io::Result<()> {
                 )
                 .cookie_content_security(CookieContentSecurity::Private)
                 .session_lifecycle(
-                    actix_session::config::PersistentSession::default()
-                        .session_ttl(actix_web::cookie::time::Duration::seconds(24 * 60 * 60)),
+                    PersistentSession::default().session_ttl(ActixDuration::hours(12)),
                 )
                 .cookie_secure(true)
                 .cookie_name("session".to_string())
                 .build(),
             )
             .wrap(if cors_permissive {
+                warn!("CORS policy is set to permissive! This poses a high security risk.");
                 Cors::default()
                     .allow_any_method()
                     .allowed_origin("http://localhost:3000")
@@ -449,39 +362,37 @@ async fn main() -> std::io::Result<()> {
             })
             .wrap(middleware::Compress::default())
             .wrap(Governor::new(&governor_conf))
-            .app_data(Data::new(app_state.clone()))
-            .service(web::resource("/").route(web::get().to(index)))
-            .service(web::resource("/alerts").route(web::get().to(alerts_page)))
-            .service(web::resource("/alerts/manifest.json").route(web::get().to(alerts_manifest)))
-            .service(web::scope("/dashboard").route("", web::get().to(dashboard::page)))
+            .configure(configure_multipart)
+            .app_data(app_state.clone())
+            .service(index)
+            .service(dashboard_page)
             .service(robots_txt)
-            // API routes are separated into public and private, where public routes can be
-            // accessed from anyone without authorization prior to the request and private routes
-            // require you to be logged in as administrator.
-            //
-            // Public routes can be accessed under /api/public.
-            // Private routes can be accessed under /api/private.
             .service(
                 web::scope("/api")
                     .service(
                         web::scope("/public")
+                            // WARN These routes can be accessed by anyone
                             .service(
                                 web::scope("/auth")
                                     .wrap(Governor::new(&harsh_governor_conf))
+                                    // WARN Add account lock down on too many failed attempts even from
+                                    // multiple IPs
                                     .route("/login", web::post().to(auth::login))
-                                    .route("/useOtp", web::get().to(auth::use_otp)), // FIX Only respond if password was correct
+                                    .route("/useOtp", web::get().to(auth::use_otp)), // WARN Should only respond if password was correct
+                                                                                     // WARN OTP secret should be encrypted
                             )
                             .service(
                                 web::scope("/shared")
                                     .wrap(Governor::new(&shared_files_governor_conf))
-                                    .route("", web::get().to(shared_page))
+                                    .service(shared_page)
                                     .route("/get", web::post().to(sharing::download_file))
                                     .route("/getMetadata", web::post().to(sharing::get_metadata)),
                             ),
                     )
                     .service(
                         web::scope("/private")
-                            // The following guard protects from unauthorized access.
+                            // These routes are restricted to the administrator by
+                            // middleware
                             .wrap(from_fn(authorization_middleware))
                             .service(
                                 web::scope("/auth")
@@ -536,7 +447,6 @@ async fn main() -> std::io::Result<()> {
                             .service(
                                 web::scope("/drives")
                                     .route("/list", web::get().to(drives::list))
-                                    .route("/statistics", web::get().to(drives::statistics)),
                             )
                             .service(
                                 web::scope("/vault")
@@ -576,7 +486,7 @@ async fn main() -> std::io::Result<()> {
                                     )
                                     .route("/enabled", web::post().to(media::activate_media))
                                     .wrap(from_fn(media_authorization_middleware))
-                                    .route("", web::get().to(media_page))
+                                    .service(media_page)
                                     .route("/files", web::get().to(media::get_contents))
                                     .route("/download", web::get().to(media::download))
                                     .route("/cover", web::get().to(media::cover))
@@ -620,8 +530,8 @@ async fn main() -> std::io::Result<()> {
             .service(afs::Files::new("/", "static/"))
     })
     .workers(16)
-    .keep_alive(std::time::Duration::from_secs(60 * 6))
-    .bind_rustls_0_23(("0.0.0.0", 8080), tls_config)? // TODO Allow user to decide port and IP
+    .keep_alive(Duration::from_secs(60 * 6))
+    .bind_rustls_0_23(("0.0.0.0", SERVER_PORT), tls_config)? // TODO Allow user to decide port and IP
     .run()
     .await
 }
