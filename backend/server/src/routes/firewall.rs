@@ -1,10 +1,11 @@
+use std::{net::IpAddr, str::FromStr};
+
 use actix_web::{HttpResponse, web::Json};
 use log::error;
 use serde::{Deserialize, Serialize};
 use utils::{
     status_com::{ErrorCode, MessageRes},
-    sudo,
-    ufw::{self, FirewallAction, UfwRule},
+    ufw::{self, Address, HelperDefaults, Port, Rule, UfwInteractionError},
 };
 use utoipa::ToSchema;
 
@@ -30,7 +31,8 @@ pub async fn has_ufw() -> HttpResponse {
 #[derive(Serialize, ToSchema)]
 struct FirewallInformationRes {
     enabled: bool,
-    rules: Vec<UfwRule>,
+    rules: Vec<Rule>,
+    defaults: HelperDefaults,
 }
 
 #[utoipa::path(
@@ -45,17 +47,22 @@ struct FirewallInformationRes {
 pub async fn status(json: Json<SudoPasswordReq>) -> HttpResponse {
     let password = &json.sudo_password;
 
-    match ufw::ufw_status(password.to_string()) {
+    match ufw::status(password.to_string()) {
         Ok(ufw_status) => {
-            let enabled = ufw_status.0;
-            let rules = ufw_status.1;
+            let enabled = ufw_status.enabled;
+            let rules = ufw_status.rules;
+            let defaults = ufw_status.defaults;
 
-            HttpResponse::Ok().json(FirewallInformationRes { enabled, rules })
+            HttpResponse::Ok().json(FirewallInformationRes {
+                enabled,
+                rules,
+                defaults,
+            })
         }
-        Err(err) => {
-            error!("Executing UFW failed with error: {err}");
+        Err(_err) => {
+            error!("Failed to get UFW status.");
             HttpResponse::InternalServerError()
-                .json(ErrorCode::UfwExecutionFailed(err).as_error_message())
+                .json(ErrorCode::MissingSystemPermissions.as_error_message())
         }
     }
 }
@@ -78,136 +85,146 @@ pub struct SwitchUfwReq {
 pub async fn switch(json: Json<SwitchUfwReq>) -> HttpResponse {
     let password = json.sudo_password.clone();
     let enabled = json.enabled;
-
-    if enabled {
-        match ufw::enable(password) {
-            sudo::SudoExecutionResult::Success(status) => {
-                if status == 0 {
-                    return HttpResponse::Ok().json(MessageRes::from("UFW has been started."));
-                } else {
-                    return HttpResponse::InternalServerError()
-                        .json(ErrorCode::UfwExecutionFailedWithStatus(status).as_error_message());
-                }
-            }
-            sudo::SudoExecutionResult::ExecutionError(returned_error) => {
-                return HttpResponse::InternalServerError()
-                    .json(ErrorCode::UfwExecutionFailed(returned_error).as_error_message());
-            }
-            _ => {
-                return HttpResponse::InternalServerError()
-                    .json(ErrorCode::MissingSystemPermissions.as_error_message());
+    match ufw::set_enabled(password, enabled) {
+        Ok(o) => {
+            if o.status == Some(0) {
+                HttpResponse::Ok().json(MessageRes::from("UFW has been started."))
+            } else {
+                HttpResponse::InternalServerError()
+                    .json(ErrorCode::UfwExecutionFailedWithStatus(o.status).as_error_message())
             }
         }
-    } else {
-        match ufw::disable(password) {
-            sudo::SudoExecutionResult::Success(status) => {
-                if status == 0 {
-                    return HttpResponse::Ok().json(MessageRes::from("UFW has been stopped."));
-                } else {
-                    return HttpResponse::InternalServerError()
-                        .json(ErrorCode::UfwExecutionFailedWithStatus(status).as_error_message());
-                }
-            }
-            sudo::SudoExecutionResult::ExecutionError(returned_error) => {
-                return HttpResponse::InternalServerError()
-                    .json(ErrorCode::UfwExecutionFailed(returned_error).as_error_message());
-            }
-            _ => {
-                return HttpResponse::InternalServerError()
-                    .json(ErrorCode::MissingSystemPermissions.as_error_message());
-            }
-        }
+        Err(_) => HttpResponse::InternalServerError()
+            .json(ErrorCode::MissingSystemPermissions.as_error_message()),
     }
 }
 
-#[derive(Deserialize, ToSchema)]
+/// Deserializes values for a [Rule](utils::ufw::Rule) from JSON.
+/// Omitting a value that can be omitted using null, defaults to Any.
+#[derive(ToSchema, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
-enum FirewallRulePortMode {
-    Single,
-    Range,
+pub struct ReqRule {
+    v6: bool,
+    direction: ufw::Direction,
+    action: ufw::Action,
+    source_address: Option<String>,
+    destination_address: Option<String>,
+    source_subnet: Option<u32>,
+    destination_subnet: Option<u32>,
+    source_port: (Option<u16>, Option<u16>),
+    destination_port: (Option<u16>, Option<u16>),
+    protocol: ufw::Protocol,
+    comment: String,
+    interface_in: Option<String>,
+    interface_out: Option<String>,
 }
 
-#[derive(Deserialize, ToSchema)]
+#[derive(ToSchema, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-enum NetworkProtocolName {
-    Tcp,
-    Udp,
-}
-
-impl NetworkProtocolName {
-    fn to_single_port(&self, port: u64) -> ufw::SinglePortProtocol {
-        match *self {
-            Self::Tcp => return ufw::SinglePortProtocol::Tcp(port),
-            Self::Udp => return ufw::SinglePortProtocol::Udp(port),
-        }
-    }
-
-    fn to_port_range(&self, left: u64, right: u64) -> ufw::PortRangeProtocol {
-        match *self {
-            Self::Tcp => return ufw::PortRangeProtocol::Tcp(left, right),
-            Self::Udp => return ufw::PortRangeProtocol::Udp(left, right),
-        }
-    }
-}
-
-#[derive(Deserialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct NewFirewallRuleReq {
-    mode: FirewallRulePortMode,
-    port: Option<u32>, // The port the rule applies to, this can be None if a range is used
-    range: Option<(u32, u32)>, // The port range the rule applies to, this cane be None in a single
-    // port is used
-    network_protocol: NetworkProtocolName, // The network protocol used on the request (TCP/UDP)
-    sender_address: Option<String>,
-    action: FirewallAction,
+pub struct RuleCreationReq {
+    rule: ReqRule,
     sudo_password: String,
+}
+
+enum RuleReqParsingError {
+    BadIp,
+}
+
+fn port_from_pair(pair: (Option<u16>, Option<u16>)) -> Port {
+    let (l, r) = pair;
+    match l {
+        Some(lv) => match r {
+            Some(rv) => Port::Range(lv, rv),
+            None => Port::Specific(lv),
+        },
+        None => Port::Any,
+    }
+}
+
+impl ReqRule {
+    fn to_backend_rule(&self) -> Result<ufw::Rule, RuleReqParsingError> {
+        let req_rule_destination_address: Address;
+        if let Some(addr) = &self.destination_address {
+            if let Ok(parsed_addr) = IpAddr::from_str(addr.as_str()) {
+                req_rule_destination_address = Address::Specific(parsed_addr)
+            } else {
+                return Err(RuleReqParsingError::BadIp);
+            }
+        } else {
+            req_rule_destination_address = Address::Any
+        }
+
+        let req_rule_source_address: Address;
+        if let Some(addr) = &self.source_address {
+            if let Ok(parsed_addr) = IpAddr::from_str(addr.as_str()) {
+                req_rule_source_address = Address::Specific(parsed_addr)
+            } else {
+                return Err(RuleReqParsingError::BadIp);
+            }
+        } else {
+            req_rule_source_address = Address::Any
+        }
+
+        Ok(Rule {
+            v6: self.v6,
+            destination: ufw::Point {
+                subnet: self.destination_subnet,
+                address: req_rule_destination_address,
+            },
+            source: ufw::Point {
+                subnet: self.source_subnet,
+                address: req_rule_source_address,
+            },
+            destination_port: port_from_pair(self.destination_port),
+            source_port: port_from_pair(self.source_port),
+            protocol: self.protocol,
+            destination_app: "".to_string(),
+            source_app: "".to_string(),
+            action: self.action,
+            interface_in: self.interface_in.clone(),
+            interface_out: self.interface_out.clone(),
+            direction: self.direction,
+            comment: self.comment.clone(),
+            forward: false,
+            index: None,
+        })
+    }
 }
 
 #[utoipa::path(
     post,
     path = "/private/firewall/rule/new",
-    responses((status = 200)),
+    responses((status = 200), (status = 500, description = "UFW failed."), (status = 400, description = "The rule already existed."), (status = 401, description = "The sudo password was wrong.")),
     tags = ["private", "firewall"],
-    request_body = NewFirewallRuleReq
+    request_body = RuleCreationReq
 )]
 /// Create firewall rule.
-pub async fn new_rule(json: Json<NewFirewallRuleReq>) -> HttpResponse {
-    let mode = &json.mode;
-    let sender = {
-        if let Some(specific_address) = &json.sender_address {
-            ufw::FirewallSender::Specific(specific_address.clone())
-        } else {
-            ufw::FirewallSender::Any
+pub async fn new_rule(json: Json<RuleCreationReq>) -> HttpResponse {
+    if let Ok(be_rule) = json.rule.clone().to_backend_rule() {
+        let exec = ufw::new_rule(json.sudo_password.clone(), be_rule);
+        match exec {
+            Ok(_) => HttpResponse::Ok().json(MessageRes::from("The rule has been created.")),
+            Err(err) => match err {
+                UfwInteractionError::RuleSkipped => {
+                    HttpResponse::BadRequest().json(ErrorCode::RuleSkipped.as_error_message())
+                }
+                UfwInteractionError::SudoFailed(_) => {
+                    HttpResponse::Unauthorized().json(ErrorCode::BadSudoPassword.as_error_message())
+                }
+                UfwInteractionError::UnknownState(out, err, segs) => {
+                    HttpResponse::InternalServerError()
+                        .json(ErrorCode::UfwError(out, err, segs).as_error_message())
+                }
+                UfwInteractionError::NotFound => {
+                    unreachable!("Creating a rule resulted in it not getting found.")
+                }
+            },
         }
-    };
-
-    let execution = match mode {
-        FirewallRulePortMode::Single => ufw::new_rule_port(
-            &json.sudo_password.clone(),
-            json.network_protocol
-                .to_single_port(json.port.unwrap() as u64),
-            sender,
-            json.action,
-        ),
-
-        FirewallRulePortMode::Range => {
-            let range = &json.range.unwrap();
-            ufw::new_rule_range(
-                &json.sudo_password.clone(),
-                json.network_protocol
-                    .to_port_range(range.0 as u64, range.1 as u64),
-                sender,
-                json.action,
-            )
-        }
-    };
-
-    match execution {
-        Ok(_) => HttpResponse::Ok().json(MessageRes::from("A new firewall rule was created.")),
-        Err(e) => HttpResponse::InternalServerError()
-            .json(ErrorCode::UfwExecutionFailed(e).as_error_message()),
+    } else {
+        HttpResponse::BadRequest().json(ErrorCode::BadRule.as_error_message())
     }
 }
+
 #[derive(Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct FirewallDeleteRuleReq {
@@ -221,16 +238,29 @@ pub struct FirewallDeleteRuleReq {
     post,
     path = "/private/firewall/rule/delete",
     tags = ["firewall", "private"],
-    responses((status = 200)),
+    responses((status = 200), (status = 404, description = "The rule doesn't exist."), (status = 401, description = "The sudo password was wrong."), (status = 500, description = "UFW failed.")),
     request_body = FirewallDeleteRuleReq
 )]
 /// Delete firewall rule
 pub async fn delete_rule(json: Json<FirewallDeleteRuleReq>) -> HttpResponse {
-    let password = &json.sudo_password;
+    let exec = ufw::delete_rule(json.sudo_password.clone(), json.index);
 
-    match ufw::delete_rule(password.to_string(), json.index) {
+    match exec {
         Ok(_) => HttpResponse::Ok().json(MessageRes::from("The rule has been deleted.")),
-        Err(e) => HttpResponse::InternalServerError()
-            .json(ErrorCode::UfwExecutionFailed(e).as_error_message()),
+        Err(err) => match err {
+            UfwInteractionError::RuleSkipped => {
+                unreachable!("Deleting a rule resulted in a rule being created.")
+            }
+            UfwInteractionError::SudoFailed(_) => {
+                HttpResponse::Unauthorized().json(ErrorCode::BadSudoPassword.as_error_message())
+            }
+            UfwInteractionError::UnknownState(out, err, segs) => {
+                HttpResponse::InternalServerError()
+                    .json(ErrorCode::UfwError(out, err, segs).as_error_message())
+            }
+            UfwInteractionError::NotFound => {
+                HttpResponse::NotFound().json(ErrorCode::NoSuchRule.as_error_message())
+            }
+        },
     }
 }
