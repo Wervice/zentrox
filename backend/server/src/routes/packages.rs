@@ -1,6 +1,6 @@
 use actix_web::{
-    HttpResponse,
     web::{Data, Json},
+    HttpResponse,
 };
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -17,7 +17,7 @@ use crate::{AppState, BackgroundTaskState, SudoPasswordReq};
 struct PackageDatabaseRes {
     installed: Vec<String>,
     available: Vec<String>,
-    package_manager: Option<packages::PackageManagers>,
+    package_manager: Option<packages::PackageManager>,
     updates: Option<Vec<String>>,
     last_database_update: Option<i64>, // The last database update expressed as seconds since the
                                        // UNIX epoch
@@ -28,7 +28,7 @@ struct PackageDatabaseRes {
 struct PackageStatisticsRes {
     installed: usize,
     available: usize,
-    package_manager: Option<packages::PackageManagers>,
+    package_manager: Option<packages::PackageManager>,
     updates: Option<usize>,
     last_database_update: Option<i64>, // The last database update expressed as seconds since the
                                        // UNIX epoch
@@ -42,7 +42,7 @@ struct PackageStatisticsRes {
 )]
 /// Package database
 ///
-/// This includes the full names of installed packages. Updates can not be listed if the package
+/// This includes the full names of all packages known to the package manager. Updates can not be listed if the package
 /// manager is PacMan.
 pub async fn database() -> HttpResponse {
     use utils::models::PackageAction;
@@ -175,7 +175,7 @@ pub async fn update_db(state: Data<AppState>, json: Json<SudoPasswordReq>) -> Ht
 
     let block = actix_web::web::block(move || {
         let connection = &mut establish_connection();
-        if let Ok(_) = packages::update_database(json.into_inner().sudo_password) {
+        if packages::update_database(json.into_inner().sudo_password).is_ok() {
             let updated_new_database_update = std::time::SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
@@ -392,10 +392,10 @@ pub async fn remove_orphaned(json: Json<SudoPasswordReq>, state: Data<AppState>)
     drop(actix_web::web::block(move || {
         let status = match packages::remove_orphaned_packages(sudo_password.to_string()) {
             Ok(_) => BackgroundTaskState::Success,
-            Err(e) => BackgroundTaskState::FailOutput(e.to_string()),
+            Err(_) => BackgroundTaskState::Fail,
         };
         state.background_jobs.lock().unwrap().insert(job_id, status)
     }));
 
-    return HttpResponse::Ok().body(job_id.to_string());
+    HttpResponse::Ok().body(job_id.to_string())
 }

@@ -1,11 +1,33 @@
 use serde::Serialize;
 use utoipa::ToSchema;
 
-use crate::sudo::{SudoExecutionResult, SwitchedUserCommand};
+use crate::sudo::{SudoCommand, SudoError, SudoOutput};
 use std::{
     fmt::Display,
     process::{Command, Stdio},
 };
+
+struct CommandOutputStringified {
+    stdout: String,
+    stderr: String,
+}
+
+/// Run a command capturing it standard output and error, returning those values as Strings.
+fn run_with_output(c: &mut Command) -> CommandOutputStringified {
+    let x = c
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .stdin(Stdio::null())
+        .spawn()
+        .unwrap()
+        .wait_with_output()
+        .unwrap();
+
+    CommandOutputStringified {
+        stdout: stdout_to_string(x.stdout),
+        stderr: stdout_to_string(x.stderr),
+    }
+}
 
 #[derive(Debug)]
 pub enum PackageManagerError {
@@ -19,38 +41,37 @@ pub enum PackageManagerError {
     UnsupportedPackageManager,
 }
 
-impl Display for PackageManagerError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match *self {
-            Self::SudoError => f.write_str("Sudo failed"),
-            Self::ExecutionError => f.write_str("Execution failed"),
-            Self::UnsupportedPackageManager => f.write_str("Package manager not supported"),
-        }
-    }
-}
-
-// TODO Centralize commands using this enum and traits
 #[derive(Serialize, Debug, ToSchema)]
-pub enum PackageManagers {
+pub enum PackageManager {
     Apt,
     Dnf,
     Pacman,
 }
 
+impl Display for PackageManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PackageManager::Apt => f.write_str("apt"),
+            PackageManager::Dnf => f.write_str("dnf"),
+            PackageManager::Pacman => f.write_str("pacman"),
+        }
+    }
+}
+
 /// Try to run a command and return if it succeeded or failed
 #[doc(hidden)]
 fn try_command(c: &str) -> bool {
-    Command::new(c).spawn().is_ok()
+    Command::new(c).output().is_ok()
 }
 
 /// Detect which package manager to use by trying to run the commands for apt, dnf and pacman.
-pub fn get_package_manager() -> Result<PackageManagers, PackageManagerError> {
+pub fn get_package_manager() -> Result<PackageManager, PackageManagerError> {
     if try_command("apt") {
-        Ok(PackageManagers::Apt)
+        Ok(PackageManager::Apt)
     } else if try_command("dnf") {
-        Ok(PackageManagers::Dnf)
+        Ok(PackageManager::Dnf)
     } else if try_command("pacman") {
-        Ok(PackageManagers::Pacman)
+        Ok(PackageManager::Pacman)
     } else {
         Err(PackageManagerError::UnsupportedPackageManager)
     }
@@ -60,150 +81,141 @@ pub fn get_package_manager() -> Result<PackageManagers, PackageManagerError> {
 /// be orphaned.
 ///
 /// * `password` - Sudo password to execute with root privileges
-pub fn remove_orphaned_packages(password: String) -> Result<(), PackageManagerError> {
+pub fn remove_orphaned_packages(password: String) -> Result<SudoOutput, SudoError> {
     let package_mamager = get_package_manager().unwrap();
 
-    let command = match package_mamager {
-        PackageManagers::Apt => "apt autoremove".to_string(),
-        PackageManagers::Dnf => "dnf autoremove".to_string(),
-        PackageManagers::Pacman => {
-            let mut packages = String::from_utf8(
-                std::process::Command::new("pacman")
-                    .arg("-Qdtq")
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::piped())
-                    .spawn()
-                    .unwrap()
-                    .wait_with_output()
-                    .unwrap()
-                    .stdout,
-            )
-            .unwrap()
-            .replace("\n", " ");
-            packages = packages.trim().to_string();
-            format!("pacman --noconfirm -Rc {packages}")
+    let args = match package_mamager {
+        PackageManager::Apt | PackageManager::Dnf => vec!["autoremove".to_string()],
+        PackageManager::Pacman => {
+            let packages =
+                run_with_output(std::process::Command::new("pacman").arg("-Qdtq")).stdout;
+            let packages_formatted = packages
+                .split("\n")
+                .filter(|x| !x.is_empty())
+                .map(String::from)
+                .collect::<Vec<String>>();
+            [
+                vec!["--noconfirm".to_string(), "-Rc".to_string()],
+                packages_formatted,
+            ]
+            .concat()
         }
     };
 
-    match SwitchedUserCommand::new(password, command.to_string()).spawn() {
-        SudoExecutionResult::Success(_) => Ok(()),
-        SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
-        SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
-        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError),
-    }
+    SudoCommand::new(password, package_mamager.to_string())
+        .args(args)
+        .output()
 }
 
 /// Install a package using the systems package manager.
 ///
 /// * `name` - Name of the package to install
 /// * `password` - Sudo password for root privileges
-pub fn install_package(name: String, password: String) -> Result<(), PackageManagerError> {
+pub fn install_package(name: String, password: String) -> Result<SudoOutput, SudoError> {
     let package_manager = get_package_manager().unwrap();
 
-    let command = match package_manager {
-        PackageManagers::Apt => format!("apt install {name} -y -q"), // FIX direct string
-        // interpolation without
-        // sanitization
-        PackageManagers::Dnf => format!("dnf install {name} -y -q"),
-        PackageManagers::Pacman => format!("pacman --noconfirm -Sy {name}"),
+    let args = match package_manager {
+        PackageManager::Apt | PackageManager::Dnf => vec![
+            "install".to_string(),
+            name,
+            "-y".to_string(),
+            "-q".to_string(),
+        ],
+        PackageManager::Pacman => vec!["--noconfirm".to_string(), "-Sy".to_string(), name],
     };
 
-    match SwitchedUserCommand::new(password, command.to_string()).spawn() {
-        SudoExecutionResult::Success(_) => Ok(()),
-        SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
-        SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
-        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError),
-    }
+    SudoCommand::new(password, package_manager.to_string())
+        .args(args)
+        .output()
 }
 
 /// Remove a package using the systems package manager.
 ///
 /// * `name` - Name of the package to install
 /// * `password` - Sudo password for root privileges
-pub fn remove_package(name: String, password: String) -> Result<(), PackageManagerError> {
+pub fn remove_package(name: String, password: String) -> Result<SudoOutput, SudoError> {
     let package_manager = get_package_manager().unwrap();
 
-    let command = match package_manager {
-        PackageManagers::Apt => format!("apt remove {name} -y -q"),
-        PackageManagers::Dnf => format!("dnf remove {name} -y -q"),
-        PackageManagers::Pacman => format!("pacman --noconfirm -R {name}"),
+    let args = match package_manager {
+        PackageManager::Apt | PackageManager::Dnf => vec![
+            "remove".to_string(),
+            name,
+            "-y".to_string(),
+            "-q".to_string(),
+        ],
+        PackageManager::Pacman => vec!["--noconfirm".to_string(), "-R".to_string(), name],
     };
 
-    match SwitchedUserCommand::new(password, command.to_string()).spawn() {
-        SudoExecutionResult::Success(_) => Ok(()),
-        SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
-        SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
-        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError),
-    }
+    SudoCommand::new(password, package_manager.to_string())
+        .args(args)
+        .output()
 }
 
 /// Update a package using the systems package manager.
 ///
 /// * `name` - Name of the package to install
 /// * `password` - Sudo password for root privileges
-pub fn update_package(name: String, password: String) -> Result<(), PackageManagerError> {
+pub fn update_package(name: String, password: String) -> Result<SudoOutput, SudoError> {
     let package_manager = get_package_manager().unwrap();
 
-    let command = match package_manager {
-        PackageManagers::Apt => format!("apt --only-upgrade install {name} -y -q"),
-        PackageManagers::Dnf => format!("dnf update {name} -y -q"),
-        PackageManagers::Pacman => format!("pacman --noconfirm -S {name}"),
+    let args = match package_manager {
+        PackageManager::Apt => vec![
+            "--only-upgrade".to_string(),
+            "install".to_string(),
+            name,
+            "-y".to_string(),
+            "-q".to_string(),
+        ],
+        PackageManager::Dnf => vec![
+            "update".to_string(),
+            name,
+            "-y".to_string(),
+            "-q".to_string(),
+        ],
+        PackageManager::Pacman => vec!["--noconfirm".to_string(), "-S".to_string(), name],
     };
 
-    match SwitchedUserCommand::new(password, command.to_string()).spawn() {
-        SudoExecutionResult::Success(_) => Ok(()),
-        SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
-        SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
-        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError),
-    }
+    SudoCommand::new(password, package_manager.to_string())
+        .args(args)
+        .output()
 }
 
 /// Update all packages on the system using the systems package manager.
 ///
 /// * `password` - Sudo password for root privileges.
-pub fn update_all_packages(password: String) -> Result<(), PackageManagerError> {
+pub fn update_all_packages(password: String) -> Result<SudoOutput, SudoError> {
     let package_manager = get_package_manager().unwrap();
 
-    let command = match package_manager {
-        PackageManagers::Apt => "apt upgrade -y -q",
-        PackageManagers::Dnf => "dnf update -y -q",
-        PackageManagers::Pacman => "pacman --noconfirm -Su",
+    let args = match package_manager {
+        PackageManager::Apt | PackageManager::Dnf => vec!["update", "-y", "-q"],
+        PackageManager::Pacman => vec!["--noconfirm", "-Su"],
     };
 
-    match SwitchedUserCommand::new(password, command.to_string()).spawn() {
-        SudoExecutionResult::Success(_) => Ok(()),
-        SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
-        SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
-        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError),
-    }
+    SudoCommand::new(password, package_manager.to_string())
+        .args(args)
+        .output()
 }
 
 /// Refresh the package managers repositories or database.
 /// This is useful for detecting possible updates.
 ///
 /// * `password` - Sudo password for root privileges
-pub fn update_database(password: String) -> Result<(), PackageManagerError> {
+pub fn update_database(password: String) -> Result<SudoOutput, SudoError> {
     let package_manager = get_package_manager().unwrap();
 
-    let execution = match package_manager {
-        PackageManagers::Apt => SwitchedUserCommand::new(password, "apt")
+    match package_manager {
+        PackageManager::Apt => SudoCommand::new(password, "apt")
             .arg("update")
             .arg("-y")
-            .spawn(),
-        PackageManagers::Dnf => SwitchedUserCommand::new(password, "dnf")
+            .output(),
+        PackageManager::Dnf => SudoCommand::new(password, "dnf")
             .arg("makecache")
             .arg("-y")
-            .spawn(),
-        PackageManagers::Pacman => SwitchedUserCommand::new(password, "pacman")
+            .output(),
+        PackageManager::Pacman => SudoCommand::new(password, "pacman")
             .arg("-Syy")
             .arg("--noconfirm")
-            .spawn(),
-    };
-    match execution {
-        SudoExecutionResult::Success(_) => Ok(()),
-        SudoExecutionResult::Unauthorized => Err(PackageManagerError::SudoError),
-        SudoExecutionResult::WrongPassword => Err(PackageManagerError::SudoError),
-        SudoExecutionResult::ExecutionError(_) => Err(PackageManagerError::ExecutionError),
+            .output(),
     }
 }
 
@@ -218,18 +230,10 @@ pub fn list_installed_packages() -> Vec<String> {
     let package_manager = get_package_manager().unwrap();
 
     match package_manager {
-        PackageManagers::Apt => {
-            let command = Command::new("apt")
-                .arg("list")
-                .arg("--installed")
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-                .unwrap()
-                .wait_with_output()
-                .unwrap();
-            let output = stdout_to_string(command.stdout);
-            output
+        PackageManager::Apt => {
+            let command = run_with_output(Command::new("apt").arg("list").arg("--installed"));
+            command
+                .stdout
                 .lines()
                 .filter_map(|e| {
                     let entry = e.to_string();
@@ -243,18 +247,10 @@ pub fn list_installed_packages() -> Vec<String> {
                 })
                 .collect::<Vec<String>>()
         }
-        PackageManagers::Dnf => {
-            let command = Command::new("dnf")
-                .arg("list")
-                .arg("installed")
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-                .unwrap()
-                .wait_with_output()
-                .unwrap();
-            let output = stdout_to_string(command.stdout);
-            output
+        PackageManager::Dnf => {
+            let command = run_with_output(Command::new("dnf").arg("list").arg("installed"));
+            command
+                .stdout
                 .lines()
                 .filter_map(|e| {
                     let entry = e.to_string();
@@ -268,18 +264,10 @@ pub fn list_installed_packages() -> Vec<String> {
                 })
                 .collect::<Vec<String>>()
         }
-        PackageManagers::Pacman => {
-            let command = Command::new("pacman")
-                .arg("--noconfirm")
-                .arg("-Qq")
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-                .unwrap()
-                .wait_with_output()
-                .unwrap();
-            let output = stdout_to_string(command.stdout);
-            output
+        PackageManager::Pacman => {
+            let command = run_with_output(Command::new("pacman").arg("--noconfirm").arg("-Qq"));
+            command
+                .stdout
                 .lines()
                 .filter_map(|e| {
                     let entry = e.to_string();
@@ -301,22 +289,13 @@ pub fn list_updates() -> Result<Vec<String>, PackageManagerError> {
     let package_manager = get_package_manager().unwrap();
 
     match package_manager {
-        PackageManagers::Apt => {
-            let command = Command::new("apt")
-                .arg("list")
-                .arg("--upgradable")
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-                .unwrap()
-                .wait_with_output()
-                .unwrap();
-            let output = stdout_to_string(command.stdout);
-            Ok(output
+        PackageManager::Apt => {
+            let command = run_with_output(Command::new("apt").arg("list").arg("--upgradable"));
+            Ok(command
+                .stdout
                 .lines()
                 .filter_map(|e| {
-                    let entry = e.to_string();
-                    let split = entry.split("/");
+                    let split = e.split("/");
                     let collection = split.collect::<Vec<&str>>();
                     if collection.len() != 2 {
                         None
@@ -326,21 +305,13 @@ pub fn list_updates() -> Result<Vec<String>, PackageManagerError> {
                 })
                 .collect::<Vec<String>>())
         }
-        PackageManagers::Dnf => {
-            let command = Command::new("dnf")
-                .arg("list-update")
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-                .unwrap()
-                .wait_with_output()
-                .unwrap();
-            let output = stdout_to_string(command.stdout);
-            Ok(output
+        PackageManager::Dnf => {
+            let command = run_with_output(Command::new("dnf").arg("list-update"));
+            Ok(command
+                .stdout
                 .lines()
                 .filter_map(|e| {
-                    let entry = e.to_string();
-                    let split = entry.split(".");
+                    let split = e.split(".");
                     let collection = split.collect::<Vec<&str>>();
                     if collection.len() != 2 {
                         None
@@ -350,7 +321,7 @@ pub fn list_updates() -> Result<Vec<String>, PackageManagerError> {
                 })
                 .collect::<Vec<String>>())
         }
-        PackageManagers::Pacman => Err(PackageManagerError::UnsupportedPackageManager),
+        PackageManager::Pacman => Err(PackageManagerError::UnsupportedPackageManager),
     }
 }
 
@@ -360,17 +331,10 @@ pub fn list_available_packages() -> Result<Vec<String>, PackageManagerError> {
     let package_manager = get_package_manager().unwrap();
 
     match package_manager {
-        PackageManagers::Apt => {
-            let command = Command::new("apt")
-                .arg("list")
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-                .unwrap()
-                .wait_with_output()
-                .unwrap();
-            let output = stdout_to_string(command.stdout);
-            let lines = &output.lines().filter(|x| !x.is_empty());
+        PackageManager::Apt => {
+            let command = run_with_output(Command::new("apt").arg("list"));
+
+            let lines = &command.stdout.lines().filter(|x| !x.is_empty());
             let mut installed = Vec::new();
             let mut names = Vec::new();
             lines.clone().for_each(|l| {
@@ -402,22 +366,13 @@ pub fn list_available_packages() -> Result<Vec<String>, PackageManagerError> {
                 .into_iter()
                 .collect::<Vec<String>>())
         }
-        PackageManagers::Dnf => {
-            let command = Command::new("dnf")
-                .arg("list")
-                .arg("available")
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-                .unwrap()
-                .wait_with_output()
-                .unwrap();
-            let output = stdout_to_string(command.stdout);
-            let vector = &output
+        PackageManager::Dnf => {
+            let command = run_with_output(Command::new("dnf").arg("list").arg("available"));
+            let vector = &command
+                .stdout
                 .lines()
                 .filter_map(|e| {
-                    let entry = e.to_string();
-                    let split = entry.split(".");
+                    let split = e.split(".");
                     let collection = split.collect::<Vec<&str>>();
                     if collection.len() != 2 {
                         None
@@ -428,18 +383,10 @@ pub fn list_available_packages() -> Result<Vec<String>, PackageManagerError> {
                 .collect::<Vec<String>>();
             Ok(vector.to_vec())
         }
-        PackageManagers::Pacman => {
-            let command = Command::new("pacman")
-                .arg("--noconfirm")
-                .arg("-Sl")
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-                .unwrap()
-                .wait_with_output()
-                .unwrap();
-            let output = stdout_to_string(command.stdout);
-            let vector = &output
+        PackageManager::Pacman => {
+            let command = run_with_output(Command::new("pacman").arg("--noconfirm").arg("-Sl"));
+            let vector = &command
+                .stdout
                 .lines()
                 .filter_map(|e| {
                     let entry = e.to_string();
@@ -463,18 +410,10 @@ pub fn list_orphaned_packages() -> Result<Vec<String>, PackageManagerError> {
     let package_manager = get_package_manager().unwrap();
 
     match package_manager {
-        PackageManagers::Apt => {
-            let command = Command::new("apt")
-                .arg("autoremove")
-                .arg("--dry-run")
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-                .unwrap()
-                .wait_with_output()
-                .unwrap();
-            let output = String::from_utf8_lossy(&command.stdout).to_string();
-            let vector = &output
+        PackageManager::Apt => {
+            let command = run_with_output(Command::new("apt").arg("autoremove").arg("--dry-run"));
+            let vector = &command
+                .stdout
                 .lines()
                 .map(|e| {
                     let entry = e.to_string();
@@ -490,18 +429,10 @@ pub fn list_orphaned_packages() -> Result<Vec<String>, PackageManagerError> {
                 .collect::<Vec<String>>();
             Ok(vector.to_vec())
         }
-        PackageManagers::Dnf => {
-            let command = Command::new("dnf")
-                .arg("repoquery")
-                .arg("--unneeded")
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-                .unwrap()
-                .wait_with_output()
-                .unwrap();
-            let output = String::from_utf8_lossy(&command.stdout).to_string();
-            let vector = &output
+        PackageManager::Dnf => {
+            let command = run_with_output(Command::new("dnf").arg("repoquery").arg("--unneeded"));
+            let vector = &command
+                .stdout
                 .lines()
                 .filter_map(|e| {
                     let entry = e.to_string();
@@ -516,19 +447,10 @@ pub fn list_orphaned_packages() -> Result<Vec<String>, PackageManagerError> {
                 .collect::<Vec<String>>();
             Ok(vector.to_vec())
         }
-        PackageManagers::Pacman => {
-            let command = Command::new("pacman")
-                .arg("--noconfirm")
-                .arg("-Qdtq")
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-                .unwrap()
-                .wait_with_output()
-                .unwrap();
-
-            let output = String::from_utf8_lossy(&command.stdout).to_string();
-            let vector = &output
+        PackageManager::Pacman => {
+            let command = run_with_output(Command::new("pacman").arg("--noconfirm").arg("-Qdtq"));
+            let vector = &command
+                .stdout
                 .lines()
                 .map(|e| e.to_string())
                 .collect::<Vec<String>>();
