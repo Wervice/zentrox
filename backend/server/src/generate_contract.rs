@@ -3,7 +3,7 @@ use std::{fs, process::exit};
 use utoipa::{OpenApi, openapi::ServerBuilder};
 
 pub fn generate(store_path: Option<&String>) {
-    println!("Generating OpenAPI contracg in pretty printed JSON format.");
+    println!("Generating OpenAPI contract in pretty printed JSON format.");
 
     #[derive(OpenApi)]
     #[openapi(
@@ -37,7 +37,6 @@ pub fn generate(store_path: Option<&String>) {
             crate::routes::files::metadata,
             crate::routes::files::upload,
             crate::routes::drives::list,
-            crate::routes::drives::statistics,
             crate::routes::vault::is_configured,
             crate::routes::vault::configure,
             crate::routes::vault::tree,
