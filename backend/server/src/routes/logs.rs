@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use actix_web::HttpResponse;
 use actix_web::web::Json;
 use log::error;
@@ -32,10 +34,10 @@ pub struct LogReq {
     tags = ["private", "logs"]
 )]
 pub async fn read(json: Json<LogReq>) -> HttpResponse {
-    let since = &json.since;
-    let until = &json.until;
+    let since = json.since;
+    let until = json.until;
 
-    match logs::log_messages(json.sudo_password.clone(), since / 1000, until / 1000) {
+    match logs::log_messages(json.sudo_password.clone(), Duration::from_secs(since), Duration::from_secs(until)) {
         Ok(messages) => {
             let mut users = vec![];
             let messages_minified: Vec<QuickJournalEntry> = messages
@@ -43,20 +45,20 @@ pub async fn read(json: Json<LogReq>) -> HttpResponse {
                 .map(|m| {
                     let user = &m.user;
 
-                    if let Some(valued_user) = user {
-                        if !users.contains(valued_user) {
-                            users.push(valued_user.clone())
-                        }
+                    if let Some(valued_user) = user
+                        && !users.contains(valued_user)
+                    {
+                        users.push(valued_user.clone())
                     }
 
                     m.clone().as_quick_journal_entry()
                 })
                 .collect();
 
-            return HttpResponse::Ok().json(MessagesLogRes {
+            HttpResponse::Ok().json(MessagesLogRes {
                 users,
                 logs: messages_minified,
-            });
+            })
         }
         Err(_) => {
             error!("Getting logs failed.");

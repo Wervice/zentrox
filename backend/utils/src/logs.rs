@@ -1,7 +1,7 @@
-use std::fmt::Display;
-
-use crate::sudo::{SudoExecutionOutput, SwitchedUserCommand};
+use std::{fmt::Display, time::{Duration}};
+use crate::sudo::SudoCommand;
 use crate::users::NativeUser;
+use log::{debug, error};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -32,7 +32,7 @@ impl Display for PhantomStringOrBytes {
 /// actually available.
 struct JournalEntryDeserializationSchema {
     #[serde(rename(deserialize = "__REALTIME_TIMESTAMP"))]
-    pub realtime_timestamp: String,
+    pub realtime_timestamp: PhantomStringOrDigit,
 
     #[serde(rename(deserialize = "MESSAGE"))]
     pub message: Option<PhantomStringOrBytes>,
@@ -53,6 +53,13 @@ struct JournalEntryDeserializationSchema {
     pub application: Option<String>,
 }
 
+#[derive(Deserialize, Serialize, Debug)]
+#[serde(untagged)]
+enum PhantomStringOrDigit {
+    String(String),
+    Digit(u128)
+}
+
 #[derive(Serialize, Debug, ToSchema, Clone)]
 pub struct JournalEntry {
     pub timestamp: u128,
@@ -63,6 +70,8 @@ pub struct JournalEntry {
 }
 
 #[derive(Serialize, Debug, ToSchema)]
+/// JournalEntry discarding user details and only using a numeric reference.
+/// This saves time when sending the serialized form over JSON.
 pub struct QuickJournalEntry {
     pub timestamp: u128,
     pub message: Option<String>,
@@ -73,7 +82,7 @@ pub struct QuickJournalEntry {
 
 impl JournalEntry {
     pub fn as_quick_journal_entry(self) -> QuickJournalEntry {
-        return QuickJournalEntry {
+        QuickJournalEntry {
             timestamp: self.timestamp,
             message: self.message,
             priority: self.priority,
@@ -84,7 +93,7 @@ impl JournalEntry {
                 }
             },
             application: self.application,
-        };
+        }
     }
 }
 
@@ -100,75 +109,65 @@ pub enum LogMessageError {
 /// * `until` A UNIX timestamp where the log ends
 pub fn log_messages(
     sudo_password: String,
-    since: u64,
-    until: u64,
+    since: Duration,
+    until: Duration,
 ) -> Result<Vec<JournalEntry>, LogMessageError> {
-    let journalctl_command = SwitchedUserCommand::new(sudo_password, "journalctl".to_string())
-        .arg("-o".to_string())
-        .arg("json".to_string())
-        .arg("--since".to_string())
-        .arg("@".to_string() + &since.to_string())
-        .arg("--until".to_string())
-        .arg("@".to_string() + &until.to_string())
+    debug!("Getting log messages between: {:?} and {:?}", since, until);
+    let journalctl_command = SudoCommand::new(sudo_password, "journalctl".to_string())
+        .args(vec![
+            "-o",
+            "json",
+            "--since",
+            format!("@{}", since.as_secs()).as_str(),
+            "--until",
+            format!("@{}", until.as_secs()).as_str(),
+        ])
         .output();
 
-    let mut vect = Vec::new();
-
-    if let SudoExecutionOutput::Success(output) = journalctl_command {
+    if let Ok(output) = journalctl_command {
         let o = output.stdout;
-        for l in o.lines() {
-            match serde_json::from_str::<JournalEntryDeserializationSchema>(l) {
-                Ok(parsed_entry) => {
-                    let mut user: Option<NativeUser> = None;
+        o.lines()
+            .map(|line| {
+                let parse = serde_json::from_str::<JournalEntryDeserializationSchema>(line);
+                if let Ok(parsed_entry) =
+                    parse
+                {
+                    let user: Option<NativeUser> = if let Some(uid_field) = parsed_entry.uid
+                        && let Ok(numeric_uid) = uid_field.parse::<u32>()
+                        && let Ok(found_user) = NativeUser::from_uid(numeric_uid)
+                    {
+                        Some(found_user)
+                    } else if let Some(user_field) = parsed_entry.user
+                        && let Ok(found_user) = NativeUser::from_username(user_field)
+                    {
+                        Some(found_user)
+                    } else if let Some(username_field) = parsed_entry.username
+                        && let Ok(found_user) = NativeUser::from_username(username_field)
+                    {
+                        Some(found_user)
+                    } else {
+                        None
+                    };
 
-                    if let Some(uid_field) = parsed_entry.uid {
-                        if let Ok(numeric_uid) = uid_field.parse::<u32>() {
-                            if let Ok(found_user) = NativeUser::from_uid(numeric_uid) {
-                                user = Some(found_user)
-                            }
-                        }
-                    }
-
-                    if user.is_none() {
-                        if let Some(user_field) = parsed_entry.user {
-                            if let Ok(found_user) = NativeUser::from_username(user_field) {
-                                user = Some(found_user)
-                            }
-                        }
-                    }
-
-                    if user.is_none() {
-                        if let Some(username_field) = parsed_entry.username {
-                            if let Ok(found_user) = NativeUser::from_username(username_field) {
-                                user = Some(found_user)
-                            }
-                        }
-                    }
-
-                    vect.push(JournalEntry {
-                        timestamp: parsed_entry.realtime_timestamp.parse::<u128>().unwrap(),
-                        message: {
-                            if let Some(msg) = parsed_entry.message {
-                                Some(msg.to_string())
-                            } else {
-                                None
+                    Ok(JournalEntry {
+                        timestamp: {
+                            match parsed_entry.realtime_timestamp {
+                                PhantomStringOrDigit::Digit(d) => d,
+                                PhantomStringOrDigit::String(s) => s.parse::<u128>().unwrap()
                             }
                         },
+                        message: parsed_entry.message.map(|msg| msg.to_string()),
                         priority: parsed_entry.priority,
                         application: parsed_entry.application,
                         user,
                     })
+                } else {
+                    error!("Failed to parse journalctl entry.");
+                    Err(LogMessageError::BadJournalEntryStructure())
                 }
-                Err(_) => {
-                    return Err(LogMessageError::BadJournalEntryStructure());
-                }
-            }
-        }
+            })
+            .collect()
     } else {
-        return Err(LogMessageError::InvocationError);
+        Err(LogMessageError::InvocationError)
     }
-
-    Ok(vect)
 }
-
-// TODO Write some tests
