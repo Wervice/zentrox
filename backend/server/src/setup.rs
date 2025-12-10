@@ -1,7 +1,3 @@
-use utils::crypto_utils::argon2_derive_key;
-use utils::database::{self, establish_connection};
-use utils::otp::generate_otp_secret;
-use utils::sudo::{SudoExecutionResult, SwitchedUserCommand};
 use diesel::RunQueryDsl;
 use dirs::{self, home_dir};
 use rcgen::{CertifiedKey, generate_simple_self_signed};
@@ -9,6 +5,10 @@ use rpassword::prompt_password;
 use std::fs;
 use std::io::{self, BufRead, Write};
 use std::time::UNIX_EPOCH;
+use utils::crypto_utils::argon2_derive_key;
+use utils::database::{self, establish_connection};
+use utils::otp::generate_otp_secret;
+use utils::sudo::SudoCommand;
 
 fn flush() {
     let _ = io::stdout().flush();
@@ -155,16 +155,16 @@ pub fn run_setup() -> Result<(), String> {
         let sudo_password =
             rpassword::prompt_password("Please enter your sudo password to run UFW: ");
         let ufw_command =
-            SwitchedUserCommand::new(sudo_password.unwrap().to_string(), "/sbin/ufw".to_string())
+            SudoCommand::new(sudo_password.unwrap().to_string(), "/sbin/ufw".to_string())
                 .args(if ip_addr.is_empty() {
                     vec!["allow", "8080"]
                 } else {
                     vec!["allow", "from", &ip_addr, "to", "8080"]
                 })
-                .spawn();
+                .output();
 
         match ufw_command {
-            SudoExecutionResult::Success(_sc) => {
+            Ok(_) => {
                 println!("New rule created");
             }
             _ => {
