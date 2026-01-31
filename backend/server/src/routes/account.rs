@@ -1,17 +1,24 @@
-use crate::AppState;
+use crate::{
+    AppState,
+    permissions::{self, locate_session},
+};
 use actix_multipart::form::{MultipartForm, tempfile::TempFile};
+use actix_session::Session;
 use actix_web::{
     HttpResponse,
     web::{Data, Json},
 };
+use argon2::password_hash::SaltString;
 use diesel::prelude::*;
 use log::error;
+use rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
 use std::{fs, io::Read, path, time::UNIX_EPOCH};
 use utils::{
-    database::establish_connection,
+    crypto_utils::encrypt_bytes,
+    otp::{derive_otp_url, generate_otp_secret},
     schema,
-    status_com::{self, ErrorCode, MessageRes},
+    status_com::{ErrorCode, MessageRes},
 };
 use utoipa::ToSchema;
 
@@ -27,18 +34,15 @@ struct AccountDetailsRes {
     responses((status = 200, body = AccountDetailsRes)),
     tags = ["private", "account"]
 )]
-pub async fn details(state: Data<AppState>) -> HttpResponse {
-    let state_username = match state.username.lock() {
-        Ok(v) => v,
-        Err(e) => e.into_inner(),
-    };
+pub async fn details(state: Data<AppState>, session: Session) -> HttpResponse {
+    let find_current_session = locate_session(&session, &state);
 
-    if let Some(username) = state_username.clone() {
+    if let Ok(current_session) = find_current_session {
         HttpResponse::Ok().json(AccountDetailsRes {
-            username,
-        }) 
+            username: current_session.username.clone(),
+        })
     } else {
-        HttpResponse::Forbidden().json(status_com::ErrorCode::MissingApiPermissions)
+        HttpResponse::NotFound().json(ErrorCode::InsufficientData)
     }
 }
 
@@ -56,12 +60,19 @@ pub struct UpdateAccountReq {
     responses((status = 200)),
     tags = ["private", "account"]
 )]
-pub async fn update_details(json: Json<UpdateAccountReq>) -> HttpResponse {
-    use schema::Admin::dsl::*;
-    let connection = &mut establish_connection();
+pub async fn update_details(
+    json: Json<UpdateAccountReq>,
+    session: Session,
+    state: Data<AppState>,
+) -> HttpResponse {
+    use schema::Users::dsl::*;
+    let connection = &mut state.db_pool.lock().unwrap().get().unwrap();
 
     let request_password = &json.password;
     let request_username = &json.username;
+
+    let current_session =
+        permissions::locate_session(&session, &state).expect("User session does not exist.");
 
     let current_ts = std::time::SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -69,11 +80,15 @@ pub async fn update_details(json: Json<UpdateAccountReq>) -> HttpResponse {
         .as_millis() as i64;
 
     if !request_password.is_empty() {
-        let hashed_request_password =
-            hex::encode(utils::crypto_utils::argon2_derive_key(request_password).unwrap())
-                .to_string();
+        let hashed_request_password = utils::crypto_utils::argon2_derive_key(
+            request_password,
+            SaltString::generate(&mut OsRng),
+        )
+        .to_string()
+        .to_string();
 
-        let password_execution = diesel::update(Admin)
+        let password_execution = diesel::update(Users)
+            .filter(username.eq(&current_session.username))
             .set((
                 password_hash.eq(hashed_request_password),
                 updated_at.eq(current_ts),
@@ -88,7 +103,8 @@ pub async fn update_details(json: Json<UpdateAccountReq>) -> HttpResponse {
     }
 
     if !request_username.is_empty() {
-        let username_execution = diesel::update(Admin)
+        let username_execution = diesel::update(Users)
+            .filter(username.eq(current_session.username.clone()))
             .set(username.eq(request_username))
             .execute(connection);
 
@@ -99,7 +115,77 @@ pub async fn update_details(json: Json<UpdateAccountReq>) -> HttpResponse {
         }
     }
 
-    HttpResponse::Ok().json(MessageRes::from("Account details have been updated."))
+    HttpResponse::Ok().json(MessageRes::from(
+        "Account details have been updated. Start a new session to see changes apply.",
+    ))
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct OtpActivationReq {
+    active: bool,
+    password: Option<String>,
+}
+
+#[utoipa::path(
+    put,
+    path = "/private/account/enableOtp",
+    responses(
+            (status = 200, description = "Status updated."),
+    ),
+    request_body = OtpActivationReq,
+    tags = ["authentication", "private"]
+)]
+pub async fn enable_otp(
+    json: Json<OtpActivationReq>,
+    session: Session,
+    state: actix_web::web::Data<AppState>,
+) -> HttpResponse {
+    use utils::schema::Users::dsl::*;
+    let connection = &mut state.db_pool.lock().unwrap().get().unwrap();
+
+    let status: bool = json.active;
+
+    let current_username = locate_session(&session, &state).unwrap().username;
+
+    let status_update_execution = diesel::update(Users)
+        .filter(username.eq(current_username.clone()))
+        .set(use_otp.eq(status))
+        .execute(connection);
+
+    if let Err(update_error) = status_update_execution {
+        return HttpResponse::InternalServerError()
+            .json(ErrorCode::DatabaseReadFailed(update_error.to_string()).as_error_message());
+    }
+
+    if status {
+        let secret = generate_otp_secret();
+        let encrypted_secret =
+            encrypt_bytes(secret.as_bytes(), &json.password.clone().unwrap()).to_string();
+
+        let secret_update_execution = diesel::update(Users)
+            .filter(username.eq(&current_username))
+            .set(otp_secret.eq(Some(encrypted_secret.clone())))
+            .execute(connection);
+
+        if let Err(update_error) = secret_update_execution {
+            return HttpResponse::InternalServerError()
+                .json(ErrorCode::DatabaseReadFailed(update_error.to_string()).as_error_message());
+        }
+
+        HttpResponse::Ok().body(derive_otp_url(secret, current_username))
+    } else {
+        let secret_reset_execution = diesel::update(Users)
+            .filter(username.eq(current_username))
+            .set(otp_secret.eq(None::<String>))
+            .execute(connection);
+
+        if let Err(update_error) = secret_reset_execution {
+            return HttpResponse::InternalServerError()
+                .json(ErrorCode::DatabaseReadFailed(update_error.to_string()).as_error_message());
+        }
+
+        HttpResponse::Ok().json(MessageRes::from("Updated OTP activation."))
+    }
 }
 
 /// Admin profile picture

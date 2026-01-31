@@ -1,4 +1,4 @@
-CREATE TABLE Admin (
+CREATE TABLE Users (
 	username TEXT NOT NULL,
 	use_otp INTEGER NOT NULL,
 	otp_secret TEXT,
@@ -6,6 +6,10 @@ CREATE TABLE Admin (
 	created_at INTEGER NOT NULL,
 	updated_at INTEGER NOT NULL,
 	id INTEGER PRIMARY KEY CHECK (id = 0) NOT NULL -- Only one Admin account will be supported in the code
+);
+CREATE TABLE BlockedIPs (
+	since INTEGER NOT NULL,
+	ip TEXT NOT NULL PRIMARY KEY NOT NULL
 );
 CREATE TABLE Configuration (
 	server_name TEXT NOT NULL,
@@ -25,6 +29,14 @@ CREATE TABLE FileSharing (
 	password TEXT,
 	shared_since INTEGER NOT NULL,
 	PRIMARY KEY (code)
+);
+CREATE TABLE LoginRequestHistory (
+	time INTEGER NOT NULL,
+	username TEXT NOT NULL,
+	ip TEXT NOT NULL,
+	action TEXT NOT NULL, -- LIMITED = Too many request | APPROVED = Logged in | BLOCKED = Spamming/Bot detected | REJECTED = Bad password/username
+	id TEXT NOT NULL,
+	PRIMARY KEY (id)
 );
 CREATE TABLE Media (
 	file_path TEXT NOT NULL, 

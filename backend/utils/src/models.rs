@@ -4,10 +4,10 @@ use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 use utoipa::{ToResponse, ToSchema};
 
-#[derive(Queryable, Selectable, Insertable)]
-#[diesel(table_name = crate::schema::Admin)]
+#[derive(Queryable, Selectable, Insertable, AsChangeset, Deserialize, Serialize, ToSchema)]
+#[diesel(table_name = crate::schema::Users)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct AdminAccount {
+pub struct Account {
     pub id: i32,
     pub username: String,
     pub use_otp: bool,
@@ -88,6 +88,25 @@ pub struct SharedFile {
     pub use_password: bool,
     pub password: Option<String>,
     pub shared_since: i64,
+}
+
+#[derive(Queryable, Selectable, Insertable, AsChangeset, Serialize, ToSchema)]
+#[diesel(table_name = crate::schema::LoginRequestHistory)]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct LoginRequest {
+    pub time: i64,
+    pub username: String,
+    pub ip: String,
+    pub action: String,
+    pub id: String,
+}
+
+#[derive(Queryable, Selectable, Insertable, AsChangeset, Serialize, ToSchema)]
+#[diesel(table_name = crate::schema::BlockedIPs)]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct BlockedIp {
+    pub since: i64,
+    pub ip: String,
 }
 
 #[derive(Queryable, Selectable, Insertable, AsChangeset, serde::Serialize, Debug)]

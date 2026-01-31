@@ -99,8 +99,6 @@ pub enum ErrorCode {
     /// The request could not be finished, because the user does not appear to have sufficient
     /// permissions on the system.
     MissingSystemPermissions,
-    /// The user could not obtain permissions for Vault decryption,
-    MissingVaultPermissions,
     /// While updating a database table using diesel.rs, the execution failed.
     DatabaseUpdateFailed(String),
     /// While reading a database table using diesel.rs, the execution failed.
@@ -144,10 +142,6 @@ pub enum ErrorCode {
     DriveMetadataFailed,
     /// Encrypting a file, directory, or string failed
     EncryptionFailed,
-    /// A specified path is too long
-    VaultPathTooLong,
-    /// Vault has not been configured,
-    VaultUnconfigured,
     /// While trying to shut down, the command failed
     PowerOffFailed,
     /// The program could not get the requested system logs.

@@ -1,5 +1,6 @@
 diesel::table! {
-    Admin (id) {
+    #[allow(non_snake_case)]
+    Users (id) {
         id -> Integer,
         username -> Text,
         use_otp -> Bool,
@@ -11,6 +12,15 @@ diesel::table! {
 }
 
 diesel::table! {
+    #[allow(non_snake_case)]
+    BlockedIPs (ip) {
+        since -> BigInt,
+        ip -> Text
+    }
+}
+
+diesel::table! {
+    #[allow(non_snake_case)]
     Configuration (id) {
         server_name -> Text,
         media_enabled -> Bool,
@@ -21,6 +31,7 @@ diesel::table! {
 }
 
 diesel::table! {
+    #[allow(non_snake_case)]
     Encryption (id) {
         argon2_salt -> Text,
         id -> Integer,
@@ -28,6 +39,7 @@ diesel::table! {
 }
 
 diesel::table! {
+    #[allow(non_snake_case)]
     FileSharing (code) {
         code -> Text,
         file_path -> Text,
@@ -38,6 +50,18 @@ diesel::table! {
 }
 
 diesel::table! {
+    #[allow(non_snake_case)]
+    LoginRequestHistory (id) {
+        time -> BigInt,
+        username -> Text,
+        ip -> Text,
+        action -> Text,
+        id -> Text
+    }
+}
+
+diesel::table! {
+    #[allow(non_snake_case)]
     Media (file_path) {
         file_path -> Text,
         genre -> Nullable<Text>,
@@ -48,6 +72,7 @@ diesel::table! {
 }
 
 diesel::table! {
+    #[allow(non_snake_case)]
     RecommendedMedia (file_path) {
         file_path -> Text,
         last_view -> BigInt,
@@ -55,6 +80,7 @@ diesel::table! {
 }
 
 diesel::table! {
+    #[allow(non_snake_case)]
     MediaSources (directory_path) {
         directory_path -> Text,
         alias -> Text,
@@ -63,6 +89,7 @@ diesel::table! {
 }
 
 diesel::table! {
+    #[allow(non_snake_case)]
     PackageActions (key) {
         key -> Integer,
         last_database_update -> Nullable<BigInt>,
@@ -70,7 +97,7 @@ diesel::table! {
 }
 
 diesel::allow_tables_to_appear_in_same_query!(
-    Admin,
+    Users,
     Configuration,
     Encryption,
     FileSharing,

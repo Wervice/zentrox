@@ -26,13 +26,16 @@ use actix_web::{
     web::Data,
 };
 use diesel::prelude::*;
+use diesel::r2d2::{ConnectionManager, Pool};
 use log::{debug, info, warn};
-use permissions::is_admin_state;
+use permissions::is_privileged;
 use routes::media::get_media_enabled_database;
 use serde::{Deserialize, Serialize};
 use simplelog::{
     self, ColorChoice, CombinedLogger, Config, LevelFilter, TermLogger, TerminalMode, WriteLogger,
 };
+use std::net::IpAddr;
+use std::time::SystemTime;
 use std::{
     collections::HashMap,
     env,
@@ -40,9 +43,9 @@ use std::{
     io::BufReader,
     path::PathBuf,
     sync::{Arc, Mutex},
-    time::{Duration, SystemTime},
+    time::Duration,
 };
-use utils::database::establish_connection;
+use utils::database::create_connection_pool;
 use utils::net_data::Interface;
 use utils::status_com::ErrorCode;
 use utoipa::ToSchema;
@@ -54,9 +57,11 @@ mod routes;
 mod setup;
 use routes::*;
 
+use crate::permissions::{ACCOUNT_TIME_WINDOW, SESSION_TIMEOUT, is_blocked_ip};
+
 const SERVER_PORT: u16 = 8080;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[allow(unused)]
 enum BackgroundTaskState {
     Success,
@@ -66,38 +71,69 @@ enum BackgroundTaskState {
     Pending,
 }
 
+#[derive(Clone, Debug, Copy)]
+/// State of the environment as determined at runtime.
+/// If `disable_authorization` is set to `true` any request to a restricted route will be
+/// permitted.
+/// If `disable_cors` is set to `true`, CORS will be set to a very permissive setting.
+struct Environment {
+    disable_authorization: bool,
+    disable_cors: bool,
+}
+
+// In order to rule out any confusion, this should not be derived
+#[allow(clippy::derivable_impls)]
+impl Default for Environment {
+    fn default() -> Self {
+        Environment {
+            disable_authorization: false,
+            disable_cors: false,
+        }
+    }
+}
+
 /// Current state of the application
 /// This AppState is meant to be accessible for every route in the system
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct AppState {
-    login_token: Arc<Mutex<Option<String>>>,
-    last_login: Arc<Mutex<Option<SystemTime>>>,
+    login_requests: Arc<Mutex<Vec<permissions::LoginRequest>>>,
+    sessions: Arc<Mutex<Vec<permissions::LoginSession>>>,
+    blocked_ips: Arc<Mutex<Vec<IpAddr>>>,
     system: Arc<Mutex<sysinfo::System>>,
-    username: Arc<Mutex<Option<String>>>,
     network_interfaces: Arc<Mutex<Vec<Interface>>>,
     background_jobs: Arc<Mutex<HashMap<Uuid, BackgroundTaskState>>>,
+    db_pool: Arc<Mutex<Pool<ConnectionManager<SqliteConnection>>>>,
+    environment: Arc<Environment>,
 }
 
 impl AppState {
     /// Initiate a new AppState
     fn new() -> Self {
-        let random_string: Arc<[u8]> = (0..128).map(|_| rand::random::<u8>()).collect();
+        let env_vars = env::vars().collect::<HashMap<String, String>>();
+        let current_environment = match env_vars.get("ZENTROX_MODE") {
+            Some(v) => {
+                let s: Vec<&str> = v.split(";").collect();
+                Environment {
+                    disable_authorization: s.contains(&"NO_AUTH"),
+                    disable_cors: s.contains(&"NO_CORS"),
+                }
+            }
+            None => Environment::default(),
+        };
+
         AppState {
-            login_token: Arc::new(Mutex::new(Some(
-                String::from_utf8_lossy(&random_string).to_string(),
-            ))),
-            last_login: Arc::new(Mutex::new(None)),
+            login_requests: Arc::new(Mutex::new(vec![])),
+            sessions: Arc::new(Mutex::new(vec![])),
+            blocked_ips: Arc::new(Mutex::new(vec![])),
             system: Arc::new(Mutex::new(sysinfo::System::new())),
-            username: Arc::new(Mutex::new(None)),
             network_interfaces: Arc::new(Mutex::new(Vec::new())),
             background_jobs: Arc::new(Mutex::new(HashMap::new())),
+            db_pool: Arc::new(Mutex::new(create_connection_pool())),
+            environment: Arc::new(current_environment),
         }
     }
 
     fn update_network_statistics(&self) {
-        if self.username.lock().unwrap().is_none() {
-            return;
-        }
         let devices_a = utils::net_data::get_network_interfaces().unwrap();
         std::thread::sleep(Duration::from_millis(1000));
         let devices_b = utils::net_data::get_network_interfaces().unwrap();
@@ -118,12 +154,34 @@ impl AppState {
         *self.network_interfaces.lock().unwrap() = result;
     }
 
+    fn clear_request_history(&self) {
+        if let Ok(mut v) = self.login_requests.lock() {
+            v.retain(|e| {
+                SystemTime::now().duration_since(e.time).unwrap().as_secs() < ACCOUNT_TIME_WINDOW
+            });
+            drop(v)
+        }
+        if let Ok(mut v) = self.sessions.lock() {
+            v.retain(|e| {
+                SystemTime::now().duration_since(e.since).unwrap().as_secs() < SESSION_TIMEOUT
+            });
+            drop(v)
+        }
+    }
+
     fn start_interval_tasks(&self) {
         let network_clone = self.clone();
+        let auth_requests_clone = self.clone();
         std::thread::spawn(move || {
             loop {
                 std::thread::sleep(Duration::from_millis(5 * 1000));
                 network_clone.update_network_statistics();
+            }
+        });
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(Duration::from_millis(5 * 1000));
+                auth_requests_clone.clear_request_history();
             }
         });
     }
@@ -131,7 +189,7 @@ impl AppState {
 
 #[get("/")]
 async fn index(session: Session, state: Data<AppState>) -> HttpResponse {
-    if is_admin_state(&session, state) {
+    if is_privileged(&session, state) {
         return HttpResponse::Found()
             .append_header(("Location", "/dashboard"))
             .body("You will soon be redirected.");
@@ -141,8 +199,8 @@ async fn index(session: Session, state: Data<AppState>) -> HttpResponse {
 }
 
 #[get("/media")]
-async fn media_page() -> HttpResponse {
-    if !get_media_enabled_database() {
+async fn media_page(state: Data<AppState>) -> HttpResponse {
+    if !get_media_enabled_database(state) {
         return HttpResponse::Forbidden().json(ErrorCode::MediaCenterDisabled.as_error_message());
     }
     HttpResponse::Ok()
@@ -161,7 +219,7 @@ async fn robots_txt() -> impl Responder {
 
 #[get("/dashboard")]
 pub async fn dashboard_page(session: Session, state: Data<AppState>) -> HttpResponse {
-    if !is_admin_state(&session, state) {
+    if !is_privileged(&session, state) {
         return HttpResponse::Found()
             .append_header(("Location", "/"))
             .body("You will soon be redirected");
@@ -187,12 +245,35 @@ fn configure_multipart(cfg: &mut web::ServiceConfig) {
     cfg.app_data(MultipartFormConfig::default().total_limit(1024 * 1024 * 1024 * 32));
 }
 
+async fn ip_ban_middleware(
+    mut req: ServiceRequest,
+    next: Next<BoxBody>,
+) -> Result<ServiceResponse<impl MessageBody>, actix_web::Error> {
+    let app_state = req.extract::<Data<AppState>>().await?;
+    if app_state.environment.disable_authorization {
+        warn!("Bypassed authorization!");
+        return next.call(req).await;
+    }
+    let ip = req.peer_addr().unwrap().ip();
+    if is_blocked_ip(&app_state, ip) {
+        warn!("The blocked peer {ip} tried to contact this server.");
+        Ok(req.into_response(HttpResponse::Forbidden().finish()))
+    } else {
+        next.call(req).await
+    }
+}
+
 /// Restricts private routes to the administrator
 async fn authorization_middleware(
     mut req: ServiceRequest,
     next: Next<BoxBody>,
 ) -> Result<ServiceResponse<impl MessageBody>, actix_web::Error> {
-    if is_admin_state(&req.get_session(), req.extract::<Data<AppState>>().await?) {
+    let app_state = req.extract::<Data<AppState>>().await?;
+    if app_state.environment.disable_authorization {
+        warn!("Bypassed authorization!");
+        return next.call(req).await;
+    }
+    if is_privileged(&req.get_session(), app_state) {
         next.call(req).await
     } else {
         warn!("A request to a private route will be denied.");
@@ -202,11 +283,11 @@ async fn authorization_middleware(
     }
 }
 
-async fn media_authorization_middleware(
-    req: ServiceRequest,
+async fn media_enabled_authorization_middleware(
+    mut req: ServiceRequest,
     next: Next<BoxBody>,
 ) -> Result<ServiceResponse<impl MessageBody>, actix_web::Error> {
-    if get_media_enabled_database() {
+    if get_media_enabled_database(req.extract::<Data<AppState>>().await?) {
         next.call(req).await
     } else {
         warn!("A request to a media route will be denied.");
@@ -214,6 +295,14 @@ async fn media_authorization_middleware(
             HttpResponse::Forbidden().json(ErrorCode::MediaCenterDisabled.as_error_message()),
         ))
     }
+}
+
+pub fn get_zentrox_directory() -> PathBuf {
+    dirs::home_dir()
+        .unwrap()
+        .join(".local")
+        .join("share")
+        .join("zentrox")
 }
 
 #[actix_web::main]
@@ -248,11 +337,7 @@ async fn main() -> std::io::Result<()> {
         _ => {}
     }
 
-    let zentrox_env_dir = dirs::home_dir()
-        .unwrap()
-        .join(".local")
-        .join("share")
-        .join("zentrox");
+    let zentrox_env_dir = get_zentrox_directory();
 
     if !zentrox_env_dir.join("database.db").exists() {
         debug!("No configuration found, running setup.");
@@ -266,12 +351,13 @@ async fn main() -> std::io::Result<()> {
     }
 
     let app_state = Data::new(AppState::new());
+    permissions::load_blocked_ips(&app_state);
     app_state.start_interval_tasks();
     debug!("Started interval tasks");
 
     let tls_cert_filename = Configuration
         .select(Configurations::as_select())
-        .first(&mut establish_connection())
+        .first(&mut app_state.db_pool.lock().unwrap().get().unwrap())
         .unwrap()
         .tls_cert;
 
@@ -330,12 +416,6 @@ async fn main() -> std::io::Result<()> {
     let secret_session_key = Key::try_generate().expect("Failed to generate session key.");
 
     HttpServer::new(move || {
-        let mut cors_vars = std::env::vars();
-        let cors_permissive: bool = cors_vars.any(|x| {
-            x == ("ZENTROX_MODE".to_string(), "NO_CORS".to_string())
-                || x == ("ZENTROX_MODE".to_string(), "DEV".to_string())
-        });
-
         App::new()
             .wrap(middleware::Logger::new("%a %U %s"))
             .wrap(
@@ -351,8 +431,8 @@ async fn main() -> std::io::Result<()> {
                 .cookie_name("session".to_string())
                 .build(),
             )
-            .wrap(if cors_permissive {
-                warn!("CORS policy is set to permissive! This poses a high security risk.");
+            .wrap(if app_state.environment.disable_cors {
+                warn!("CORS policy is set to permissive.");
                 Cors::default()
                     .allow_any_method()
                     .allowed_origin("http://localhost:3000")
@@ -369,17 +449,14 @@ async fn main() -> std::io::Result<()> {
             .service(robots_txt)
             .service(
                 web::scope("/api")
+                    .wrap(from_fn(ip_ban_middleware))
                     .service(
                         web::scope("/public")
                             // WARN These routes can be accessed by anyone
                             .service(
                                 web::scope("/auth")
                                     .wrap(Governor::new(&harsh_governor_conf))
-                                    // WARN Add account lock down on too many failed attempts even from
-                                    // multiple IPs
-                                    .route("/login", web::post().to(auth::login))
-                                    .route("/useOtp", web::get().to(auth::use_otp)), // WARN Should only respond if password was correct
-                                                                                     // WARN OTP secret should be encrypted
+                                    .route("/login", web::post().to(auth::login)),
                             )
                             .service(
                                 web::scope("/shared")
@@ -391,13 +468,12 @@ async fn main() -> std::io::Result<()> {
                     )
                     .service(
                         web::scope("/private")
-                            // These routes are restricted to the administrator by
-                            // middleware
+                            // These routes are restricted using middleware
                             .wrap(from_fn(authorization_middleware))
                             .service(
                                 web::scope("/auth")
                                     .route("/logout", web::post().to(auth::logout))
-                                    .route("/useOtp", web::put().to(auth::activate_otp))
+                                    .route("/requestHistory", web::get().to(auth::request_history))
                                     .service(web::scope("/sudo").route(
                                         "/verify",
                                         web::post().to(auth::verify_sudo_password),
@@ -445,19 +521,7 @@ async fn main() -> std::io::Result<()> {
                                     .route("/upload", web::post().to(files::upload)),
                             )
                             .service(
-                                web::scope("/drives")
-                                    .route("/list", web::get().to(drives::list))
-                            )
-                            .service(
-                                web::scope("/vault")
-                                    .route("/active", web::get().to(vault::is_configured))
-                                    .route("/configuration", web::post().to(vault::configure))
-                                    .route("/tree", web::post().to(vault::tree))
-                                    .route("/delete", web::post().to(vault::delete_file))
-                                    .route("/directory", web::post().to(vault::new_directory))
-                                    .route("/file", web::post().to(vault::upload))
-                                    .route("/file", web::get().to(vault::download_file))
-                                    .route("/move", web::post().to(vault::rename_file)),
+                                web::scope("/drives").route("/list", web::get().to(drives::list)),
                             )
                             .service(web::scope("/power").route("/off", web::post().to(power::off)))
                             .service(
@@ -469,6 +533,7 @@ async fn main() -> std::io::Result<()> {
                                 web::scope("/account")
                                     .route("/details", web::get().to(account::details))
                                     .route("/details", web::post().to(account::update_details))
+                                    .route("/enableOtp", web::post().to(account::enable_otp))
                                     .route("/profilePicture", web::get().to(account::picture))
                                     .route(
                                         "/profilePicture",
@@ -485,7 +550,7 @@ async fn main() -> std::io::Result<()> {
                                         web::get().to(media::get_media_enabled_handler),
                                     )
                                     .route("/enabled", web::post().to(media::activate_media))
-                                    .wrap(from_fn(media_authorization_middleware))
+                                    .wrap(from_fn(media_enabled_authorization_middleware))
                                     .service(media_page)
                                     .route("/files", web::get().to(media::get_contents))
                                     .route("/download", web::get().to(media::download))

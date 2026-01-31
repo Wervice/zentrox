@@ -14,4 +14,3 @@ pub mod power;
 pub mod processes;
 pub mod sharing;
 pub mod tls;
-pub mod vault;

@@ -10,8 +10,6 @@ pub fn generate(store_path: Option<&String>) {
         paths(
             crate::routes::auth::login,
             crate::routes::auth::logout,
-            crate::routes::auth::use_otp,
-            crate::routes::auth::activate_otp,
             crate::routes::auth::verify_sudo_password,
             crate::routes::dashboard::information,
             crate::routes::packages::database,
@@ -37,18 +35,11 @@ pub fn generate(store_path: Option<&String>) {
             crate::routes::files::metadata,
             crate::routes::files::upload,
             crate::routes::drives::list,
-            crate::routes::vault::is_configured,
-            crate::routes::vault::configure,
-            crate::routes::vault::tree,
-            crate::routes::vault::delete_file,
-            crate::routes::vault::new_directory,
-            crate::routes::vault::upload,
-            crate::routes::vault::download_file,
-            crate::routes::vault::rename_file,
             crate::routes::power::off,
             crate::routes::tls::name,
             crate::routes::tls::upload,
             crate::routes::account::details,
+            crate::routes::account::enable_otp,
             crate::routes::account::update_details,
             crate::routes::account::picture,
             crate::routes::account::upload_picture,
@@ -99,7 +90,6 @@ pub fn generate(store_path: Option<&String>) {
             (name = "processes", description = "System process managment"),
             (name = "sharing", description = "File sharing managment"),
             (name = "tls", description = "TLS encryption settings"),
-            (name = "vault", description = "Encrypted data storage settings")
         ),
     )]
     struct ApiDoc;

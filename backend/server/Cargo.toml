@@ -4,7 +4,7 @@ version = "0.1.1"
 edition = "2024"
 authors = ["Wervice <wervice@proton.me>"]
 description = "An open source home lab device frontend to administrate your devices"
-documentation = "https://github.com/Wervice/zentrox/wiki" # TODO Update
+documentation = "https://github.com/Wervice/zentrox/wiki"
 homepage = "https://wervice.github.io/zentrox"
 license = "Apache-2.0"
 keywords = ["administration", "actix", "remote"]
@@ -41,11 +41,14 @@ actix-governor = "0.8.0"
 sysinfo = "0.34.2"
 log = "0.4.27"
 futures-util = "0.3.31"
-diesel = { version = "2.2.12", features = ["sqlite", "returning_clauses_for_sqlite_3_35"] }
+diesel = { version = "2.2.12", features = ["sqlite", "returning_clauses_for_sqlite_3_35", "r2d2"] }
 base32 = "0.5.1"
 utoipa = { version = "5.4.0", features = ["macros"] }
 utils = { path = "../utils/" }
 simplelog = "0.12.2"
+argon2 = "0.5.3"
+thiserror = "2.0.17"
+qr2term = "0.3.3"
 
 [profile.release]
 opt-level = 3

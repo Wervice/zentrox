@@ -1,18 +1,23 @@
+use std::net::IpAddr;
+use std::time::SystemTime;
+
 use actix_session::Session;
+use actix_web::HttpRequest;
 use actix_web::web::Json;
 use actix_web::{HttpResponse, web::Data};
 use diesel::prelude::*;
-use log::warn;
+use log::{error, info, warn};
 use serde::{Deserialize, Serialize};
-use utils::database;
-use utils::time::current;
-use utils::{
-    database::get_administrator_account,
-    otp,
-    status_com::{ErrorCode, MessageRes},
-};
+use utils::crypto_utils::{self, Ciphertext, decrypt_bytes};
+use utils::models::LoginRequest;
+use utils::status_com::{ErrorCode, MessageRes};
 use utoipa::ToSchema;
 
+use crate::permissions::{
+    ACCOUNT_REQUEST_LIMIT, ACCOUNT_TIME_WINDOW, BASE_REQUEST_LIMIT, BASE_TIME_WINDOW,
+    LARGE_REQUEST_LIMIT, LARGE_TIME_WINDOW, LoginAction, locate_session, register_session,
+    remove_session,
+};
 use crate::{AppState, SudoPasswordReq, permissions};
 
 #[derive(Deserialize, ToSchema)]
@@ -22,18 +27,102 @@ pub struct LoginReq {
     otp: Option<String>,
 }
 
-fn setup_login_state(session: Session, state: Data<AppState>, provided_username: String) {
-    let login_token: Vec<u8> = permissions::generate_random_token();
-    let _ = session.insert("login_token", hex::encode(&login_token).to_string());
+fn since_now(earlier: SystemTime) -> u64 {
+    SystemTime::now().duration_since(earlier).unwrap().as_secs()
+}
 
-    *state.login_token.lock().unwrap() = Some(hex::encode(&login_token).to_string());
-    *state.username.lock().unwrap() = Some(provided_username);
-    *state.last_login.lock().unwrap() = Some(current());
+/// Simultaneously stores request in database (unless the request is blocked) and in the AppState.
+fn store_request(req_username: String, req_ip: IpAddr, req_action: LoginAction, state: &AppState) {
+    use utils::models::LoginRequest;
+    use utils::schema::LoginRequestHistory::dsl::*;
 
-    let state_copy = state.clone();
-    std::thread::spawn(move || {
-        state_copy.update_network_statistics();
-    });
+    // To prevent flooding the database, blocked requests are not stored
+    if req_action != LoginAction::Blocked {
+        let _ = diesel::insert_into(LoginRequestHistory)
+            .values(LoginRequest {
+                action: req_action.to_string(),
+                id: uuid::Uuid::new_v4().to_string(),
+                time: utils::time::current_timestamp_unix() as i64,
+                username: req_username.clone(),
+                ip: req_ip.to_string(),
+            })
+            .execute(&mut state.db_pool.lock().unwrap().get().unwrap());
+    }
+
+    state
+        .login_requests
+        .lock()
+        .unwrap()
+        .push(permissions::LoginRequest {
+            time: SystemTime::now(),
+            action: req_action,
+            ip: req_ip,
+            username: req_username,
+        });
+}
+
+fn detects_spamming(state: &AppState, req_username: &String, req_ip: IpAddr) -> bool {
+    let lock = state.login_requests.lock().unwrap();
+    let past_requests = lock.clone();
+    drop(lock);
+
+    // Get the total number of all requests to the specified account that failed in the
+    // ACCOUNT_TIME_WINDOW
+    let total_denying_request = past_requests
+        .iter()
+        .filter(|r| {
+            r.username == *req_username
+                && r.action.is_denying()
+                && since_now(r.time) < ACCOUNT_TIME_WINDOW
+        })
+        .count();
+
+    if total_denying_request > ACCOUNT_REQUEST_LIMIT {
+        // It appears, someone is trying to brute-force the credentials through multiple peers.
+        store_request(
+            req_username.to_string(),
+            req_ip,
+            LoginAction::Limited,
+            state,
+        );
+        warn!("Too many failed attempts were performed to login to {req_username}.");
+        return true;
+    }
+
+    let ip_matching_denying_request = past_requests
+        .iter()
+        .filter(|r| r.username == *req_username && r.action.is_denying() && r.ip == req_ip);
+
+    // Get the number of all requests by this IP to the specified account in the BASE_TIME_WINDOW
+    let ip_base_window_reqs = ip_matching_denying_request
+        .clone()
+        .filter(|r| since_now(r.time) < BASE_TIME_WINDOW)
+        .count();
+    // Get the number of all requests by this IP to the specified account in the LARGE_TIME_WINDOW
+    let ip_large_window_reqs = ip_matching_denying_request
+        .clone()
+        .filter(|r| since_now(r.time) < LARGE_TIME_WINDOW)
+        .count();
+
+    if ip_large_window_reqs > LARGE_REQUEST_LIMIT {
+        permissions::block_ip(state, req_ip);
+        store_request(
+            req_username.to_string(),
+            req_ip,
+            LoginAction::Blocked,
+            state,
+        );
+        warn!("Login requests seem to be persistent brute-forcing and will be blocked.");
+        return true;
+    }
+
+    if ip_base_window_reqs > BASE_REQUEST_LIMIT {
+        store_request(req_username.clone(), req_ip, LoginAction::Limited, state);
+        warn!("Login requests seem suspicious and will be blocked for this cycle.");
+        return true;
+    }
+
+    false
 }
 
 /// Verify user and log in
@@ -49,138 +138,124 @@ fn setup_login_state(session: Session, state: Data<AppState>, provided_username:
     request_body = LoginReq,
     tags = ["public", "authentication"]
 )]
-pub async fn login(session: Session, json: Json<LoginReq>, state: Data<AppState>) -> HttpResponse {
-    let request_username = &json.username;
-    let request_password = &json.password;
-    let request_otp_code = &json.otp;
+pub async fn login(
+    session: Session,
+    json: Json<LoginReq>,
+    state: Data<AppState>,
+    req: HttpRequest,
+) -> HttpResponse {
+    use utils::models::Account;
+    use utils::schema::Users::dsl::*;
 
-    let database_admin_entry = get_administrator_account();
+    let req_ip = req.peer_addr().unwrap().ip();
+    let req_username = &json.username;
+    let req_password = &json.password;
+    let req_otp_token = &json.otp;
 
-    if &database_admin_entry.username != request_username {
-        warn!("A login with a wrong username will be denied.");
-        return HttpResponse::Unauthorized().json(ErrorCode::UnkownUsername.as_error_message());
+    if detects_spamming(&state, req_username, req_ip) {
+        return HttpResponse::TooManyRequests()
+            .body("Your request was identified as spam and has been rejected.");
     }
-    let stored_password: String = database_admin_entry.password_hash;
-    let hashes_correct =
-        permissions::password_hash(request_password.to_string(), stored_password.to_string());
+    info!("No spamming detected.");
 
-    if !hashes_correct {
-        warn!("A login with a wrong password will be denied.");
-        return HttpResponse::Forbidden().json(ErrorCode::WrongPassword.as_error_message());
+    // Find account entry for specified user, reject request if no such account exists
+    let user_query: Result<Account, _> = Users
+        .select(Account::as_select())
+        .filter(username.eq(req_username))
+        .get_result(&mut state.db_pool.lock().unwrap().get().unwrap());
+
+    let correct_user: Account = match user_query {
+        Ok(v) => v,
+        Err(diesel::NotFound) => {
+            store_request(
+                req_username.to_string(),
+                req_ip,
+                LoginAction::Rejected,
+                &state,
+            );
+            warn!("Unknown username detected.");
+            return HttpResponse::Forbidden().json(ErrorCode::UnkownUsername);
+        }
+        Err(e) => {
+            error!("Failed to read user list with error: {e}");
+            return HttpResponse::InternalServerError().json(
+                ErrorCode::DatabaseReadFailed(
+                    "Reading the user list from the database failed.".to_string(),
+                )
+                .as_error_message(),
+            );
+        }
+    };
+
+    let stored_password = correct_user.password_hash.clone();
+
+    if !crypto_utils::verify_with_hash(&stored_password, req_password) {
+        store_request(
+            req_username.to_string(),
+            req_ip,
+            LoginAction::Rejected,
+            &state,
+        );
+        warn!("Wrong password detected.");
+        return HttpResponse::Forbidden().json(ErrorCode::WrongPassword);
     }
 
-    if database_admin_entry.use_otp {
-        if json.otp.is_none() {
-            warn!("The user is missing an otp code.");
-            return HttpResponse::BadRequest().json(ErrorCode::MissingOtpCode.as_error_message());
-        }
+    if !correct_user.use_otp {
+        store_request(
+            req_username.to_string(),
+            req_ip,
+            LoginAction::Approved,
+            state.as_ref(),
+        );
+        info!("New login as {req_username} from {req_ip}");
+        register_session(session, state.as_ref(), req_username.to_string(), req_ip);
+        return HttpResponse::Ok().json(MessageRes::from(format!(
+            "You have been logged in as {req_username}."
+        )));
+    }
 
-        let stored_otp_secret = database_admin_entry.otp_secret.unwrap();
-
-        if otp::calculate_current_otp(&stored_otp_secret) != request_otp_code.clone().unwrap() {
-            warn!("A login with a wrong OTP code will be denied.");
-            return HttpResponse::Forbidden().json(ErrorCode::WrongOtpCode.as_error_message());
+    if let Some(token) = req_otp_token
+        && token.len() == 8
+    {
+        let enc_otp_secret = correct_user.otp_secret.clone().unwrap();
+        let dec_otp_secret = decrypt_bytes(Ciphertext::from(enc_otp_secret), req_password);
+        let token_check = utils::otp::verify_current_otp(
+            String::from_utf8(dec_otp_secret.unwrap()).unwrap(),
+            token,
+        );
+        if let Ok(correct_token) = token_check
+            && correct_token
+        {
+            store_request(
+                req_username.to_string(),
+                req_ip,
+                LoginAction::Approved,
+                state.as_ref(),
+            );
+            register_session(session, state.as_ref(), req_username.to_string(), req_ip);
+            info!("New login as {req_username} from {req_ip}");
+            HttpResponse::Ok().json(MessageRes::from(format!(
+                "You have been logged in as {req_username}."
+            )))
+        } else {
+            store_request(
+                req_username.to_string(),
+                req_ip,
+                LoginAction::Rejected,
+                &state,
+            );
+            warn!("Login request has a wrong otp code.");
+            HttpResponse::BadRequest().json(ErrorCode::WrongOtpCode)
         }
-        setup_login_state(session, state, database_admin_entry.username);
-        HttpResponse::Ok().json(MessageRes::from("The login was successful."))
     } else {
-        // User has logged in successfully using password
-        setup_login_state(session, state, database_admin_entry.username);
-        HttpResponse::Ok().json(MessageRes::from("The login was successful."))
-    }
-}
-
-#[derive(Serialize, ToSchema)]
-pub struct UseOtpRes {
-    used: bool,
-}
-
-#[utoipa::path(
-    get,
-    path = "/public/auth/useOtp",
-    responses((
-            status = 200,
-            body = UseOtpRes)),
-    tags=["public", "authentication"]
-)]
-/// Does the user use OTP?
-pub async fn use_otp(_state: Data<AppState>) -> HttpResponse {
-    HttpResponse::Ok().json(UseOtpRes {
-        used: get_administrator_account().use_otp,
-    })
-}
-
-/// Logs a user out.
-#[utoipa::path(
-    get,
-    path = "/private/logout",
-    responses((status = 301, description = "User has been logged out successfully and will be redirected.")),
-    tags = ["private", "authentication"]
-)]
-pub async fn logout(session: Session, state: Data<AppState>) -> HttpResponse {
-    session.purge();
-    *state.username.lock().unwrap() = None;
-    *state.login_token.lock().unwrap() = None;
-    *state.last_login.lock().unwrap() = None;
-    HttpResponse::Found()
-        .append_header(("Location", "/"))
-        .body("You will soon be redirected")
-}
-
-#[derive(Deserialize, ToSchema)]
-pub struct OtpActivationReq {
-    active: bool,
-}
-
-/// Disable or enable 2FA using OTP
-#[utoipa::path(
-    put,
-    path = "/private/auth/useOtp",
-    responses(
-            (status = 200, description = "Status updated."),
-    ),
-    request_body = OtpActivationReq,
-    tags = ["authentication", "private"]
-)]
-pub async fn activate_otp(json: Json<OtpActivationReq>) -> HttpResponse {
-    use utils::schema::Admin::dsl::*;
-    let connection = &mut database::establish_connection();
-
-    let status: bool = json.active;
-
-    let status_update_execution = diesel::update(Admin)
-        .set(use_otp.eq(status))
-        .execute(connection);
-
-    if let Err(update_error) = status_update_execution {
-        return HttpResponse::InternalServerError()
-            .json(ErrorCode::DatabaseReadFailed(update_error.to_string()).as_error_message());
-    }
-
-    if status {
-        let secret = otp::generate_otp_secret();
-
-        let secret_update_execution = diesel::update(Admin)
-            .set(otp_secret.eq(Some(secret.clone())))
-            .execute(connection);
-
-        if let Err(update_error) = secret_update_execution {
-            return HttpResponse::InternalServerError()
-                .json(ErrorCode::DatabaseReadFailed(update_error.to_string()).as_error_message());
-        }
-
-        HttpResponse::Ok().body(secret)
-    } else {
-        let secret_reset_execution = diesel::update(Admin)
-            .set(otp_secret.eq(None::<String>))
-            .execute(connection);
-
-        if let Err(update_error) = secret_reset_execution {
-            return HttpResponse::InternalServerError()
-                .json(ErrorCode::DatabaseReadFailed(update_error.to_string()).as_error_message());
-        }
-
-        HttpResponse::Ok().json(MessageRes::from("Updated OTP activation."))
+        store_request(
+            req_username.to_string(),
+            req_ip,
+            LoginAction::Rejected,
+            &state,
+        );
+        warn!("Login request was missing an OTP code.");
+        HttpResponse::UnprocessableEntity().json(ErrorCode::MissingOtpCode)
     }
 }
 
@@ -196,5 +271,48 @@ pub async fn verify_sudo_password(json: Json<SudoPasswordReq>) -> HttpResponse {
         return HttpResponse::Unauthorized().json(ErrorCode::BadSudoPassword.as_error_message());
     }
 
-    HttpResponse::Ok().json(MessageRes::from("Sudo password is correct"))
+    HttpResponse::Ok().json(MessageRes::from("The provided sudo password is correct."))
+}
+
+/// Logs a user out.
+#[utoipa::path(
+    post,
+    path = "/private/auth/logout",
+    responses((status = 301, description = "User has been logged out successfully and will be redirected.")),
+    tags = ["private", "authentication"]
+)]
+pub async fn logout(session: Session, state: Data<AppState>) -> HttpResponse {
+    let current = locate_session(&session, &state).expect("No login session found.");
+    remove_session(current, &state);
+    session.purge();
+    HttpResponse::Found()
+        .append_header(("Location", "/"))
+        .body("Redirecting...")
+}
+
+#[derive(Serialize)]
+pub struct RequestHistoryRes {
+    history: Vec<LoginRequest>,
+}
+
+/// Logs a user out.
+#[utoipa::path(
+    post,
+    path = "/private/auth/requestHistory",
+    responses((status = 301, description = "History of all attempts to login")),
+    tags = ["private", "authentication"]
+)]
+pub async fn request_history(state: actix_web::web::Data<AppState>) -> HttpResponse {
+    use utils::schema::LoginRequestHistory::dsl::*;
+
+    let exec = LoginRequestHistory
+        .select(LoginRequest::as_select())
+        .get_results(&mut state.db_pool.lock().unwrap().get().unwrap());
+
+    match exec {
+        Ok(v) => HttpResponse::Ok().json(RequestHistoryRes { history: v }),
+        Err(e) => {
+            HttpResponse::InternalServerError().json(ErrorCode::DatabaseReadFailed(e.to_string()))
+        }
+    }
 }
