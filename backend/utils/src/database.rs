@@ -6,7 +6,7 @@ use diesel::{
 };
 use std::{path::PathBuf, time::Duration};
 
-/// Get the absolute path for the database by joining ~/.local/share with zentrox/database.db.
+/// Get the absolute path for the database by joining `~/.local/share` with `zentrox/database.db`.
 pub fn get_database_location() -> PathBuf {
     dirs::data_local_dir()
         .unwrap()
@@ -35,6 +35,7 @@ impl CustomizeConnection<SqliteConnection, r2d2::Error> for ConnectionOptions {
     }
 }
 
+/// Directly connects to a database and creates on [`SqliteConnection`].
 pub fn establish_direct_connection() -> SqliteConnection {
     let db_url = get_database_location();
     SqliteConnection::establish(
@@ -46,6 +47,13 @@ pub fn establish_direct_connection() -> SqliteConnection {
     .expect("Failed to establish database connection.")
 }
 
+/// Creates a new pool of [`SqliteConnection`]s to the database.
+/// 
+/// The connections are customized to have a `busy_timeout` of 1000 milliseconds.
+/// The pool has an overall `connection_timeout` of 500 milliseconds.
+///
+/// # Panics
+/// The function will panic of no pool could be established.
 pub fn create_connection_pool() -> Pool<ConnectionManager<SqliteConnection>> {
     let db_url = get_database_location();
     let mgr = ConnectionManager::<SqliteConnection>::new(
