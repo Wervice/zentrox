@@ -18,7 +18,7 @@ pub fn private_ip() -> Option<IpAddr> {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, ToSchema)]
+#[derive(Serialize, Deserialize, Clone, ToSchema, Debug)]
 pub struct TransmissionStatistics {
     pub bytes: f64,
     pub packets: i64,
@@ -31,7 +31,7 @@ pub struct TransmissionStatistics {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
-#[serde(rename(deserialize = "UPPERCASE"))]
+#[serde(rename_all(deserialize = "UPPERCASE"))]
 pub enum OperationalState {
     Up,
     Down,
@@ -41,7 +41,7 @@ pub enum OperationalState {
     Unknown,
 }
 
-#[derive(Deserialize, Serialize, Clone, ToSchema)]
+#[derive(Deserialize, Serialize, Clone, ToSchema, Debug)]
 pub struct Stats64 {
     #[serde(rename(deserialize = "rx"))]
     pub recieved: TransmissionStatistics,
@@ -50,7 +50,7 @@ pub struct Stats64 {
 }
 
 /// Interface is a public struct to collect information about network interfaces.
-#[derive(Deserialize, Serialize, Clone, ToSchema)]
+#[derive(Deserialize, Serialize, Clone, ToSchema, Debug)]
 pub struct Interface {
     #[serde(rename(deserialize = "ifindex"))]
     pub index: i64,
