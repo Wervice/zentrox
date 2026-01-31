@@ -1,12 +1,12 @@
 use actix_web::{
-    web::{Data, Json},
     HttpResponse,
+    web::{Data, Json},
 };
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::time::UNIX_EPOCH;
+use utils::packages;
 use utils::status_com::ErrorCode;
-use utils::{database::establish_connection, packages};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -44,10 +44,10 @@ struct PackageStatisticsRes {
 ///
 /// This includes the full names of all packages known to the package manager. Updates can not be listed if the package
 /// manager is PacMan.
-pub async fn database() -> HttpResponse {
+pub async fn database(state: Data<AppState>) -> HttpResponse {
     use utils::models::PackageAction;
     use utils::schema::PackageActions::dsl::*;
-    let connection = &mut establish_connection();
+    let connection = &mut state.db_pool.lock().unwrap().get().unwrap();
 
     let stored_last_database_update = match PackageActions
         .select(PackageAction::as_select())
@@ -89,10 +89,10 @@ pub async fn database() -> HttpResponse {
     tags = ["private", "packages"]
 )]
 /// Package database counts
-pub async fn statistics() -> HttpResponse {
+pub async fn statistics(state: Data<AppState>) -> HttpResponse {
     use utils::models::PackageAction;
     use utils::schema::PackageActions::dsl::*;
-    let connection = &mut establish_connection();
+    let connection = &mut state.db_pool.lock().unwrap().get().unwrap();
 
     let stored_last_database_update = match PackageActions
         .select(PackageAction::as_select())
@@ -174,7 +174,7 @@ pub async fn update_db(state: Data<AppState>, json: Json<SudoPasswordReq>) -> Ht
         .insert(job_id, BackgroundTaskState::Pending);
 
     let block = actix_web::web::block(move || {
-        let connection = &mut establish_connection();
+        let connection = &mut state.db_pool.lock().unwrap().get().unwrap();
         if packages::update_database(json.into_inner().sudo_password).is_ok() {
             let updated_new_database_update = std::time::SystemTime::now()
                 .duration_since(UNIX_EPOCH)

@@ -1,6 +1,6 @@
-use crate::SinglePath;
+use crate::{AppState, SinglePath};
 use actix_web::http::header;
-use actix_web::web::{Json, Path};
+use actix_web::web::{Data, Json, Path};
 use actix_web::{HttpRequest, HttpResponse, web::Query};
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -9,7 +9,6 @@ use std::io::BufReader;
 use std::io::Seek;
 use std::io::{Read, SeekFrom};
 use std::path::PathBuf;
-use utils::database::establish_connection;
 use utils::models::{MediaSource, RecommendedMediaEntry};
 use utils::status_com::{ErrorCode, MessageRes};
 use utils::visit_dirs::visit_dirs;
@@ -65,13 +64,17 @@ fn is_media_path_whitelisted(l: Vec<MediaSource>, p: PathBuf) -> bool {
     responses((status = 200, description = "Binary media file", content_type = "application/octet-stream"), (status = 404, description = "File not found."), (status = 416), (status = 403, description = "Media center may be disabled.")),
     tags = ["media", "private"]
 )]
-pub async fn download(info: Query<SinglePath>, req: HttpRequest) -> HttpResponse {
+pub async fn download(
+    info: Query<SinglePath>,
+    req: HttpRequest,
+    state: Data<AppState>,
+) -> HttpResponse {
     use models::MediaSource;
     use models::RecommendedMediaEntry;
     use schema::MediaSources::dsl::*;
     use schema::RecommendedMedia::dsl::*;
 
-    let connection = &mut establish_connection();
+    let connection = &mut state.db_pool.lock().unwrap().get().unwrap();
 
     // Determine the requested file path
     let requested_file_path = &info.path;
@@ -210,11 +213,11 @@ pub struct MediaSourcesSchema {
 ///
 /// Media sources control what content is shown to the user in Media Center and to which files the
 /// user has access.
-pub async fn update_sources(json: Json<MediaSourcesSchema>) -> HttpResponse {
+pub async fn update_sources(json: Json<MediaSourcesSchema>, state: Data<AppState>) -> HttpResponse {
     use models::MediaSource;
     use schema::MediaSources::dsl::*;
 
-    let connection = &mut establish_connection();
+    let connection = &mut state.db_pool.lock().unwrap().get().unwrap();
 
     let locations = &json.locations;
 
@@ -259,13 +262,13 @@ pub async fn update_sources(json: Json<MediaSourcesSchema>) -> HttpResponse {
 /// List of media sources.
 ///
 /// See [`update_media_source_list`] for reference.
-pub async fn get_sources() -> HttpResponse {
+pub async fn get_sources(state: Data<AppState>) -> HttpResponse {
     use models::MediaSource;
     use schema::MediaSources::dsl::*;
 
     let locations: Vec<MediaSource> = MediaSources
         .select(MediaSource::as_select())
-        .get_results(&mut establish_connection())
+        .get_results(&mut state.db_pool.lock().unwrap().get().unwrap())
         .unwrap();
 
     HttpResponse::Ok().json(MediaSourcesSchema { locations })
@@ -285,13 +288,13 @@ struct MediaListRes {
 /// List of media files
 ///
 /// This list is controlled by the active media sources.
-pub async fn get_contents() -> HttpResponse {
+pub async fn get_contents(state: Data<AppState>) -> HttpResponse {
     use schema::Media::dsl::*;
     use schema::MediaSources::dsl::*;
 
     use models::MediaEntry;
 
-    let connection = &mut establish_connection();
+    let connection = &mut state.db_pool.lock().unwrap().get().unwrap();
 
     let sources: Vec<PathBuf> = MediaSources
         .select(MediaSource::as_select())
@@ -340,13 +343,13 @@ pub async fn get_contents() -> HttpResponse {
 ///
 /// Only media covers that are in an active media source will be shown.
 #[utoipa::path(get, path = "/private/media/cover", responses((status = 200, content_type = "image/"), (status = 404, description = "Media not found.")), tags = ["media", "private"], params(("path" = String, Query)))]
-pub async fn cover(info: Query<SinglePath>) -> HttpResponse {
+pub async fn cover(info: Query<SinglePath>, state: Data<AppState>) -> HttpResponse {
     use models::MediaSource;
     use schema::MediaSources::dsl::*;
 
     let sources: Vec<MediaSource> = MediaSources
         .select(MediaSource::as_select())
-        .get_results(&mut establish_connection())
+        .get_results(&mut state.db_pool.lock().unwrap().get().unwrap())
         .unwrap();
 
     let cover_uri = &info.path;
@@ -382,13 +385,13 @@ pub async fn cover(info: Query<SinglePath>) -> HttpResponse {
     }
 }
 
-pub fn get_media_enabled_database() -> bool {
+pub fn get_media_enabled_database(state: Data<AppState>) -> bool {
     use models::Configurations;
     use schema::Configuration::dsl::*;
 
     Configuration
         .select(Configurations::as_select())
-        .first(&mut establish_connection())
+        .first(&mut state.db_pool.lock().unwrap().get().unwrap())
         .unwrap()
         .media_enabled
 }
@@ -400,18 +403,18 @@ pub struct MediaEnabledSchema {
 
 /// Is media center enabled?
 #[utoipa::path(get, path = "/private/media/enabled", responses((status = 200, body = MediaEnabledSchema)), tags = ["media", "private"])]
-pub async fn get_media_enabled_handler() -> HttpResponse {
+pub async fn get_media_enabled_handler(state: Data<AppState>) -> HttpResponse {
     HttpResponse::Ok().json(MediaEnabledSchema {
-        enabled: get_media_enabled_database(),
+        enabled: get_media_enabled_database(state),
     })
 }
 
 /// Set media center activation
 #[utoipa::path(post, path = "/private/media/enabled", responses((status = 200)), request_body = MediaEnabledSchema, tags = ["media", "private"])]
-pub async fn activate_media(e: Json<MediaEnabledSchema>) -> HttpResponse {
+pub async fn activate_media(e: Json<MediaEnabledSchema>, state: Data<AppState>) -> HttpResponse {
     use schema::Configuration::dsl::*;
 
-    let connection = &mut establish_connection();
+    let connection = &mut state.db_pool.lock().unwrap().get().unwrap();
 
     let database_update_execution = diesel::update(Configuration)
         .set(media_enabled.eq(e.enabled))
@@ -434,11 +437,11 @@ pub struct RecommendationsRes {
 
 /// Media files history
 #[utoipa::path(get, path = "/private/media/history", tags = ["private", "media"], responses((status = 200, body = RecommendationsRes)))]
-pub async fn read_history() -> HttpResponse {
+pub async fn read_history(state: Data<AppState>) -> HttpResponse {
     use models::RecommendedMediaEntry;
     use schema::RecommendedMedia::dsl::*;
 
-    let connection = &mut establish_connection();
+    let connection = &mut state.db_pool.lock().unwrap().get().unwrap();
 
     let queried_entries = RecommendedMedia
         .select(RecommendedMediaEntry::as_select())
@@ -465,7 +468,11 @@ pub struct MetadataReq {
 
 #[utoipa::path(get, path = "/private/media/metadata/{file}", params(("file" = String, Path)), tags = ["private", "media"], responses((status = 200, body = RecommendationsRes)))]
 /// Update media metadata
-pub async fn update_metadata(path: Path<PathBuf>, json: Json<MetadataReq>) -> HttpResponse {
+pub async fn update_metadata(
+    path: Path<PathBuf>,
+    json: Json<MetadataReq>,
+    state: Data<AppState>,
+) -> HttpResponse {
     use models::MediaEntry;
     use schema::Media::dsl::*;
 
@@ -477,7 +484,7 @@ pub async fn update_metadata(path: Path<PathBuf>, json: Json<MetadataReq>) -> Ht
         cover: json.cover.clone(),
     };
 
-    let connection = &mut establish_connection();
+    let connection = &mut state.db_pool.lock().unwrap().get().unwrap();
 
     let wx = diesel::insert_into(Media)
         .values(&new_media_entry)

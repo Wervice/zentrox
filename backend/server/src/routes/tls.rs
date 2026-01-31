@@ -1,12 +1,15 @@
 use actix_multipart::form::{MultipartForm, tempfile::TempFile};
 use actix_web::HttpResponse;
+use actix_web::web::Data;
 use diesel::prelude::*;
 use log::error;
 use serde::Serialize;
-use std::{fs, path};
+use std::fs;
 use utils::status_com::ErrorCode;
-use utils::{database::establish_connection, models, schema, status_com::MessageRes};
+use utils::{models, schema, status_com::MessageRes};
 use utoipa::ToSchema;
+
+use crate::AppState;
 
 #[derive(MultipartForm, ToSchema)]
 pub struct TlsUploadForm {
@@ -26,7 +29,10 @@ pub struct TlsUploadForm {
     responses((status = 200), (status = 409, description = "Certificate with same name already exists.")),
     tags = ["private", "tls"]
 )]
-pub async fn upload(MultipartForm(form): MultipartForm<TlsUploadForm>) -> HttpResponse {
+pub async fn upload(
+    MultipartForm(form): MultipartForm<TlsUploadForm>,
+    state: Data<AppState>,
+) -> HttpResponse {
     use schema::Configuration::dsl::*;
 
     let file_name = form
@@ -45,7 +51,7 @@ pub async fn upload(MultipartForm(form): MultipartForm<TlsUploadForm>) -> HttpRe
 
     let database_update_execution = diesel::update(Configuration)
         .set(tls_cert.eq(&file_name))
-        .execute(&mut establish_connection());
+        .execute(&mut state.db_pool.lock().unwrap().get().unwrap());
 
     if let Err(database_error) = database_update_execution {
         return HttpResponse::InternalServerError()
@@ -87,12 +93,12 @@ struct CertNameRes {
     responses((status = 200, body = CertNameRes)),
     tags = ["private", "tls"]
 )]
-pub async fn name() -> HttpResponse {
+pub async fn name(state: Data<AppState>) -> HttpResponse {
     use models::Configurations;
     use schema::Configuration::dsl::*;
     let name = Configuration
         .select(Configurations::as_select())
-        .first(&mut establish_connection())
+        .first(&mut state.db_pool.lock().unwrap().get().unwrap())
         .unwrap()
         .tls_cert;
 
