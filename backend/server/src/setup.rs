@@ -1,13 +1,15 @@
+use argon2::password_hash::SaltString;
 use diesel::RunQueryDsl;
 use dirs::{self, home_dir};
+use rand::rngs::OsRng;
 use rcgen::{CertifiedKey, generate_simple_self_signed};
 use rpassword::prompt_password;
 use std::fs;
 use std::io::{self, BufRead, Write};
 use std::time::UNIX_EPOCH;
-use utils::crypto_utils::argon2_derive_key;
-use utils::database::{self, establish_connection};
-use utils::otp::generate_otp_secret;
+use utils::crypto_utils::{argon2_derive_key, encrypt_bytes};
+use utils::database::{self, establish_direct_connection};
+use utils::otp::{derive_otp_url, generate_otp_secret};
 use utils::sudo::SudoCommand;
 
 fn flush() {
@@ -38,12 +40,12 @@ fn hostname() -> Option<String> {
 pub fn run_setup() -> Result<(), String> {
     // NOTE Prettier TUI would be reasonable
 
-    use utils::models::AdminAccount;
+    use utils::models::Account;
     use utils::models::Configurations;
     use utils::models::PackageAction;
-    use utils::schema::Admin::dsl::*;
     use utils::schema::Configuration::dsl::*;
     use utils::schema::PackageActions::dsl::*;
+    use utils::schema::Users::dsl::*;
 
     let _installation_path = home_dir()
         .unwrap()
@@ -79,11 +81,9 @@ pub fn run_setup() -> Result<(), String> {
         }
     };
 
-    let connection = &mut establish_connection();
+    let connection = &mut establish_direct_connection();
 
-    // NOTE Handle these errors
-
-    diesel::insert_into(Configuration)
+    if let Err(e) = diesel::insert_into(Configuration)
         .values(Configurations {
             media_enabled: false,
             vault_enabled: false,
@@ -91,46 +91,61 @@ pub fn run_setup() -> Result<(), String> {
             tls_cert: "selfsigned.pem".to_string(),
             id: 0,
         })
-        .execute(connection);
+        .execute(connection)
+    {
+        eprintln!("Datebase insertion failed with error: {e}");
+    }
 
-    diesel::insert_into(PackageActions)
+    if let Err(e) = diesel::insert_into(PackageActions)
         .values(PackageAction {
             key: 0_i32,
             last_database_update: None,
         })
-        .execute(connection);
+        .execute(connection)
+    {
+        eprintln!("Datebase insertion failed with error: {e}");
+    }
 
-    let new_password_hash = argon2_derive_key(&input_password.unwrap());
-    let new_password_hash_hex = hex::encode(new_password_hash.unwrap()).to_string();
-
-    let generated_otp_secret = generate_otp_secret();
+    let random_salt = SaltString::generate(&mut OsRng);
+    let new_password_hash =
+        argon2_derive_key(input_password.as_ref().unwrap(), random_salt).to_string();
+    
+    let mut encrypted_generated_otp_secret: Option<String> = None;
+    if enable_otp {
+        let generated_otp_secret = generate_otp_secret();
+        encrypted_generated_otp_secret = Some(
+            encrypt_bytes(generated_otp_secret.as_bytes(), &input_password.unwrap()).to_string(),
+        );
+        println!("Your OTP secret is: {generated_otp_secret}");
+        println!(
+            "Store it in a secure location, ideally a 2FA App and keep it to yourself. You can not view this secret again.\n"
+        );
+        let qr_x = qr2term::print_qr(derive_otp_url(generated_otp_secret, input_username.clone()));
+        if let Err(e) = qr_x {
+            eprintln!("Failed to show OTP QR code due to error: {e}");
+        }
+        println!("\n");
+    }
 
     let current_ts = std::time::SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_millis() as i64;
 
-    diesel::insert_into(Admin)
-        .values(AdminAccount {
+    if let Err(e) = diesel::insert_into(Users)
+        .values(Account {
             username: input_username,
             use_otp: enable_otp,
-            otp_secret: {
-                if enable_otp {
-                    Some(generated_otp_secret.clone())
-                } else {
-                    None
-                }
-            },
-            password_hash: new_password_hash_hex.to_string(),
+            otp_secret: { encrypted_generated_otp_secret },
+            password_hash: new_password_hash.to_string(),
             created_at: current_ts,
             updated_at: current_ts,
             id: 0_i32,
         })
-        .execute(connection);
-
-    println!(
-        "Your OTP secret is: {generated_otp_secret}\nStore it in a secure location, ideally a 2FA App and keep it to yourself. You can not view this secret again."
-    );
+        .execute(connection)
+    {
+        eprintln!("Datebase insertion failed with error: {e}");
+    }
 
     let subject_alt_names = vec![
         "localhost".to_string(),
