@@ -1,7 +1,7 @@
 use log::{debug, warn};
 use serde::Deserialize;
-use std::{process::Command};
-use utoipa::{ToSchema};
+use std::process::Command;
+use utoipa::ToSchema;
 
 #[derive(Debug)]
 pub enum DriveError {

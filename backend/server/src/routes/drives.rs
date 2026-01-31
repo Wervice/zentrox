@@ -1,6 +1,6 @@
-use actix_web::{HttpResponse};
+use actix_web::HttpResponse;
 use log::error;
-use serde::{Serialize};
+use serde::Serialize;
 use utils::drives::{self};
 use utils::status_com::ErrorCode;
 use utoipa::ToSchema;

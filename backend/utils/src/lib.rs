@@ -16,5 +16,4 @@ pub mod time;
 pub mod ufw;
 pub mod uptime;
 pub mod users;
-pub mod vault;
 pub mod visit_dirs;

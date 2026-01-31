@@ -25,7 +25,7 @@ pub enum Interval {
 }
 
 /// The enumeration Digit is used represent the annotation of cron times in memory.
-/// Cron uses values like "1-10" ,"2,4,3", "10/3" to represent intervals or future repetitive events.
+/// Cron uses values like "1-10", "2,4,3", "10/3" to represent intervals or future repetitive events.
 /// Any: Any value is accepted (e.g.: * * * * * “At every minute.”)
 /// Range(usize, usize): All values between point a and b (e.g. * 1-4 * * * “At every minute past every hour from 1 through 4.”)
 /// List(Vec<usize>): A list of values (* 1,4 * * * "At every minute past hour 1 and 4.”)
@@ -47,7 +47,7 @@ pub enum Digit {
     List(Vec<usize>),
     Value(usize),
     Repeating(String, usize),
-    Composed(String)
+    Composed(String),
 }
 
 /// All months supported by cron. Digit can be used as months can also be expressed using numbers

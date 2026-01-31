@@ -1,8 +1,8 @@
-use std::{fmt::Display, time::{Duration}};
 use crate::sudo::SudoCommand;
 use crate::users::NativeUser;
 use log::{debug, error};
 use serde::{Deserialize, Serialize};
+use std::{fmt::Display, time::Duration};
 use utoipa::ToSchema;
 
 #[derive(Deserialize, Debug)]
@@ -57,7 +57,7 @@ struct JournalEntryDeserializationSchema {
 #[serde(untagged)]
 enum PhantomStringOrDigit {
     String(String),
-    Digit(u128)
+    Digit(u128),
 }
 
 #[derive(Serialize, Debug, ToSchema, Clone)]
@@ -129,9 +129,7 @@ pub fn log_messages(
         o.lines()
             .map(|line| {
                 let parse = serde_json::from_str::<JournalEntryDeserializationSchema>(line);
-                if let Ok(parsed_entry) =
-                    parse
-                {
+                if let Ok(parsed_entry) = parse {
                     let user: Option<NativeUser> = if let Some(uid_field) = parsed_entry.uid
                         && let Ok(numeric_uid) = uid_field.parse::<u32>()
                         && let Ok(found_user) = NativeUser::from_uid(numeric_uid)
@@ -153,7 +151,7 @@ pub fn log_messages(
                         timestamp: {
                             match parsed_entry.realtime_timestamp {
                                 PhantomStringOrDigit::Digit(d) => d,
-                                PhantomStringOrDigit::String(s) => s.parse::<u128>().unwrap()
+                                PhantomStringOrDigit::String(s) => s.parse::<u128>().unwrap(),
                             }
                         },
                         message: parsed_entry.message.map(|msg| msg.to_string()),

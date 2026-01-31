@@ -4,6 +4,7 @@ use actix_web::{
     HttpResponse,
     web::{Data, Path},
 };
+use log::{debug, info};
 use log::{error, warn};
 use serde::{Deserialize, Serialize};
 use std::process::{Command, Stdio};
@@ -19,7 +20,6 @@ use utils::{
 };
 use utoipa::ToSchema;
 use uuid::Uuid;
-use log::{info, debug};
 
 #[derive(Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -147,10 +147,12 @@ pub async fn run_command(state: Data<AppState>, json: Json<CronjobCommandReq>) -
                     status = BackgroundTaskState::Fail;
                 }
             }
-            Err(_) => status = {
-                warn!("Cronjob command initiation failed.");
-                BackgroundTaskState::Fail
-            },
+            Err(_) => {
+                status = {
+                    warn!("Cronjob command initiation failed.");
+                    BackgroundTaskState::Fail
+                }
+            }
         };
 
         debug!("Cronjob command execution was given task id {uuid}");

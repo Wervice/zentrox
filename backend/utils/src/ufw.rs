@@ -2,18 +2,21 @@
 //! The module uses a Python helper program to retrieve data from the frontend.
 //! Rules and defaults are changed, created and set using the ufw frontend via commands.
 //! Data from the helper program is deserialized and further processed into different structs.
-//! To command is exexcuted using dry-run.
+//! To command is executed using dry-run.
 //!
-//! This module now exposes serveral functions and structs. Those include
+//! This module now exposes several functions and structs. Those include
 //! - `status(password: String)` - [status] retrieves the rules and settings of UFW
 //! - `new_rule(password: String, rule: Rule)` - [new_rule] creates a new rule.
-//! - `delete_rule(password: String, index: u32)` - [delete_rule] deletes the n-th rule.
+//! - `delete_rule(password: String, index: u32)` - [delete_rule] deletes the nth rule.
 //! - `rules_raw()` - [rules_raw] returns the raw user.rule file containing the iptables rules.
 //! - `set_defaults(password: String, defaults: Defaults)` - [set_defaults] sets the default actions for incoming, outgoing and forwarded requests.
 //! - `set_enabled(password: String, enabled: bool)` - [set_enabled] enables or disables the firewall.
 
 use std::{
-    fmt::Display, fs::{self, exists}, net::IpAddr, str::FromStr
+    fmt::Display,
+    fs::{self, exists},
+    net::IpAddr,
+    str::FromStr,
 };
 
 use log::{error, info, warn};
@@ -90,7 +93,7 @@ pub enum Action {
     Deny,
     Allow,
     Reject,
-    Limit
+    Limit,
 }
 
 /// A default action as described by UFW.
@@ -184,7 +187,7 @@ impl Display for Action {
             Action::Deny => f.write_str("deny"),
             Action::Allow => f.write_str("allow"),
             Action::Reject => f.write_str("reject"),
-            Action::Limit => f.write_str("limit")
+            Action::Limit => f.write_str("limit"),
         }
     }
 }
@@ -490,7 +493,9 @@ pub fn new_rule(password: String, rule: Rule) -> Result<Vec<String>, UfwInteract
 /// Deleting the first rule from the ruleset:
 ///
 /// ```rust
-/// delete_rule(password, 0);
+/// use utils::ufw::delete_rule;
+///
+/// delete_rule("sudo password", 0);
 /// ```
 ///
 /// [`delete_rule`]
@@ -530,9 +535,10 @@ pub fn delete_rule(password: String, index: u32) -> Result<Vec<String>, UfwInter
 ///
 /// # Usage
 /// ```rust
-/// if let Err(sudo_error) = set_enabled(password, true) {
+/// use utils::ufw::set_enabled;
+///
+/// if let Err(sudo_error) = set_enabled("sudo password", true) {
 ///     println!("Failed to disable UFW.");
-///     dbg!(sudo_error);
 /// }
 /// ```
 ///
@@ -570,11 +576,15 @@ fn handle_defaults_command_execution(command: SudoCommand) -> Result<(), UfwInte
 /// Set the default actions for incoming rules to deny and for outgoing to allow:
 ///
 /// ```rust
+/// use utils::ufw::CreationDefaults;
+/// use utils::ufw::Action;
+/// use utils::ufw::set_defaults;
+///
 /// let defaults = CreationDefaults {
 ///     input: Some(Action::Deny),
 ///     output: Some(Action::Allow),
-///     forward: None(Action::Reject)
-/// }
+///     forward: None
+/// };
 ///
 /// set_defaults(password, defaults);
 /// ```

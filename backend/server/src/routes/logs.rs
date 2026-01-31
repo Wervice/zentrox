@@ -37,7 +37,11 @@ pub async fn read(json: Json<LogReq>) -> HttpResponse {
     let since = json.since;
     let until = json.until;
 
-    match logs::log_messages(json.sudo_password.clone(), Duration::from_secs(since), Duration::from_secs(until)) {
+    match logs::log_messages(
+        json.sudo_password.clone(),
+        Duration::from_secs(since),
+        Duration::from_secs(until),
+    ) {
         Ok(messages) => {
             let mut users = vec![];
             let messages_minified: Vec<QuickJournalEntry> = messages
