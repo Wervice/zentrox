@@ -43,6 +43,11 @@ node_modules/
 jspm_packages/
 frontend/node_modules/
 
+# Dependecy listing
+pnpm-lock.yaml
+packages-lock.json
+Cargo.lock
+
 # Snowpack dependency directory (https://snowpack.dev/)
 web_modules/
 
@@ -139,11 +144,10 @@ selfsigned.key
 vsftpd.c
 
 # Rust
-backend/target/
-backend/debug/
-backend/Cargo.lock/
-release/
-backend/static/
+*/backend/target/
+*/frontend/target/
+*/api/target/
+*.lock
 *.tar.gz
 *.key
 *.pem
