@@ -433,10 +433,7 @@ async fn main() -> std::io::Result<()> {
             )
             .wrap(if app_state.environment.disable_cors {
                 warn!("CORS policy is set to permissive.");
-                Cors::default()
-                    .allow_any_method()
-                    .allowed_origin("http://localhost:3000")
-                    .block_on_origin_mismatch(true)
+                Cors::permissive().allowed_origin("http://localhost:3000")
             } else {
                 Cors::default()
             })

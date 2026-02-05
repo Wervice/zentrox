@@ -49,6 +49,7 @@ simplelog = "0.12.2"
 argon2 = "0.5.3"
 thiserror = "2.0.17"
 qr2term = "0.3.3"
+api = { path = "../../api/" }
 
 [profile.release]
 opt-level = 3
