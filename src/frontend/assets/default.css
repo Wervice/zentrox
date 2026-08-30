@@ -1,0 +1,65 @@
+*::selection {
+	background: black;
+	color: white;
+}
+
+@media (prefers-color-scheme: dark) {
+	*::selection {
+		background: white;
+		color: black;
+	}
+
+	body {
+		background: black;
+		color: white;
+	}
+}
+
+::-webkit-scrollbar {
+	display: none;
+}
+
+::-webkit-scrollbar-track {
+	display: none;
+}
+
+::-webkit-scrollbar-thumb {
+	display: none;
+}
+
+::-webkit-scrollbar-thumb:hover {
+	display: none;
+}
+
+/* For Firefox */
+* {
+	scrollbar-width: none;
+	-ms-overflow-style: none;
+	scrollbar-width: none;
+}
+
+.scrollable {
+    /* WebKit (Chrome, Safari) */
+    &::-webkit-scrollbar {
+        display: block;
+        width: 10px;
+    }
+
+    &::-webkit-scrollbar-track {
+	    display: block;
+    }
+
+    &::-webkit-scrollbar-thumb {
+	    display: block;
+    }
+
+    &::-webkit-scrollbar-thumb:hover {
+	    display: block;
+    }
+
+    /* Firefox */
+    scrollbar-width: auto;
+
+    /* IE/Edge */
+    -ms-overflow-style: auto;
+}

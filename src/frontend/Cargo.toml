@@ -2,22 +2,31 @@
 name = "frontend"
 version = "0.1.0"
 authors = ["Wervice <wervice@proton.me>"]
-edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+edition = "2024"
 
 [dependencies]
-dioxus = { version = "0.7.1", features = [] }
+api = { path = "../api/" }
+dioxus = { version = "0.7.10", features = [] }
 dioxus-primitives = { git = "https://github.com/DioxusLabs/components", version = "0.0.1", default-features = false }
 dioxus-free-icons = { version = "0.10.0", features = ["bootstrap"] }
-gloo-net = { version = "0.6.0", features = ["http", "json", "websocket"] }
+gloo-net = { version = "0.6.0", features = ["http", "json"] }
 serde = { version = "1.0.228", features = ["derive"] }
-web-sys = { version = "0.3.85", features = ["RequestCredentials"] }
+web-sys = { version = "0.3.85", features = ["RequestCredentials", "Window", "Document", "HtmlElement", "Element", "Clipboard", "Navigator", "EventTarget", "MouseEvent", "MediaQueryList", "Event"] }
 tracing = "0.1.44"
-api = { path = "../api/" }
+Inflector = "0.11.4"
+chrono = "0.4.43"
+gloo-timers = { version = "0.3.0", features = ["futures"] }
+serde_json = "1.0.150"
+dioxus-icons = { version = "0.1.0", default-features = false }
+time = { version = "0.3.44", default-features = false }
+uuid = { version = "1.24.0", features = ["js", "v4"] }
+plotters = "0.3.7"
+plotters-canvas = "0.3.1"
+dioxus-charts = "0.4.0"
 
 [features]
 default = ["web"]
 web = ["dioxus/web"]
-desktop = ["dioxus/desktop"]
-mobile = ["dioxus/mobile"]
+
+[profile.dev]
+debug = "line-tables-only"

@@ -8,11 +8,12 @@ use actix_web::{
     HttpResponse,
     web::{Data, Json},
 };
+use api::account::AccountDetailsRes;
 use argon2::password_hash::SaltString;
 use diesel::prelude::*;
 use log::error;
 use rand::rngs::OsRng;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::{fs, io::Read, path, time::UNIX_EPOCH};
 use utils::{
     crypto_utils::encrypt_bytes,
@@ -21,11 +22,6 @@ use utils::{
     status_com::{ErrorCode, MessageRes},
 };
 use utoipa::ToSchema;
-
-#[derive(Serialize, ToSchema)]
-struct AccountDetailsRes {
-    username: String,
-}
 
 /// Admin account details
 #[utoipa::path(

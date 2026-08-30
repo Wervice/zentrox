@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg version="1.1" viewBox="0 0 1 1" xmlns="http://www.w3.org/2000/svg">
+<path d="m0.5 0a0.5 0.5 0 0 0-0.46289 0.30859 0.5 0.5 0 0 0 0.10938 0.54492 0.5 0.5 0 0 0 0.54492 0.10938 0.5 0.5 0 0 0 0.30859-0.46289h-0.125a0.375 0.375 0 0 1-0.375 0.375 0.375 0.375 0 0 1-0.375-0.375 0.375 0.375 0 0 1 0.375-0.375z" stroke-dashoffset="11.339" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" style="paint-order:stroke markers fill;transform-box:fill-box;transform-origin:center" fill="white">
+<animateTransform attributeName="transform" attributeType="XML" dur="1000ms" from="0 0 0" repeatCount="indefinite" to="360 0 0" type="rotate"/>
+</path>
+</svg>

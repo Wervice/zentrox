@@ -1,3 +1,12 @@
+/*
+*	Copyright github.com/DioxusLabs
+*	SPDX-License-Identifier: Apache-2.0 OR MIT
+*
+*	Modified by Constantin Volke
+*	SPDX-License-Identifier: Apache-2.0
+*	See further details in the `legal` directory under `dioxus-components.txt`.
+*/
+
 use dioxus::prelude::*;
 
 #[component]
@@ -7,12 +16,7 @@ pub fn Card(
 ) -> Element {
     rsx! {
         document::Link { rel: "stylesheet", href: asset!("./style.css") }
-        div {
-            class: "card",
-            "data-slot": "card",
-            ..attributes,
-            {children}
-        }
+        div { class: "card", "data-slot": "card", ..attributes, {children} }
     }
 }
 
@@ -22,12 +26,7 @@ pub fn CardHeader(
     children: Element,
 ) -> Element {
     rsx! {
-        div {
-            class: "card-header",
-            "data-slot": "card-header",
-            ..attributes,
-            {children}
-        }
+        div { class: "card-header", "data-slot": "card-header", ..attributes, {children} }
     }
 }
 
@@ -37,12 +36,7 @@ pub fn CardTitle(
     children: Element,
 ) -> Element {
     rsx! {
-        div {
-            class: "card-title",
-            "data-slot": "card-title",
-            ..attributes,
-            {children}
-        }
+        div { class: "card-title", "data-slot": "card-title", ..attributes, {children} }
     }
 }
 
@@ -67,12 +61,7 @@ pub fn CardAction(
     children: Element,
 ) -> Element {
     rsx! {
-        div {
-            class: "card-action",
-            "data-slot": "card-action",
-            ..attributes,
-            {children}
-        }
+        div { class: "card-action", "data-slot": "card-action", ..attributes, {children} }
     }
 }
 
@@ -82,12 +71,7 @@ pub fn CardContent(
     children: Element,
 ) -> Element {
     rsx! {
-        div {
-            class: "card-content",
-            "data-slot": "card-content",
-            ..attributes,
-            {children}
-        }
+        div { class: "card-content", "data-slot": "card-content", ..attributes, {children} }
     }
 }
 
@@ -97,11 +81,6 @@ pub fn CardFooter(
     children: Element,
 ) -> Element {
     rsx! {
-        div {
-            class: "card-footer",
-            "data-slot": "card-footer",
-            ..attributes,
-            {children}
-        }
+        div { class: "card-footer", "data-slot": "card-footer", ..attributes, {children} }
     }
 }

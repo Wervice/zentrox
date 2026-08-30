@@ -1,17 +1,16 @@
-use std::net::IpAddr;
-use std::time::SystemTime;
-
 use actix_session::Session;
 use actix_web::HttpRequest;
 use actix_web::web::Json;
 use actix_web::{HttpResponse, web::Data};
+use api::login::LoginReq;
 use diesel::prelude::*;
 use log::{error, info, warn};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
+use std::net::IpAddr;
+use std::time::SystemTime;
 use utils::crypto_utils::{self, Ciphertext, decrypt_bytes};
 use utils::models::LoginRequest;
 use utils::status_com::{ErrorCode, MessageRes};
-use utoipa::ToSchema;
 
 use crate::permissions::{
     ACCOUNT_REQUEST_LIMIT, ACCOUNT_TIME_WINDOW, BASE_REQUEST_LIMIT, BASE_TIME_WINDOW,
@@ -19,13 +18,6 @@ use crate::permissions::{
     remove_session,
 };
 use crate::{AppState, SudoPasswordReq, permissions};
-
-#[derive(Deserialize, ToSchema)]
-pub struct LoginReq {
-    username: String,
-    password: String,
-    otp: Option<String>,
-}
 
 fn since_now(earlier: SystemTime) -> u64 {
     SystemTime::now().duration_since(earlier).unwrap().as_secs()
@@ -174,7 +166,7 @@ pub async fn login(
                 &state,
             );
             warn!("Unknown username detected.");
-            return HttpResponse::Forbidden().json(ErrorCode::UnkownUsername);
+            return HttpResponse::Forbidden().json(ErrorCode::UnknownUsername);
         }
         Err(e) => {
             error!("Failed to read user list with error: {e}");
@@ -245,7 +237,7 @@ pub async fn login(
                 &state,
             );
             warn!("Login request has a wrong otp code.");
-            HttpResponse::BadRequest().json(ErrorCode::WrongOtpCode)
+            HttpResponse::Forbidden().json(ErrorCode::WrongOtpCode)
         }
     } else {
         store_request(
@@ -276,7 +268,7 @@ pub async fn verify_sudo_password(json: Json<SudoPasswordReq>) -> HttpResponse {
 
 /// Logs a user out.
 #[utoipa::path(
-    post,
+    get,
     path = "/private/auth/logout",
     responses((status = 301, description = "User has been logged out successfully and will be redirected.")),
     tags = ["private", "authentication"]

@@ -42,7 +42,7 @@ impl From<&str> for MessageRes {
 #[serde(rename_all = "camelCase")]
 pub struct ErrorRes {
     time: u128,
-    code: ErrorCode,
+    message: String,
 }
 
 impl ErrorRes {
@@ -50,7 +50,7 @@ impl ErrorRes {
     fn with_code(code: ErrorCode) -> Self {
         ErrorRes {
             time: current_timestamp_unix(),
-            code,
+            message: code.to_string(),
         }
     }
 }
@@ -67,114 +67,133 @@ impl From<ErrorCode> for ErrorRes {
     }
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, thiserror::Error, Clone)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 /// An enumeration of error codes configured to serialize all enum variants into
 /// SCREAMING_SNAKE_CASE to communicate errors between the backend and frontend.
 pub enum ErrorCode {
-    /// During login, an OTP code was required but not provided
-    /// This is not to be confused with a malformed JSON which lacks the "otp" field.
+    #[error("The login OTP code was not provided.")]
     MissingOtpCode,
-    /// The provided OTP code does not match the one calculated on the backend side at the time of
-    /// the request incoming at the server.
+    #[error("The provided login OTP code is wrong.")]
     WrongOtpCode,
-    /// The password provided during login is wrong.
+    #[error("The provided login password is wrong.")]
     WrongPassword,
-    /// The provided username is not known.
-    UnkownUsername,
-    /// While creating a new rule with the UFW, executing the command failed.
-    /// The error contains the written error message from UFW.
+    #[error("The provided login username is unknown.")]
+    UnknownUsername,
+    #[error("Executing a command with UFW failed, yielding: {0}")]
     UfwExecutionFailed(String),
-    /// Like UfwExecutionFailed, but only with a status code and no error message
+    #[error("Executing a command with UFW failed, yielding error code: {0:?}")]
     UfwExecutionFailedWithStatus(Option<i32>),
-    /// While sending a signal to a process, an error was encountered. Most likely it was a
-    /// permission error.
+    #[error("Sending a signal to a process failed.")]
     SignalError,
-    /// The provided process ID (PID) could not be found on the system.
+    #[error("The provided PID could not be found on the system.")]
     UnknownPid,
-    /// The request was rejected by a middleware as the user is not logged in.
+    #[error("You do not have adequate permissions.")]
     MissingApiPermissions,
-    /// A request for a shared file was rejected because the request lacked a (correct) password
+    #[error("You do not have adequate permissions to access this shared file.")]
     MissingSharedFilePermissions,
-    /// The request could not be finished, because the user does not appear to have sufficient
-    /// permissions on the system.
+    #[error("You do not have adequate system permissions.")]
     MissingSystemPermissions,
-    /// While updating a database table using diesel.rs, the execution failed.
+    #[error("A database update failed, yielding: {0}")]
     DatabaseUpdateFailed(String),
-    /// While reading a database table using diesel.rs, the execution failed.
+    #[error("A database read failed, yielding: {0}")]
     DatabaseReadFailed(String),
-    /// While truncating a table using diesel.rs, the execution failed.
+    #[error("A database truncate failed, yielding: {0}")]
     DatabaseTruncateFailed(String),
-    /// While inserting into a table using diesel.rs, the execution failed.
+    #[error("A database insertion failed, yielding: {0}")]
     DatabaseInsertFailed(String),
-    /// While deleting a row from a table using diesel.rs, the execution failed.
+    #[error("A database deletion failed, yielding: {0}")]
     DatabaseDeletionFailed(String),
-    /// While trying to run a command with sudo or verifying the sudo password, the verification
-    /// failed.
+    #[error("The provided sudo password is wrong.")]
     BadSudoPassword,
-    /// While performing an action related to packages, the package manager encoutnered an error.
-    /// It is likely, this was a permission based error or a wrong package name was provided.
+    #[error("The package manager failed.")]
     PackageManagerFailed,
-    /// While processing a background task, an error without further specification was encountered
-    /// and the task failed.
+    #[error("The background task failed.")]
     TaskFailed,
-    /// While processing a background task, an error was encountered and the task failed.
+    #[error("The background task failed, yielding: {0}")]
     TaskFailedWithDescription(String),
-    /// The specified UUID does not correspond to an active task.
+    #[error("The provided background task ID does not exist.")]
     NoSuchTask,
-    /// The media center has been disable and access rejected
+    #[error("The media center has been disabled.")]
     MediaCenterDisabled,
-    /// A requested file does not existing or could not be found
+    #[error("The file does not exist.")]
     FileDoesNotExist,
-    /// Interacting with a file failed for another error than the file not existing
+    #[error("The file could not be interacted with, even though it exists.")]
     FileError,
-    /// A requested direction does not existing or could not be found
+    #[error("The directory does not exist.")]
     DirectoryDoesNotExist,
-    /// Interacting with a directory failed for another error than the file not existing
+    #[error("The directory could not be interacted with, even though it exists.")]
     DirectoryError,
-    /// Insufficient data was provided to the backend
+    #[error("Insufficient data")]
     InsufficientData,
-    /// While listing block devices an error was encountered during the command execution
-    BlockDeviceListingFailed,
-    /// Drive statistics could not be gathered
-    DriveStatisticsFailed,
-    /// Drive metadata could not be gathered
-    DriveMetadataFailed,
-    /// Encrypting a file, directory, or string failed
+    #[error("Encrypting a file or directory failed.")]
     EncryptionFailed,
-    /// While trying to shut down, the command failed
+    #[error("Shutdown failed.")]
     PowerOffFailed,
-    /// The program could not get the requested system logs.
+    #[error("The requested log entries could not be acquired.")]
     LogFetchingFailed,
-    /// The first aka. left range value for getting a byte range for a media file is out-of-bounds
+    #[error("The left range for the media file is too high.")]
     LeftRangeTooHigh,
-    /// Analogous to LeftRangeTooHigh
+    #[error("The right range for the media file is too high.")]
     RightRangeTooHigh,
-    /// The extension of the requested file is not allowed to be sent back to the frontend
+    #[error("This extension can not be provided to the frontend.")]
     ProtectedExtension,
-    /// No such cronjobs could be found
+    #[error("No cron job exist for this user.")]
     NoCronjobs,
-    /// Creating a cronjob failed
+    #[error("Creating a cron job failed.")]
     CronjobCreationFailed,
-    /// The server received a string that describes a variant of an enummeration agreed through the API,
-    /// but the variant does not exist.
+    #[error("This enum variant does not exist.")]
     NoSuchVariant,
-    /// No shared file corresponds to this code
+    #[error("No such shared file exists.")]
     NoSuchSharedFile,
-    /// Running a command failed for a reason other than sudo
-    CommandFailed(String),
-    /// A value was not properly sanitized
+    #[error("The data contains invalid characters.")]
     SanitizationError,
-    /// A creation rule was malformed
+    #[error("The rule was malformed.")]
     BadRule,
-    /// The rule was not created because it already exited
+    #[error("The rule exists already.")]
     RuleSkipped,
-    /// Creating a rule failed
+    #[error("The rule could not be created.")]
     RuleCreationFailed,
-    /// Rule deletion failed.
+    #[error("The rule could not be deleted.")]
     RuleDeletionFailed,
-    /// UFW failed, getting the program into an unknown state
+    #[error("UFW failed, yielding: {0} and {1}")]
     UfwError(String, String, Vec<String>),
-    /// No such rule exists
+    #[error("No such rule exists.")]
     NoSuchRule,
+    #[error("Could not get uptime.")]
+    UptimeError,
+    #[error("Could not connect to docker.")]
+    DockerConnectionFailed,
+    #[error("Docker was unable to fullfil the request.")]
+    DockerRequestFailed,
+    #[error("A lock is currently in place.")]
+    SystemLocked,
+    #[error("Interacting with polkit failed, yielding: {0}")]
+    PolkitFailed(String),
+    #[error(
+        "Interacting with a physical drive or utility to interact with the drive failed, yielding: {0:?}"
+    )]
+    DriveInteractionFailed(String),
+    #[error("A device was temporarily disconnected and may no longer be the same physical device.")]
+    DriveChanged,
+    #[error("The device does not exist.")]
+    NoSuchDrive,
+    #[error("The filesystem does not exist.")]
+    NoSuchFs,
+    #[error("The partition does not exist.")]
+    NoSuchPartition,
+    #[error("The filesystem has already been mounted.")]
+    FsAlreadyMounted,
+    #[error("The filesystem has no mountpoints.")]
+    FsNotMounted,
+    #[error("This action is not supported for this drive.")]
+    ActionNotSupportedForDrive,
+    #[error("The drive is currently in use. Unmount any active partitions!")]
+    DriveInUse,
+    #[error("The drive is read-only and can not be opened in write mode.")]
+    DriveReadOnly,
+    #[error("The benchmark failed, yielding: {0}")]
+    BenchmarkFailed(String),
+    #[error("The requested stored benchmark could not be retrieved from histoy.")]
+    NoSuchBenchmark,
 }
