@@ -1,28 +1,26 @@
 use dioxus::prelude::*;
-use dioxus_primitives::checkbox::{self, CheckboxProps};
+use dioxus_free_icons::{icons::bs_icons, Icon};
+
+#[css_module("/src/components/checkbox/style.css")]
+struct Style;
 
 #[component]
-pub fn Checkbox(props: CheckboxProps) -> Element {
+pub fn Checkbox(value: bool, on_value_change: Callback<bool, ()>, disabled: Option<bool>, id: Option<String>) -> Element {
     rsx! {
-        document::Link { rel: "stylesheet", href: asset!("./style.css") }
-        checkbox::Checkbox {
-            class: "checkbox",
-            checked: props.checked,
-            default_checked: props.default_checked,
-            required: props.required,
-            disabled: props.disabled,
-            name: props.name,
-            value: props.value,
-            on_checked_change: props.on_checked_change,
-            attributes: props.attributes,
-            checkbox::CheckboxIndicator { class: "checkbox-indicator",
-                svg {
-                    class: "checkbox-check-icon",
-                    view_box: "0 0 24 24",
-                    xmlns: "http://www.w3.org/2000/svg",
-                    path { d: "M5 13l4 4L19 7" }
+        input {
+            class: Style::checkbox,
+            r#type: "checkbox",
+            onchange: move |v: Event<FormData>| {
+                if !disabled.unwrap_or_default() {
+                    on_value_change.call(v.value() == "true")
                 }
-            }
+            },
+            value: "{value}",
+            "aria-checked": "{value}",
+            "data-checked": "{value}",
+            "aria-disabled": "{disabled.unwrap_or(false)}",
+            "data-disabled": "{disabled.unwrap_or(false)}",
+            id,
         }
     }
 }
