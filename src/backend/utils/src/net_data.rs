@@ -9,16 +9,39 @@ use std::str::FromStr;
 use std::{fmt::Display, net::IpAddr};
 use utoipa::{ToResponse, ToSchema};
 
-/// Determines the current private IP address of the current active network interface.
-pub fn private_ip() -> Option<IpAddr> {
-    if let Ok(r) = get_routes() {
-        Some(r.first()?.preferred_source?)
-    } else {
-        None
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all(deserialize = "UPPERCASE"))]
+pub enum OperationalState {
+    Up,
+    Down,
+    Dormant,
+    NotPresent,
+    LowerLayerDown,
+    Unknown,
+}
+
+impl Into<api::network::OperationalState> for OperationalState {
+    fn into(self) -> api::network::OperationalState {
+        match self {
+            Self::Up => api::network::OperationalState::Up,
+            Self::Down => api::network::OperationalState::Down,
+            Self::Dormant => api::network::OperationalState::Dormant,
+            Self::NotPresent => api::network::OperationalState::NotPresent,
+            Self::LowerLayerDown => api::network::OperationalState::LowerLayerDown,
+            Self::Unknown => api::network::OperationalState::Unknown,
+        }
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, ToSchema, Debug)]
+#[derive(Deserialize, Clone, Debug)]
+pub struct Stats64 {
+    #[serde(rename(deserialize = "rx"))]
+    pub recieved: TransmissionStatistics,
+    #[serde(rename(deserialize = "tx"))]
+    pub transmitted: TransmissionStatistics,
+}
+
+#[derive(Deserialize, Debug, Clone, Copy)]
 pub struct TransmissionStatistics {
     pub bytes: f64,
     pub packets: i64,
@@ -30,30 +53,40 @@ pub struct TransmissionStatistics {
     pub collisions: Option<i64>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
-#[serde(rename_all(deserialize = "UPPERCASE"))]
-pub enum OperationalState {
-    Up,
-    Down,
-    Dormant,
-    NotPresent,
-    LowerLayerDown,
-    Unknown,
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+#[serde(rename_all(deserialize = "lowercase"))]
+pub enum Scope {
+    Global,
+    Host,
+    Local,
+    Site,
+    Link,
 }
 
-#[derive(Deserialize, Serialize, Clone, ToSchema, Debug)]
-pub struct Stats64 {
-    #[serde(rename(deserialize = "rx"))]
-    pub recieved: TransmissionStatistics,
-    #[serde(rename(deserialize = "tx"))]
-    pub transmitted: TransmissionStatistics,
+impl Display for Scope {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Global => write!(f, "global"),
+            Self::Host => write!(f, "host"),
+            Self::Local => write!(f, "local"),
+            Self::Site => write!(f, "site"),
+            Self::Link => write!(f, "link"),
+        }
+    }
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct AddressInformation {
+    pub family: String,
+    pub local: IpAddr,
+    pub scope: Scope,
 }
 
 /// Interface is a public struct to collect information about network interfaces.
-#[derive(Deserialize, Serialize, Clone, ToSchema, Debug)]
+#[derive(Deserialize, Clone, Debug)]
 pub struct Interface {
     #[serde(rename(deserialize = "ifindex"))]
-    pub index: i64,
+    pub index: u64,
     #[serde(rename(deserialize = "ifname"))]
     pub name: String,
     pub flags: Vec<String>,
@@ -63,22 +96,31 @@ pub struct Interface {
     pub queueing_discipline: String,
     #[serde(rename(deserialize = "operstate"))]
     pub operational_state: OperationalState,
-    #[serde(rename(deserialize = "linkmode"))]
-    pub link_mode: String,
     pub group: String,
     #[serde(rename(deserialize = "txqlen"))]
     pub transmit_queue: Option<i64>,
     pub link_type: String,
-    pub address: String,
-    pub broadcast: String,
+    pub address: Option<String>,
+    pub broadcast: Option<String>,
     #[serde(rename(deserialize = "stats64"))]
     pub statistics: Stats64,
     #[serde(skip_deserializing)]
-    pub delta_up: Option<f64>,
+    pub delta_up: f64,
     #[serde(skip_deserializing)]
-    pub delta_down: Option<f64>,
+    pub delta_down: f64,
     #[serde(rename(deserialize = "altnames"))]
     pub alternative_names: Option<Vec<String>>,
+    #[serde(rename(deserialize = "addr_info"))]
+    pub address_information: Vec<AddressInformation>,
+}
+
+/// Determines the current private IP address of the current active network interface.
+pub fn private_ip() -> Option<IpAddr> {
+    if let Ok(r) = get_routes() {
+        Some(r.first()?.preferred_source?)
+    } else {
+        None
+    }
 }
 
 /// Get a vector of all network interfaces currently connected to the system, active or, not.
@@ -89,7 +131,7 @@ pub struct Interface {
 pub fn get_network_interfaces() -> Result<Vec<Interface>, std::io::ErrorKind> {
     debug!("Getting network interfaces.");
     let mut ip_c_program = Command::new("ip");
-    let ip_c = ip_c_program.arg("-j").arg("-s").arg("link").arg("show");
+    let ip_c = ip_c_program.arg("-j").arg("-s").arg("addr").arg("show");
     let ip_c_x = ip_c.output();
     if let Ok(v) = ip_c_x {
         Ok(serde_json::from_str::<Vec<Interface>>(&String::from_utf8_lossy(&v.stdout)).unwrap())
@@ -129,8 +171,8 @@ pub struct IpAddrWithSubnet {
 
 impl Display for IpAddrWithSubnet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.subnet.is_some() {
-            write!(f, "{}/{}", self.address, self.subnet.unwrap())
+        if let Some(subnet) = self.subnet {
+            write!(f, "{}/{}", self.address, subnet)
         } else {
             write!(f, "{}", self.address)
         }
@@ -169,37 +211,6 @@ impl Display for Destination {
             Destination::Prefix(v) => {
                 write!(f, "{v}")
             }
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, ToSchema)]
-pub enum Scope {
-    Global,
-    Host,
-    Local,
-    Site,
-}
-
-impl Display for Scope {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Global => write!(f, "global"),
-            Self::Host => write!(f, "host"),
-            Self::Local => write!(f, "local"),
-            Self::Site => write!(f, "site"),
-        }
-    }
-}
-
-impl From<String> for Scope {
-    fn from(value: String) -> Self {
-        match value.as_str() {
-            "global" => Self::Global,
-            "host" => Self::Host,
-            "local" => Self::Local,
-            "site" => Self::Site,
-            _ => Self::Global,
         }
     }
 }
@@ -350,11 +361,11 @@ impl AsArguments for DeletionRoute {
         if !is_clean(&self.device) {
             return Err(ArgumentsError::Unsanizized);
         }
-        if self.gateway.is_some() {
+        if let Some(gateway) = &self.gateway {
             Ok(vec![
                 self.destination.to_string(),
                 "via".to_string(),
-                self.gateway.as_ref().unwrap().to_string(),
+                gateway.to_string(),
                 "dev".to_string(),
                 self.device.clone(),
             ])
@@ -387,7 +398,7 @@ struct RawRoute {
     protocol: Option<String>,
     #[serde(rename = "prefsrc")]
     preferred_source: Option<String>,
-    scope: Option<String>,
+    scope: Option<Scope>,
     #[serde(rename = "type")]
     table: Option<String>,
     nexthop: Option<Vec<String>>,
@@ -478,7 +489,7 @@ pub fn get_routes() -> Result<Vec<Route>, RouteError> {
                         .preferred_source
                         .as_ref()
                         .map(|v| IpAddr::from_str(v).expect("Failed to parse IP address")),
-                    scope: Scope::from(e.scope.clone().unwrap_or("global".to_string())),
+                    scope: e.scope.clone().unwrap_or(Scope::Global),
                     table: e.table.clone(),
                 }
             })

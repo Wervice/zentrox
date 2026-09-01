@@ -1,5 +1,6 @@
 pub mod cron;
 pub mod crypto_utils;
+pub mod daemons;
 pub mod database;
 pub mod drives;
 pub mod logs;
@@ -8,9 +9,11 @@ pub mod models;
 pub mod net_data;
 pub mod otp;
 pub mod packages;
+pub mod polkit;
 pub mod sanitize;
 pub mod schema;
 pub mod status_com;
+mod storage_benchmark;
 pub mod sudo;
 pub mod time;
 pub mod ufw;

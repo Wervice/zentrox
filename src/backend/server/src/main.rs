@@ -8,17 +8,15 @@
 //! This will produce an OpenAPI documentation in JSON format.
 
 use actix_cors::Cors;
-use actix_files as afs;
 use actix_governor::{self, Governor, GovernorConfigBuilder};
 use actix_multipart::form::MultipartFormConfig;
 use actix_session::config::PersistentSession;
 use actix_session::{
-    Session, SessionExt, SessionMiddleware, config::CookieContentSecurity,
-    storage::CookieSessionStore,
+    SessionExt, SessionMiddleware, config::CookieContentSecurity, storage::CookieSessionStore,
 };
 use actix_web::Responder;
 use actix_web::body::{BoxBody, MessageBody};
-use actix_web::cookie::Key;
+use actix_web::cookie::{Key, SameSite};
 use actix_web::dev::{ServiceRequest, ServiceResponse};
 use actix_web::middleware::{Next, from_fn};
 use actix_web::{
@@ -28,6 +26,7 @@ use actix_web::{
 use diesel::prelude::*;
 use diesel::r2d2::{ConnectionManager, Pool};
 use log::{debug, info, warn};
+use mime_guess::from_path;
 use permissions::is_privileged;
 use routes::media::get_media_enabled_database;
 use serde::{Deserialize, Serialize};
@@ -47,9 +46,10 @@ use std::{
 };
 use utils::database::create_connection_pool;
 use utils::net_data::Interface;
+use utils::polkit::AuthenticationPortal;
 use utils::status_com::ErrorCode;
 use utoipa::ToSchema;
-use uuid::Uuid;
+mod background_jobs;
 mod generate_contract;
 mod help;
 mod permissions;
@@ -57,28 +57,27 @@ mod routes;
 mod setup;
 use routes::*;
 
+use crate::background_jobs::Jobs;
 use crate::permissions::{ACCOUNT_TIME_WINDOW, SESSION_TIMEOUT, is_blocked_ip};
 
 const SERVER_PORT: u16 = 8080;
+const DEVELOPMENT_URI: &str = "http://localhost:3000";
 
-#[derive(Clone, Debug)]
-#[allow(unused)]
-enum BackgroundTaskState {
-    Success,
-    Fail,
-    SuccessOutput(String),
-    FailOutput(String),
-    Pending,
-}
+#[cfg(debug_assertions)]
+#[global_allocator]
+static ALLOC: dhat::Alloc = dhat::Alloc;
 
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Copy)]
 /// State of the environment as determined at runtime.
 /// If `disable_authorization` is set to `true` any request to a restricted route will be
 /// permitted.
 /// If `disable_cors` is set to `true`, CORS will be set to a very permissive setting.
+/// If `insecure_cookies` is set to `true`, cookies are very insecure but can be easily used during
+/// cross-origin development.
 struct Environment {
     disable_authorization: bool,
     disable_cors: bool,
+    insecure_cookies: bool,
 }
 
 // In order to rule out any confusion, this should not be derived
@@ -88,22 +87,24 @@ impl Default for Environment {
         Environment {
             disable_authorization: false,
             disable_cors: false,
+            insecure_cookies: false,
         }
     }
 }
 
 /// Current state of the application
 /// This AppState is meant to be accessible for every route in the system
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct AppState {
     login_requests: Arc<Mutex<Vec<permissions::LoginRequest>>>,
     sessions: Arc<Mutex<Vec<permissions::LoginSession>>>,
     blocked_ips: Arc<Mutex<Vec<IpAddr>>>,
     system: Arc<Mutex<sysinfo::System>>,
     network_interfaces: Arc<Mutex<Vec<Interface>>>,
-    background_jobs: Arc<Mutex<HashMap<Uuid, BackgroundTaskState>>>,
+    background_jobs: Arc<Mutex<Jobs>>,
     db_pool: Arc<Mutex<Pool<ConnectionManager<SqliteConnection>>>>,
     environment: Arc<Environment>,
+    polkit_portal: Arc<Mutex<AuthenticationPortal>>,
 }
 
 impl AppState {
@@ -114,12 +115,22 @@ impl AppState {
             Some(v) => {
                 let s: Vec<&str> = v.split(";").collect();
                 Environment {
-                    disable_authorization: s.contains(&"NO_AUTH"),
-                    disable_cors: s.contains(&"NO_CORS"),
+                    disable_authorization: s.contains(&"NO_AUTH") && cfg!(debug_assertions),
+                    disable_cors: s.contains(&"NO_CORS") && cfg!(debug_assertions),
+                    insecure_cookies: s.contains(&"INSEC_COOKIES") && cfg!(debug_assertions),
                 }
             }
             None => Environment::default(),
         };
+
+        let portal = AuthenticationPortal::default();
+        let portal_arc = Arc::new(Mutex::new(portal.clone()));
+        let portal_arc_c = portal_arc.clone();
+        std::thread::spawn(move || {
+            if let Err(e) = portal_arc_c.lock().unwrap().start() {
+                log::error!("Failed to start authentication portal due to error: {e}");
+            }
+        });
 
         AppState {
             login_requests: Arc::new(Mutex::new(vec![])),
@@ -127,9 +138,10 @@ impl AppState {
             blocked_ips: Arc::new(Mutex::new(vec![])),
             system: Arc::new(Mutex::new(sysinfo::System::new())),
             network_interfaces: Arc::new(Mutex::new(Vec::new())),
-            background_jobs: Arc::new(Mutex::new(HashMap::new())),
+            background_jobs: Arc::new(Mutex::new(Jobs::default())),
             db_pool: Arc::new(Mutex::new(create_connection_pool())),
             environment: Arc::new(current_environment),
+            polkit_portal: Arc::new(Mutex::new(portal)),
         }
     }
 
@@ -145,8 +157,8 @@ impl AppState {
                 let b_up = v.statistics.transmitted.bytes;
                 let b_down = v.statistics.recieved.bytes;
                 result.push(Interface {
-                    delta_down: Some(b_down - a_down),
-                    delta_up: Some(b_up - a_up),
+                    delta_down: b_down - a_down,
+                    delta_up: b_up - a_up,
                     ..device
                 })
             }
@@ -187,15 +199,28 @@ impl AppState {
     }
 }
 
-#[get("/")]
-async fn index(session: Session, state: Data<AppState>) -> HttpResponse {
-    if is_privileged(&session, state) {
-        return HttpResponse::Found()
-            .append_header(("Location", "/dashboard"))
-            .body("You will soon be redirected.");
+#[derive(rust_embed::Embed)]
+#[folder = "../static/"]
+struct Frontend;
+
+#[get("/{_:.*}")]
+async fn frontend_assets(path: web::Path<String>) -> impl Responder {
+    match Frontend::get(path.as_str()) {
+        Some(content) => HttpResponse::Ok()
+            .content_type(from_path(path.as_str()).first_or_octet_stream().as_ref())
+            .body(content.data.into_owned()),
+        None => HttpResponse::NotFound().body("404 Not Found"),
     }
-    HttpResponse::Ok()
-        .body(std::fs::read_to_string("static/index.html").expect("Failed to read file"))
+}
+
+#[get("/")]
+async fn index() -> HttpResponse {
+    match Frontend::get("index.html") {
+        Some(content) => HttpResponse::Ok()
+            .content_type(from_path("index.html").first_or_octet_stream().as_ref())
+            .body(content.data.into_owned()),
+        None => HttpResponse::NotFound().body("404 Not Found"),
+    }
 }
 
 #[get("/media")]
@@ -217,16 +242,7 @@ async fn robots_txt() -> impl Responder {
     include_str!("../../assets/robots.txt")
 }
 
-#[get("/dashboard")]
-pub async fn dashboard_page(session: Session, state: Data<AppState>) -> HttpResponse {
-    if !is_privileged(&session, state) {
-        return HttpResponse::Found()
-            .append_header(("Location", "/"))
-            .body("You will soon be redirected");
-    }
-    HttpResponse::Ok()
-        .body(std::fs::read_to_string("static/dashboard.html").expect("Failed to read file"))
-}
+// TODO Should be moved to API
 
 /// Single path schema
 #[derive(Deserialize, Serialize)]
@@ -310,6 +326,9 @@ async fn main() -> std::io::Result<()> {
     use utils::models::Configurations;
     use utils::schema::Configuration::dsl::*;
 
+    #[cfg(debug_assertions)]
+    let _profiler = dhat::Profiler::new_heap();
+
     CombinedLogger::init(vec![
         TermLogger::new(
             LevelFilter::Info,
@@ -351,9 +370,14 @@ async fn main() -> std::io::Result<()> {
     }
 
     let app_state = Data::new(AppState::new());
+
+    debug!("Loading blocked IPs.");
     permissions::load_blocked_ips(&app_state);
+    debug!("Loaded blocked IPs.");
+
+    debug!("Starting interval tasks.");
     app_state.start_interval_tasks();
-    debug!("Started interval tasks");
+    debug!("Started interval tasks.");
 
     let tls_cert_filename = Configuration
         .select(Configurations::as_select())
@@ -396,8 +420,8 @@ async fn main() -> std::io::Result<()> {
         .unwrap();
 
     let governor_conf = GovernorConfigBuilder::default()
-        .burst_size(100)
-        .period(Duration::from_millis(250))
+        .milliseconds_per_request(50)
+        .burst_size(50)
         .finish()
         .unwrap();
 
@@ -411,29 +435,42 @@ async fn main() -> std::io::Result<()> {
         .finish()
         .unwrap();
 
-    info!("Zentrox is being serverd on port {}", SERVER_PORT);
+    info!("Zentrox is being served on port {}.", SERVER_PORT);
 
     let secret_session_key = Key::try_generate().expect("Failed to generate session key.");
 
     HttpServer::new(move || {
         App::new()
             .wrap(middleware::Logger::new("%a %U %s"))
-            .wrap(
-                SessionMiddleware::builder(
+            .wrap({
+                let b = SessionMiddleware::builder(
                     CookieSessionStore::default(),
                     secret_session_key.clone(),
-                )
-                .cookie_content_security(CookieContentSecurity::Private)
-                .session_lifecycle(
-                    PersistentSession::default().session_ttl(ActixDuration::hours(12)),
-                )
-                .cookie_secure(true)
-                .cookie_name("session".to_string())
-                .build(),
-            )
+                );
+                if !app_state.environment.insecure_cookies {
+                    b.cookie_content_security(CookieContentSecurity::Private)
+                        .session_lifecycle(
+                            PersistentSession::default().session_ttl(ActixDuration::hours(12)),
+                        )
+                        .cookie_secure(true)
+                        .cookie_name("session".to_string())
+                        .build()
+                } else {
+                    warn!("Using insecure cookies.");
+                    b.cookie_content_security(CookieContentSecurity::Private)
+                        .session_lifecycle(
+                            PersistentSession::default().session_ttl(ActixDuration::hours(12)),
+                        )
+                        .cookie_name("session".to_string())
+                        .cookie_secure(true)
+                        .cookie_http_only(true)
+                        .cookie_same_site(SameSite::None)
+                        .build()
+                }
+            })
             .wrap(if app_state.environment.disable_cors {
                 warn!("CORS policy is set to permissive.");
-                Cors::permissive().allowed_origin("http://localhost:3000")
+                Cors::permissive().allowed_origin(DEVELOPMENT_URI)
             } else {
                 Cors::default()
             })
@@ -442,7 +479,6 @@ async fn main() -> std::io::Result<()> {
             .configure(configure_multipart)
             .app_data(app_state.clone())
             .service(index)
-            .service(dashboard_page)
             .service(robots_txt)
             .service(
                 web::scope("/api")
@@ -469,7 +505,7 @@ async fn main() -> std::io::Result<()> {
                             .wrap(from_fn(authorization_middleware))
                             .service(
                                 web::scope("/auth")
-                                    .route("/logout", web::post().to(auth::logout))
+                                    .route("/logout", web::get().to(auth::logout))
                                     .route("/requestHistory", web::get().to(auth::request_history))
                                     .service(web::scope("/sudo").route(
                                         "/verify",
@@ -518,7 +554,27 @@ async fn main() -> std::io::Result<()> {
                                     .route("/upload", web::post().to(files::upload)),
                             )
                             .service(
-                                web::scope("/drives").route("/list", web::get().to(drives::list)),
+                                web::scope("/drives")
+                                    .route("/list", web::get().to(drives::list))
+                                    .route("/can_mount", web::get().to(drives::can_mount_fs))
+                                    .route("/mount", web::post().to(drives::mount_fs))
+                                    .route("/unmount", web::post().to(drives::unmount_fs))
+                                    .route(
+                                        "/can_poweroff",
+                                        web::get().to(drives::can_power_off_drive),
+                                    )
+                                    .route("/poweroff", web::post().to(drives::power_off))
+                                    .route("/can_eject", web::get().to(drives::can_eject_drive))
+                                    .route("/eject", web::post().to(drives::eject))
+                                    .route("/check", web::post().to(drives::check))
+                                    .route("/repair", web::post().to(drives::repair))
+                                    .route("/benchmark", web::post().to(drives::benchmark))
+                                    .route(
+                                        "/store_benchmark",
+                                        web::post().to(drives::store_benchmark),
+                                    )
+                                    .route("/benchmark_history", web::post().to(drives::benchmark_history))
+                                    .route("/past_benchmark", web::post().to(drives::past_benchmark)),
                             )
                             .service(web::scope("/power").route("/off", web::post().to(power::off)))
                             .service(
@@ -563,6 +619,8 @@ async fn main() -> std::io::Result<()> {
                                     .route("/interfaces", web::get().to(network::interfaces))
                                     .route("/routes", web::get().to(network::routes))
                                     .route("/route/delete", web::post().to(network::delete_route))
+                                    .route("/hostname", web::get().to(network::hostname))
+                                    .route("/ip", web::get().to(network::ip))
                                     .route(
                                         "/interface/active",
                                         web::post().to(network::activate_interface),
@@ -572,11 +630,18 @@ async fn main() -> std::io::Result<()> {
                                 web::scope("/processes")
                                     .route("/list", web::get().to(processes::list))
                                     .route("/kill/{pid}", web::post().to(processes::kill))
-                                    .route("/details/{pid}", web::get().to(processes::details)),
+                                    .route("/details/{pid}", web::get().to(processes::details))
+                                    .route("/cpu", web::get().to(processes::cpu_stats))
+                                    .route("/memory", web::get().to(processes::memory_stats))
+                                    .route("/thermometers", web::get().to(processes::thermometers))
+                                    .route("/uptime", web::get().to(processes::uptime)),
+                            )
+                            .service(
+                                web::scope("/docker")
+                                    .route("/containers", web::get().to(docker::active_containers)),
                             )
                             .service(
                                 web::scope("/cronjobs")
-                                    .route("/runCommand", web::post().to(cron::run_command))
                                     .route("/delete", web::post().to(cron::delete))
                                     .route("/new", web::post().to(cron::create))
                                     .route("/list", web::get().to(cron::list)),
@@ -589,11 +654,11 @@ async fn main() -> std::io::Result<()> {
                             ),
                     ),
             )
-            .service(afs::Files::new("/", "static/"))
+            .service(frontend_assets)
     })
     .workers(16)
     .keep_alive(Duration::from_secs(60 * 6))
-    .bind_rustls_0_23(("0.0.0.0", SERVER_PORT), tls_config)? // TODO Allow user to decide port and IP
+    .bind_rustls_0_23(("0.0.0.0", SERVER_PORT), tls_config)? // TODO Allow user to decide the port and IP
     .run()
     .await
 }

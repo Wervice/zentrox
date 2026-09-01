@@ -96,6 +96,28 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    #[allow(non_snake_case)]
+    DriveBenchmarks (id) {
+        drive_id -> Text,
+        sample_size -> BigInt,
+        iterations -> Integer,
+        random -> Bool,
+        time -> BigInt,
+        id -> Text
+    }
+}
+
+diesel::table! {
+    #[allow(non_snake_case)]
+    DriveBenchmarkMeasurements (benchmark_id, idx, variant) {
+        benchmark_id -> Text,
+        variant -> Text,
+        idx -> BigInt,
+        nanos -> BigInt
+    }
+}
+
 diesel::allow_tables_to_appear_in_same_query!(
     Users,
     Configuration,
@@ -104,4 +126,5 @@ diesel::allow_tables_to_appear_in_same_query!(
     Media,
     MediaSources,
     PackageActions,
+    DriveBenchmarks
 );

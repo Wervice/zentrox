@@ -58,6 +58,15 @@ impl Display for PackageManager {
     }
 }
 
+fn sanitize_package_name(name: String) -> String {
+    name.chars()
+        .filter(|c| c.is_ascii_alphanumeric() || ['.', '+', '_', '-'].contains(c))
+        .collect::<String>()
+        .trim_matches('-')
+        .trim_matches('+')
+        .to_string()
+}
+
 /// Try to run a command and return if it succeeded or failed
 #[doc(hidden)]
 fn try_command(c: &str) -> bool {
@@ -114,14 +123,16 @@ pub fn remove_orphaned_packages(password: String) -> Result<SudoOutput, SudoErro
 pub fn install_package(name: String, password: String) -> Result<SudoOutput, SudoError> {
     let package_manager = get_package_manager().unwrap();
 
+    let clean_name: String = sanitize_package_name(name);
+
     let args = match package_manager {
         PackageManager::Apt | PackageManager::Dnf => vec![
             "install".to_string(),
-            name,
+            clean_name,
             "-y".to_string(),
             "-q".to_string(),
         ],
-        PackageManager::Pacman => vec!["--noconfirm".to_string(), "-Sy".to_string(), name],
+        PackageManager::Pacman => vec!["--noconfirm".to_string(), "-Sy".to_string(), clean_name],
     };
 
     SudoCommand::new(password, package_manager.to_string())
@@ -136,14 +147,16 @@ pub fn install_package(name: String, password: String) -> Result<SudoOutput, Sud
 pub fn remove_package(name: String, password: String) -> Result<SudoOutput, SudoError> {
     let package_manager = get_package_manager().unwrap();
 
+    let clean_name: String = sanitize_package_name(name);
+
     let args = match package_manager {
         PackageManager::Apt | PackageManager::Dnf => vec![
             "remove".to_string(),
-            name,
+            clean_name,
             "-y".to_string(),
             "-q".to_string(),
         ],
-        PackageManager::Pacman => vec!["--noconfirm".to_string(), "-R".to_string(), name],
+        PackageManager::Pacman => vec!["--noconfirm".to_string(), "-R".to_string(), clean_name],
     };
 
     SudoCommand::new(password, package_manager.to_string())
@@ -158,21 +171,23 @@ pub fn remove_package(name: String, password: String) -> Result<SudoOutput, Sudo
 pub fn update_package(name: String, password: String) -> Result<SudoOutput, SudoError> {
     let package_manager = get_package_manager().unwrap();
 
+    let clean_name: String = sanitize_package_name(name);
+
     let args = match package_manager {
         PackageManager::Apt => vec![
             "--only-upgrade".to_string(),
             "install".to_string(),
-            name,
+            clean_name,
             "-y".to_string(),
             "-q".to_string(),
         ],
         PackageManager::Dnf => vec![
             "update".to_string(),
-            name,
+            clean_name,
             "-y".to_string(),
             "-q".to_string(),
         ],
-        PackageManager::Pacman => vec!["--noconfirm".to_string(), "-S".to_string(), name],
+        PackageManager::Pacman => vec!["--noconfirm".to_string(), "-S".to_string(), clean_name],
     };
 
     SudoCommand::new(password, package_manager.to_string())
@@ -475,6 +490,39 @@ mod tests {
         let password =
             std::env::var("TEST_PASSWORD").expect("Requires TEST_PASSWORD environment variable");
         remove_package("xterm".to_string(), password).expect("Failed to install xterm package");
+    }
+
+    #[test]
+    fn check_sanitization() {
+        assert_eq!(
+            sanitize_package_name("hello_world".to_string()),
+            "hello_world"
+        );
+        assert_eq!(
+            sanitize_package_name("hello-world".to_string()),
+            "hello-world"
+        );
+        assert_eq!(
+            sanitize_package_name("hello+world".to_string()),
+            "hello+world"
+        );
+        assert_eq!(
+            sanitize_package_name("hello.world".to_string()),
+            "hello.world"
+        );
+        assert_eq!(sanitize_package_name("--ls".to_string()), "ls");
+        assert_eq!(sanitize_package_name("-ls".to_string()), "ls");
+        assert_eq!(sanitize_package_name("../../../".to_string()), "......");
+        assert_eq!(sanitize_package_name(" --ls".to_string()), "ls");
+        assert_eq!(sanitize_package_name("=--ls".to_string()), "ls");
+        assert_eq!(
+            sanitize_package_name("==(ash)====-ls".to_string()),
+            "ash-ls"
+        );
+        assert_eq!(
+            sanitize_package_name("APT::Update::Pre-Invoke::=”/bin/bash -i”".to_string()),
+            "APTUpdatePre-Invokebinbash-i"
+        );
     }
 
     #[test]

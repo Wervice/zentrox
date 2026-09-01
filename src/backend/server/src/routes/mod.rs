@@ -2,6 +2,7 @@ pub mod account;
 pub mod auth;
 pub mod cron;
 pub mod dashboard;
+pub mod docker;
 pub mod drives;
 pub mod files;
 pub mod firewall;

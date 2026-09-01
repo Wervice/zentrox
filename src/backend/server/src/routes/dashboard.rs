@@ -1,40 +1,11 @@
 use actix_web::{HttpResponse, web::Data};
-use serde::Serialize;
+use api::dashboard::DeviceInformationRes;
+use diesel::prelude::*;
+use diesel::{RunQueryDsl, SelectableHelper};
 use std::fs;
-use std::net::IpAddr;
-use sysinfo::Components;
-use utils::net_data::private_ip;
-use utoipa::ToSchema;
+use utils::{daemons::Daemon, models::Configurations, schema::Configuration::dsl::*, time};
 
 use crate::AppState;
-
-/// A single thermometer reading with a name
-#[derive(Serialize, ToSchema)]
-struct Thermometer {
-    label: String,
-    critical: Option<f32>,
-    reading: Option<f32>,
-}
-
-#[derive(Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-struct DeviceInformationRes {
-    hostname: Option<String>,
-    #[schema(value_type = Option<String>)]
-    ip: Option<IpAddr>,
-    /// Milliseconds since last boot
-    uptime: u128,
-    thermometers: Vec<Thermometer>,
-    zentrox_pid: u32,
-    network_bytes_up: Option<f64>,
-    network_bytes_down: Option<f64>,
-    most_active_network_interface: Option<String>,
-    network_interfaces_count: usize,
-    memory_total_bytes: u64,
-    memory_free_bytes: u64,
-    cpu_usage: f32,
-    os_name: Option<String>,
-}
 
 #[
 utoipa::path(
@@ -45,56 +16,15 @@ utoipa::path(
     )
 ]
 pub async fn information(state: Data<AppState>) -> HttpResponse {
-    // Current machines host-name. i.e.: debian_pc or 192.168.1.3
-    let hostname = match fs::read_to_string("/etc/hostname") {
-        Ok(reading) => Some(reading.replace("\n", "")),
-        Err(_) => None,
-    };
+    let utc_offset = time::get_utc_offset();
 
-    let uptime = utils::uptime::get().unwrap().as_millis();
-
-    // A refreshed list of all thermometer components in the system is obtained.
-    let thermometers_component_list = Components::new_with_refreshed_list();
-    let thermometers: Vec<Thermometer> = thermometers_component_list
-        .iter()
-        .map(|component| Thermometer {
-            label: component.label().to_string(),
-            reading: component
-                .temperature()
-                .filter(|&unwrapped_reading| !unwrapped_reading.is_nan()),
-            critical: component
-                .critical()
-                .filter(|&unwrapped_reading| !unwrapped_reading.is_nan()),
-        })
-        .collect();
-
-    // Refresh current data in the shared system instance.
-    let mut locked_system_instance = state.system.lock().unwrap();
-    locked_system_instance.refresh_memory();
-    locked_system_instance.refresh_cpu_usage();
-
-    // Obtain device statistics
-    let cpu_usage = locked_system_instance.global_cpu_usage() / 100_f32;
-    let memory_total_bytes = locked_system_instance.total_memory();
-    let memory_free_bytes = locked_system_instance.available_memory();
-
-    // Default values are None if no interface could be found to obtain the measurements from.
-    let mut network_bytes_down = None;
-    let mut network_bytes_up = None;
-    let mut most_active_network_interface = None;
-
-    let network_interfaces = state.network_interfaces.lock().unwrap();
-    let network_interfaces_count = &network_interfaces.iter().len();
-
-    let mut current_highest_interface_activity: f64 = 0.0;
-
-    for interface in network_interfaces.iter() {
-        let sum = interface.delta_up.unwrap() + interface.delta_down.unwrap();
-        if sum > current_highest_interface_activity {
-            most_active_network_interface = Some(interface.name.clone());
-            network_bytes_up = interface.delta_up;
-            network_bytes_down = interface.delta_down;
-            current_highest_interface_activity = sum;
+    let mut kernel_version: Option<String> = None;
+    if let Ok(contents) = fs::read_to_string("/proc/version") {
+        let mut seg = contents.split(' ');
+        if seg.clone().count() < 3 {
+            log::warn!("Kernel version file /proc/version could not be parsed!");
+        } else {
+            kernel_version = Some(seg.nth(2).unwrap().to_string())
         }
     }
 
@@ -110,19 +40,40 @@ pub async fn information(state: Data<AppState>) -> HttpResponse {
         });
     }
 
+    let mut relevant_services: Vec<(String, bool)> = Vec::new();
+
+    [
+        "docker",
+        "sshd",
+        "telnet",
+        "fail2ban",
+        "pihole-FTL",
+        "apache",
+        "ngnix",
+        "sendmail",
+        "postfix",
+        "cron",
+        "cronie",
+        "NetworkManager",
+    ]
+    .iter()
+    .for_each(|e| {
+        if let Ok(data) = Daemon::try_from_id(format!("{e}.service")) {
+            relevant_services.push((e.to_string(), data.is_active()));
+        }
+    });
+
+    let server_name_value = Configuration
+        .select(Configurations::as_select())
+        .get_result(&mut state.db_pool.lock().unwrap().get().unwrap())
+        .unwrap()
+        .server_name;
+
     HttpResponse::Ok().json(DeviceInformationRes {
-        zentrox_pid: std::process::id(),
-        hostname,
-        uptime,
-        thermometers,
-        network_bytes_down,
-        network_bytes_up,
-        most_active_network_interface,
-        network_interfaces_count: *network_interfaces_count,
-        ip: private_ip(),
-        memory_free_bytes,
-        memory_total_bytes,
-        cpu_usage,
+        kernel_version,
         os_name,
+        utc_offset,
+        relevant_services,
+        server_name: server_name_value,
     })
 }

@@ -116,3 +116,25 @@ pub struct Secrets {
     pub argon2_salt: String,
     pub id: i32,
 }
+
+#[derive(Queryable, Selectable, Insertable, AsChangeset, serde::Serialize, Debug)]
+#[diesel(table_name = crate::schema::DriveBenchmarks)]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct DriveBenchmark {
+    pub drive_id: String,
+    pub sample_size: i64,
+    pub iterations: i32,
+    pub random: bool,
+    pub time: i64,
+    pub id: String
+}
+
+#[derive(Queryable, Selectable, Insertable, AsChangeset, serde::Serialize, Debug)]
+#[diesel(table_name = crate::schema::DriveBenchmarkMeasurements)]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct DriveBenchmarkMeasurement {
+    pub benchmark_id: String,
+    pub variant: String,
+    pub idx: i64,
+    pub nanos: i64
+}

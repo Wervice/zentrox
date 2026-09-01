@@ -62,3 +62,19 @@ CREATE TABLE PackageActions (
 	last_database_update INTEGER,
 	PRIMARY KEY (key)
 );
+CREATE TABLE DriveBenchmarks (
+        drive_id TEXT NOT NULL,
+        sample_size INTEGER NOT NULL,
+        iterations INTEGER NOT NULL,
+	random BOOLEAN NOT NULL,
+        time INTEGER NOT NULL,
+        id TEXT NOT NULL,
+	PRIMARY KEY (id)
+);
+CREATE TABLE DriveBenchmarkMeasurements (
+	benchmark_id TEXT NOT NULL,
+	variant TEXT NOT NULL, -- R = read | W == write
+	idx INTEGER NOT NULL,
+	nanos INTEGER NOT NULL,
+	PRIMARY KEY (benchmark_id, idx, variant)
+);
