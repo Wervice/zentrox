@@ -1,0 +1,18 @@
+@property --percentage {
+    syntax: '<angle>';
+    initial-value: 0turn;
+    inherits: false;
+}
+
+.piechart {
+    background-image: conic-gradient(oklch(92.2% 0 0) calc(1turn - var(--percentage)), oklch(54.6% 0.245 262.881) 0 var(--percentage));
+    transition: --percentage 0.25s ease-out;
+    mask-image: radial-gradient(transparent 49%, black 51%);
+    border-radius: 50%;
+}
+
+@media (prefers-color-scheme: dark) {
+    .piechart {
+        background-image: conic-gradient(oklch(26.9% 0 0) calc(1turn - var(--percentage)), oklch(54.6% 0.245 262.881) 0 var(--percentage));
+    }
+}
