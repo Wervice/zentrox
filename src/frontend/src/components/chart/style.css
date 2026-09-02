@@ -1,0 +1,17 @@
+.range {
+	-webkit-appearance: none;
+	appearance: none;
+  	height: 0.5rem;
+	border-radius: 0.25rem;
+	margin: 0.25rem;
+	min-width: 200px;
+  	outline: none;
+	background: rgba(0, 0, 0, 0.125);
+	transition: opacity 0.2s;
+}
+
+@media (prefers-color-scheme: dark) {
+	.range {
+		background: rgba(255, 255, 255, 0.125);
+	}
+}
