@@ -8,6 +8,7 @@ use std::str::FromStr;
 use std::{fmt::Display, net::IpAddr, time::SystemTime};
 use thiserror::Error;
 use uuid::Uuid;
+use subtle::ConstantTimeEq;
 
 use crate::AppState;
 
@@ -136,14 +137,14 @@ pub fn locate_session(
     {
         if let Ok(sessions) = state.sessions.lock() {
             let sessions_copy = sessions.clone();
-            let mut with_matching_id = sessions_copy.iter().filter(|x| x.id == id);
+            let mut with_matching_id = sessions_copy.iter().filter(|x| x.id.as_bytes().ct_eq(id.as_bytes()).into());
             drop(sessions);
             if with_matching_id.clone().count() != 1 {
                 return Err(SessionError::WrongId);
             }
             if let Ok(parsed_for_token) = cookie_session.get::<String>("login_token")
                 && let Some(token) = parsed_for_token
-                && let Some(with_matching_token) = with_matching_id.find(|x| x.token == token)
+                && let Some(with_matching_token) = with_matching_id.find(|x| x.token.as_bytes().ct_eq(token.as_bytes()).into())
             {
                 Ok(with_matching_token.clone())
             } else {
