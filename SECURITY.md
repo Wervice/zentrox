@@ -15,6 +15,9 @@ I am planning to package Zentrox using docker or native system packages in order
 
 ## Reporting a vulnerability
 
-In case you entcountered a vulnerability within Zentrox, please report it by opening an [issue](https://github.com/Wervice/zentrox/issues)
+In case you encountered a vulnerability within Zentrox, please report it by opening an [issue](https://github.com/Wervice/zentrox/issues)
 or writing an email to [wervice@proton.me](mailto:wervice@proton.me).
 Doing so improves the security and health of the project.
+
+## Credits
+I'd like to thank Javohir Abdurazzoqov for discovering and reporting a CWE-208 in the permission system of this application.
