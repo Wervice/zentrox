@@ -6,6 +6,7 @@ use crate::pages::drives::partition_render::PartitionRender;
 use api::drives::{WithFilesystem, WithPrettyName};
 use api::{drives::Drive, units::Bytes};
 use dioxus::prelude::*;
+use dioxus::web::WebEventExt;
 use dioxus_free_icons::Icon;
 use dioxus_free_icons::icons::bs_icons;
 
@@ -64,74 +65,89 @@ pub fn DriveInformation(
     let mut show_serial = use_signal(|| false);
     let drive_rc = Rc::new(drive.clone());
     
+    let mut show_details = use_signal(|| false);
+
     let FIELD_CLASS: &str = "font-bold dark:text-neutral-300 text-neutral-800";
     let VALUE_CLASS: &str = "text-right w-112 max-w-112 truncate";
 
     rsx! {
-        h3 { class: "text-2xl font-bold items-center flex gap-2",
-            {drive_rc.pretty_name()}
-            if drive_rc.hint_system {
-                Badge {
-                    title: "System internal",
-                    description: "Udisks2 reports this device to be a system device. Additional permissions would be required to access this device.",
-                    class: "bg-blue-400 dark:bg-sky-800",
+        details {
+            open: show_details,
+            ontoggle: move |_| {
+                show_details.toggle();
+            },
+            summary { class: "text-2xl font-bold items-center inline-flex gap-2 cursor-pointer mb-1",
+                if *show_details.read() {
+                    dioxus_free_icons::Icon { icon: bs_icons::BsChevronDown }
+                } else {
+                    dioxus_free_icons::Icon { icon: bs_icons::BsChevronRight }
                 }
-            }
-            if drive_rc.removable {
-                Badge {
-                    title: "Removable",
-                    description: "This device is likely removable and not permanently installed.",
-                    class: "bg-green-500 dark:bg-green-800",
+                {drive_rc.pretty_name()}
+                if drive_rc.hint_system {
+                    Badge {
+                        title: "System internal",
+                        description: "Udisks2 reports this device to be a system device. Additional permissions would be required to access this device.",
+                        class: "bg-blue-400 dark:bg-sky-800",
+                    }
                 }
-            }
-            if drive_rc.read_only {
-                Badge {
-                    title: "Read-only",
-                    description: "The device can only be read from, but not written to.",
-                    class: "bg-red-500 dark:bg-red-800",
+                if drive_rc.removable {
+                    Badge {
+                        title: "Removable",
+                        description: "This device is likely removable and not permanently installed.",
+                        class: "bg-green-500 dark:bg-green-800",
+                    }
                 }
-            }
-        }
-        table {
-            tr {
-                td { class: FIELD_CLASS, "Model" }
-                td { class: VALUE_CLASS,
-                    {drive_rc.model.as_deref().unwrap_or("Unknown model")}
-                    if let Some(r) = drive_rc.revision.as_deref() {
-                        " (Revision: {r})"
-                    } else {
-                        ""
+                if drive_rc.read_only {
+                    Badge {
+                        title: "Read-only",
+                        description: "The device can only be read from, but not written to.",
+                        class: "bg-red-500 dark:bg-red-800",
                     }
                 }
             }
-            tr {
-                td { class: FIELD_CLASS, "Vendor" }
-                td { class: VALUE_CLASS, {drive_rc.vendor.as_deref().unwrap_or("Unknown vendor")} }
-            }
-            tr {
-                td { class: FIELD_CLASS, "Serial" }
-                td { class: VALUE_CLASS,
-                    span {
-                        onclick: move |_| { show_serial.toggle() },
-                        title: "Click to show serial",
-                        class: "cursor-pointer",
-                        if *show_serial.read() {
-                            {drive_rc.serial.as_deref().unwrap_or("Unknown serial.")}
+            table {
+                tr {
+                    td { class: FIELD_CLASS, "Model" }
+                    td { class: VALUE_CLASS,
+                        {drive_rc.model.as_deref().unwrap_or("Unknown model")}
+                        if let Some(r) = drive_rc.revision.as_deref() {
+                            " (Revision: {r})"
                         } else {
-                            "#######"
+                            ""
                         }
                     }
                 }
-            }
-            tr {
-                td { class: FIELD_CLASS, "Time detected" }
-                td { class: VALUE_CLASS,
-                    Date { duration: chrono::DateTime::from_timestamp_millis(drive_rc.time_detected).unwrap().into() }
+                tr {
+                    td { class: FIELD_CLASS, "Vendor" }
+                    td { class: VALUE_CLASS,
+                        {drive_rc.vendor.as_deref().unwrap_or("Unknown vendor")}
+                    }
                 }
-            }
-            tr {
-                td { class: FIELD_CLASS, "Device node" }
-                td { class: VALUE_CLASS, "{drive_rc.path.to_string_lossy()}" }
+                tr {
+                    td { class: FIELD_CLASS, "Serial" }
+                    td { class: VALUE_CLASS,
+                        span {
+                            onclick: move |_| { show_serial.toggle() },
+                            title: "Click to show serial",
+                            class: "cursor-pointer",
+                            if *show_serial.read() {
+                                {drive_rc.serial.as_deref().unwrap_or("Unknown serial.")}
+                            } else {
+                                "#######"
+                            }
+                        }
+                    }
+                }
+                tr {
+                    td { class: FIELD_CLASS, "Time detected" }
+                    td { class: VALUE_CLASS,
+                        Date { duration: chrono::DateTime::from_timestamp_millis(drive_rc.time_detected).unwrap().into() }
+                    }
+                }
+                tr {
+                    td { class: FIELD_CLASS, "Device node" }
+                    td { class: VALUE_CLASS, "{drive_rc.path.to_string_lossy()}" }
+                }
             }
         }
         span { class: "mt-1 rounded-t dark:bg-neutral-900 bg-neutral-200 border-b dark:border-b-neutral-800 border-b-neutral-300 max-w-[calc(100%-2em)] block",
@@ -338,8 +354,7 @@ pub fn Contents() -> Element {
                         }
                     }
                 } else {
-                    span {
-                        class: "flex w-full h-full items-center justify-center text-xl opacity-50",
+                    span { class: "flex w-full h-full items-center justify-center text-xl opacity-50",
                         "Select drive"
                     }
                 }
