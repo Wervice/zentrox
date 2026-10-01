@@ -170,10 +170,10 @@ pub fn DriveInformation(
                     drive: drive_rc.clone(),
                 }
             } else if drive_rc.partitions.iter().fold(0, |acc, p| acc + p.size().0) < drive_rc.size().0 {
-                span { class: "flex h-full min-w-32 grow justify-center text-center items-center",
+                span { class: "flex h-full min-w-32 grow justify-center text-center items-center hatched",
                     {
                         format!(
-                            "Unallocated space ({})",
+                            "{}",
                             drive_rc.size()
                                 - drive_rc.partitions.iter().fold(Bytes(0), |acc, p| acc + p.size()),
                         )
@@ -336,6 +336,11 @@ pub fn Contents() -> Element {
                                 },
                             }
                         }
+                    }
+                } else {
+                    span {
+                        class: "flex w-full h-full items-center justify-center text-xl opacity-50",
+                        "Select drive"
                     }
                 }
             }
