@@ -21,12 +21,9 @@ pub fn SidebarButton<I>(icon: I, caption: String, select: bool, onclick: EventHa
             class: "flex items-center mb-2 p-2 rounded {colors} transition-color duration-200 ease-in-out gap-2 w-full",
             onclick: move |_| onclick.call(()),
             title: caption,
-            span {
-                class: "flex gap-1 items-center justify-center md:justify-start grow",
-                Icon {
-                    icon
-                }
-                span {class: "hidden md:inline-block", "{caption}" }
+            span { class: "flex gap-1 items-center justify-center md:justify-start grow",
+                Icon { icon }
+                span { class: "hidden md:inline-block", "{caption}" }
             }
         }
     }
@@ -90,9 +87,7 @@ pub fn Sidebar(children: Element, level: usize) -> Element {
     };
 
     rsx! {
-        div { class: "flex flex-col md:min-w-64 md:max-w-64 border-r {border}",
-            {children}
-        }
+        div { class: "flex flex-col md:min-w-64 md:max-w-64 border-r {border}", {children} }
     }
 }
 
@@ -129,13 +124,13 @@ pub fn AdminPanel() -> Element {
                             select: *page_signal.read() == Page::Dashboard,
                             onclick: move |_| { page_signal.set(Page::Dashboard) },
                             icon: bs_icons::BsSpeedometer,
-                            caption: "Dashboard"
+                            caption: "Dashboard",
                         }
                         SidebarButton {
                             select: *page_signal.read() == Page::Drives,
                             onclick: move |_| { page_signal.set(Page::Drives) },
                             icon: bs_icons::BsHdd,
-                            caption: "Drives"
+                            caption: "Drives",
                         }
                     }
                     SidebarFooter {

@@ -76,16 +76,16 @@ fn App() -> Element {
         document::Link { rel: "stylesheet", href: DEFAULT_CSS }
         document::Link { rel: "stylesheet", href: PIECHART_CSS }
 
-            ToastProvider {
-                if !*loading.read() {
-                    if let Some(login_status) = &*logged_in.read() {
-                        if *login_status {
-                            AdminPanel {}
-                        } else {
-                            Login { logged_in, login_trigger }
-                        }
+        ToastProvider {
+            if !*loading.read() {
+                if let Some(login_status) = &*logged_in.read() {
+                    if *login_status {
+                        AdminPanel {}
+                    } else {
+                        Login { logged_in, login_trigger }
                     }
                 }
             }
         }
+    }
     }

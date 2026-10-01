@@ -50,7 +50,7 @@ fn BenchmarkChart(write: Option<Vec<Duration>>, read: Vec<Duration>, sample_size
         Chart { formatter,
             Line {
                 data: read
-                    .iter()
+                                                    .iter()
                     .map(|sample| (sample_size as f64 / sample.as_secs_f64()) / 1024_f64.powf(2.0))
                     .collect(),
                 label: "Read",
@@ -541,17 +541,14 @@ pub fn BenchmarkButton(
                                 "New benchmark"
                             }
                         }
-                        span {
-                            class: "flex grow",
+                        span { class: "flex grow",
                             Button {
                                 variant: ButtonVariant::Outline,
                                 onclick: move |_| {
                                     reset();
                                     dialog_open.set(false);
                                 },
-                                span { class: "flex items-center gap-1",
-                                    "Close"
-                                }
+                                span { class: "flex items-center gap-1", "Close" }
                             }
                         }
                     },
