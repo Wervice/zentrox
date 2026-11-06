@@ -164,13 +164,13 @@ fn Contents() -> Element {
                             div {
                                 class: "flex gap-1 items-center",
                                 title: "Kernel version",
-                                Icon { icon: bs_icons::BsTag, height: 20 }
+                                Icon { icon: bs_icons::BsTag }
                                 {dashboard_information.kernel_version.clone()}
                             }
                             div {
                                 class: "flex gap-1 items-center",
                                 title: "Remote timezone relative to UTC",
-                                Icon { icon: bs_icons::BsClock, height: 20 }
+                                Icon { icon: bs_icons::BsClock }
                                 "Server timezone "
                                 {
                                     let offset = (dashboard_information.utc_offset as f32 / 360.0).round() / 10.0;
@@ -184,16 +184,14 @@ fn Contents() -> Element {
                                     class: "flex gap-1 items-center",
                                     if e.1 {
                                         Icon {
-                                            icon: bs_icons::BsCheckCircle,
+                                            icon: bs_icons::BsCheckLg,
                                             class: "text-green-500",
-                                            height: 20,
                                         }
                                     } else {
                                         span {
                                             Icon {
-                                                icon: bs_icons::BsXCircle,
+                                                icon: bs_icons::BsXLg,
                                                 class: "text-red-500",
-                                                height: 20,
                                             }
                                         }
                                     }
@@ -695,8 +693,6 @@ fn Contents() -> Element {
 
     rsx! {
         div { class: "flex flex-col gap-2",
-            h1 { class: "text-5xl font-bold", "Welcome, {username.to_title_case()}!" }
-            h2 { class: "font-regular italic", "Connected with {server_name}" }
             div { class: "2xl:pr-32",
                 BentoContainer {
                     BentoRow {

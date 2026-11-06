@@ -2,8 +2,8 @@ use crate::components::spinner::Spinner;
 use dioxus::prelude::*;
 use dioxus_free_icons::{Icon, icons::bs_icons};
 
-const COLORS: &str = "dark:border-neutral-800/80 border-black/20 dark:bg-neutral-900/80 dark:hover:border-neutral-700/70 dark:hover:bg-neutral-800/70 transition-color dark:hover:text-white duration-200";
-const LAYOUT: &str = "border  rounded flex flex-col grow rounded gap-2";
+const COLORS: &str = "dark:border-neutral-800/80 border-black/20 dark:bg-neutral-900/80";
+const LAYOUT: &str = "border rounded flex flex-col grow rounded gap-2";
 
 #[component]
 pub fn BentoContainer(children: Element) -> Element {
@@ -45,7 +45,7 @@ pub fn BentoBoxDouble(children: Element) -> Element {
 #[component]
 pub fn BentoTitle(children: Element) -> Element {
     rsx! {
-        h3 { class: "text-xl w-full dark:bg-white/2 border-b dark:border-white/5 border-black/10 p-2 rounded-t font-medium dark:text-white select-none",
+        h3 { class: "w-full dark:bg-white/2 border-b dark:border-white/5 border-black/10 p-1 rounded-t font-medium dark:text-white select-none",
             {children}
         }
     }
